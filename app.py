@@ -95,28 +95,28 @@ init_session_state()
 def load_config():
     config = {
         'aws': {
-            'access_key': os.getenv("AWS_ACCESS_KEY_ID", st.secrets.get("aws.ACCESS_KEY_ID", "")),
-            'secret_key': os.getenv("AWS_SECRET_ACCESS_KEY", st.secrets.get("aws.SECRET_ACCESS_KEY", "")),
-            'region': os.getenv("AWS_REGION", st.secrets.get("aws.REGION", "us-east-1"))
+            'access_key': os.getenv("AWS_ACCESS_KEY_ID", ""),
+            'secret_key': os.getenv("AWS_SECRET_ACCESS_KEY", ""),
+            'region': os.getenv("AWS_REGION", "us-east-1")
         },
         'millionverifier': {
-            'api_key': os.getenv("MILLIONVERIFIER_API_KEY", st.secrets.get("millionverifier.API_KEY", ""))
+            'api_key': os.getenv("MILLIONVERIFIER_API_KEY", "")
         },
         'firebase': {
-            'type': os.getenv("FIREBASE_TYPE", st.secrets.get("firebase.type", "")),
-            'project_id': os.getenv("FIREBASE_PROJECT_ID", st.secrets.get("firebase.project_id", "")),
-            'private_key_id': os.getenv("FIREBASE_PRIVATE_KEY_ID", st.secrets.get("firebase.private_key_id", "")),
-            'private_key': os.getenv("FIREBASE_PRIVATE_KEY", st.secrets.get("firebase.private_key", "").replace('\\n', '\n')),
-            'client_email': os.getenv("FIREBASE_CLIENT_EMAIL", st.secrets.get("firebase.client_email", "")),
-            'client_id': os.getenv("FIREBASE_CLIENT_ID", st.secrets.get("firebase.client_id", "")),
-            'auth_uri': os.getenv("FIREBASE_AUTH_URI", st.secrets.get("firebase.auth_uri", "")),
-            'token_uri': os.getenv("FIREBASE_TOKEN_URI", st.secrets.get("firebase.token_uri", "")),
-            'auth_provider_x509_cert_url': os.getenv("FIREBASE_AUTH_PROVIDER_CERT_URL", st.secrets.get("firebase.auth_provider_x509_cert_url", "")),
-            'client_x509_cert_url': os.getenv("FIREBASE_CLIENT_CERT_URL", st.secrets.get("firebase.client_x509_cert_url", ""))
+            'type': os.getenv("FIREBASE_TYPE", ""),
+            'project_id': os.getenv("FIREBASE_PROJECT_ID", ""),
+            'private_key_id': os.getenv("FIREBASE_PRIVATE_KEY_ID", ""),
+            'private_key': os.getenv("FIREBASE_PRIVATE_KEY", "").replace('\\n', '\n'),
+            'client_email': os.getenv("FIREBASE_CLIENT_EMAIL", ""),
+            'client_id': os.getenv("FIREBASE_CLIENT_ID", ""),
+            'auth_uri': os.getenv("FIREBASE_AUTH_URI", ""),
+            'token_uri': os.getenv("FIREBASE_TOKEN_URI", ""),
+            'auth_provider_x509_cert_url': os.getenv("FIREBASE_AUTH_PROVIDER_CERT_URL", ""),
+            'client_x509_cert_url': os.getenv("FIREBASE_CLIENT_CERT_URL", "")
         },
         'smtp2go': {
-            'api_key': os.getenv("SMTP2GO_API_KEY", st.secrets.get("smtp2go.API_KEY", "")),
-            'sender': os.getenv("SMTP2GO_SENDER_EMAIL", st.secrets.get("smtp2go.SENDER_EMAIL", ""))
+            'api_key': os.getenv("SMTP2GO_API_KEY", ""),
+            'sender': os.getenv("SMTP2GO_SENDER_EMAIL", "")
         }
     }
     return config
