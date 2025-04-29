@@ -59,7 +59,7 @@ def setup_authentication():
     with open('auth_config.yaml') as file:
         config = yaml.load(file, Loader=SafeLoader)
 
-    authenticator = Authenticator(
+    authenticator = stauth.Authenticator(
         config['credentials'],
         config['cookie']['name'],
         config['cookie']['key'],
