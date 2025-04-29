@@ -15,7 +15,7 @@ from google.oauth2 import service_account
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from streamlit_authenticator import Authenticator
+import streamlit_authenticator as stauth
 import yaml
 from yaml.loader import SafeLoader
 import base64
