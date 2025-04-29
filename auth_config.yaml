@@ -1,0 +1,14 @@
+cookie:
+  expiry_days: 30
+  key: "some_signature_key"  # Replace with your own random key
+  name: "email_marketing_auth"
+
+credentials:
+  usernames:
+    admin:  # Replace with your desired username
+      email: admin@example.com
+      name: Admin User
+      password: "hashed_password"  # Will be auto-generated on first run
+      
+preauthorized:
+  emails: []
