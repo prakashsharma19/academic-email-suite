@@ -4,11 +4,11 @@ cookie:
   name: "email_marketing_auth"
 
 credentials:
-  usernames:
+  usernames: admin
     admin:  # Replace with your desired username
-      email: admin@example.com
-      name: Admin User
-      password: "hashed_password"  # Will be auto-generated on first run
+      email: miscwork98@gmail.com
+      name: Prakash
+      password: "Prakash123@"  # Will be auto-generated on first run
       
 preauthorized:
   emails: []
