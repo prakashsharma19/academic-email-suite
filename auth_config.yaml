@@ -4,8 +4,8 @@ cookie:
   name: "email_marketing_auth"
 
 credentials:
-  usernames: admin
-    admin:  # Replace with your desired username
+  usernames: 
+    admin:  admin
       email: miscwork98@gmail.com
       name: Prakash
       password: "Prakash123@"  # Will be auto-generated on first run
