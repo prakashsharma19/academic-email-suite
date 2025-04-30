@@ -21,7 +21,7 @@ import hashlib
 
 # App Configuration
 st.set_page_config(
-    page_title="Academic Email Marketing Suite", 
+    page_title="Pushpa Publishing House", 
     layout="wide",
     page_icon="✉️"
 )
