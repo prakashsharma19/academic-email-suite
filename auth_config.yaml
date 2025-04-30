@@ -1,14 +1,6 @@
-cookie:
-  expiry_days: 30
-  key: "some_signature_key"  # Replace with your own random key
-  name: "email_marketing_auth"
-
 credentials:
-  usernames: 
-    admin:  admin
-      email: miscwork98@gmail.com
-      name: Prakash
-      password: "Prakash123@"  # Will be auto-generated on first run
-      
-preauthorized:
-  emails: []
+  usernames: {}
+  cookie:
+    expiry_days: 30
+    key: "your-random-cookie-key"
+    name: "email_marketing_auth"
