@@ -17,11 +17,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import yaml
 from yaml.loader import SafeLoader
-from authlib.integrations.requests_client import OAuth2Session
-import base64
-import jwt
-from streamlit.components.v1 import html
-from hashlib import sha256
+import hashlib
 
 # App Configuration
 st.set_page_config(
@@ -56,141 +52,33 @@ def set_light_theme():
 
 set_light_theme()
 
-# --- Authentication System ---
-class AuthSystem:
-    def __init__(self):
-        self.load_auth_config()
-        self.init_session_state()
-        
-    def load_auth_config(self):
-        try:
-            with open('auth_config.yaml') as file:
-                self.auth_config = yaml.load(file, Loader=SafeLoader)
-        except FileNotFoundError:
-            self.auth_config = {
-                'credentials': {
-                    'usernames': {},
-                    'cookie': {
-                        'expiry_days': 30,
-                        'key': os.getenv("AUTH_COOKIE_KEY", "default-secret-key"),
-                        'name': "email_marketing_auth"
-                    }
-                }
-            }
+# Simple Authentication System
+def check_auth():
+    if 'authenticated' not in st.session_state:
+        st.session_state.authenticated = False
     
-    def init_session_state(self):
-        if 'auth' not in st.session_state:
-            st.session_state.auth = {
-                'authenticated': False,
-                'username': None,
-                'email': None,
-                'is_google': False
-            }
-    
-    def hash_password(self, password):
-        return sha256(password.encode()).hexdigest()
-    
-    def verify_password(self, password, hashed):
-        return self.hash_password(password) == hashed
-    
-    def register_user(self, username, email, password):
-        if username in self.auth_config['credentials']['usernames']:
-            return False
+    if not st.session_state.authenticated:
+        st.title("Academic Email Marketing Suite - Login")
         
-        self.auth_config['credentials']['usernames'][username] = {
-            'email': email,
-            'name': username,
-            'password': self.hash_password(password)
-        }
-        
-        with open('auth_config.yaml', 'w') as file:
-            yaml.dump(self.auth_config, file)
-        
-        return True
-    
-    def local_login(self, username, password):
-        if username in self.auth_config['credentials']['usernames']:
-            stored_password = self.auth_config['credentials']['usernames'][username]['password']
-            if self.verify_password(password, stored_password):
-                st.session_state.auth = {
-                    'authenticated': True,
-                    'username': username,
-                    'email': self.auth_config['credentials']['usernames'][username]['email'],
-                    'is_google': False
-                }
-                return True
-        return False
-    
-    def google_oauth(self):
-        client_id = os.getenv("GOOGLE_CLIENT_ID")
-        client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
-        redirect_uri = f"{os.getenv('RENDER_EXTERNAL_URL')}/oauth_callback"
-        
-        if not client_id or not client_secret:
-            st.warning("Google login not configured")
-            return False
-        
-        session = OAuth2Session(client_id, client_secret, scope="openid email profile")
-        uri, state = session.create_authorization_url(
-            "https://accounts.google.com/o/oauth2/v2/auth",
-            redirect_uri=redirect_uri
-        )
-        
-        st.session_state.oauth_state = state
-        
-        # JavaScript redirect for OAuth flow
-        js = f"""
-        <script>
-            window.location.href = "{uri}";
-        </script>
-        """
-        html(js)
-        
-        return True
-    
-    def handle_oauth_callback(self):
-        code = st.experimental_get_query_params().get("code")
-        if code:
-            client_id = os.getenv("GOOGLE_CLIENT_ID")
-            client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
-            redirect_uri = f"{os.getenv('RENDER_EXTERNAL_URL')}/oauth_callback"
+        with st.form("login_form"):
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
             
-            session = OAuth2Session(client_id, client_secret, scope="openid email profile")
-            token = session.fetch_token(
-                "https://oauth2.googleapis.com/token",
-                authorization_response=st.experimental_get_query_params(),
-                redirect_uri=redirect_uri
-            )
-            
-            id_token = token.get('id_token')
-            if id_token:
-                user_info = jwt.decode(id_token, options={"verify_signature": False})
-                email = user_info.get('email')
-                name = user_info.get('name') or email.split('@')[0]
-                
-                # Register user if not exists
-                if name not in self.auth_config['credentials']['usernames']:
-                    self.auth_config['credentials']['usernames'][name] = {
-                        'email': email,
-                        'name': name,
-                        'password': None  # No password for Google users
-                    }
-                    with open('auth_config.yaml', 'w') as file:
-                        yaml.dump(self.auth_config, file)
-                
-                st.session_state.auth = {
-                    'authenticated': True,
-                    'username': name,
-                    'email': email,
-                    'is_google': True
-                }
-                st.rerun()
+            if st.form_submit_button("Login"):
+                # Hardcoded admin credentials
+                if username == "admin" and password == "prakash123@":
+                    st.session_state.authenticated = True
+                    st.rerun()
+                else:
+                    st.error("Invalid credentials")
+        
+        st.stop()
+    
+    # Logout button in sidebar
+    if st.sidebar.button("Logout"):
+        st.session_state.authenticated = False
+        st.rerun()
 
-# Initialize auth system
-auth = AuthSystem()
-
-# --- Main Application Code ---
-# [Previous implementation of all your email marketing functions]
 # Initialize session state variables
 def init_session_state():
     if 'ses_client' not in st.session_state:
@@ -240,7 +128,6 @@ def load_config():
     return config
 
 config = load_config()
-
 
 # Initialize Firebase Storage
 def initialize_firebase():
@@ -323,7 +210,7 @@ JOURNALS = [
     "Universal Journal of Mathematics and Mathematical Sciences"
 ]
 
-# Default email templates with improved formatting
+# Default email templates
 def get_journal_template(journal_name):
     templates = {
         "default": """<div style="font-family: Arial, sans-serif; line-height: 1.6; max-width: 600px; margin: 0 auto;">
@@ -535,7 +422,6 @@ def show_email_analytics():
     st.subheader("Email Campaign Analytics Dashboard")
     
     if st.session_state.email_service == "SMTP2GO":
-        # SMTP2GO Analytics (would need to implement API calls to their analytics endpoint)
         st.info("SMTP2GO Analytics would be displayed here. This requires additional API integration.")
         
         # Placeholder data for demonstration
@@ -568,7 +454,6 @@ def show_email_analytics():
         st.bar_chart(df[['Delivery Rate', 'Open Rate', 'Click Rate']].mean())
         
     else:
-        # SES Analytics
         if not st.session_state.ses_client:
             st.error("SES client not initialized")
             return
@@ -934,58 +819,12 @@ def email_verification_section():
         result_counts = df['verification_result'].value_counts()
         st.bar_chart(result_counts)
 
-# Main App
 def main():
-    # Handle OAuth callback if needed
-    if st.experimental_get_query_params().get("code"):
-        auth.handle_oauth_callback()
-        return
-    
-    # Show login if not authenticated
-    if not st.session_state.auth.get('authenticated', False):
-        st.title("Academic Email Marketing Suite - Login")
-        
-        tab1, tab2 = st.tabs(["Email Login", "Google Login"])
-        
-        with tab1:
-            with st.form("login_form"):
-                username = st.text_input("Username")
-                password = st.text_input("Password", type="password")
-                
-                if st.form_submit_button("Login"):
-                    if auth.local_login(username, password):
-                        st.rerun()
-                    else:
-                        st.error("Invalid credentials")
-            
-            with st.expander("Register New Account"):
-                with st.form("register_form"):
-                    new_username = st.text_input("Choose Username")
-                    new_email = st.text_input("Email")
-                    new_password = st.text_input("Password", type="password")
-                    confirm_password = st.text_input("Confirm Password", type="password")
-                    
-                    if st.form_submit_button("Register"):
-                        if new_password != confirm_password:
-                            st.error("Passwords don't match")
-                        else:
-                            if auth.register_user(new_username, new_email, new_password):
-                                st.success("Registration successful! Please login.")
-                            else:
-                                st.error("Username already exists")
-        
-        with tab2:
-            if st.button("Sign in with Google"):
-                auth.google_oauth()
-        
-        st.stop()
+    # Check authentication
+    check_auth()
     
     # Main app for authenticated users
-    st.title(f"Academic Email Marketing Suite - Welcome {st.session_state.auth['username']}")
-    
-    if st.sidebar.button("Logout"):
-        st.session_state.auth = {'authenticated': False, 'username': None, 'email': None, 'is_google': False}
-        st.rerun()
+    st.title(f"Academic Email Marketing Suite - Welcome admin")
     
     # Navigation
     app_mode = st.sidebar.selectbox("Select Mode", ["Email Campaign", "Verify Emails"])
