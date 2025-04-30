@@ -59,7 +59,7 @@ def setup_authentication():
     with open('auth_config.yaml') as file:
         config = yaml.load(file, Loader=SafeLoader)
 
-    authenticator = stauth.Authenticator(
+    authenticator = stauth.Authenticate(
         config['credentials'],
         config['cookie']['name'],
         config['cookie']['key'],
@@ -90,7 +90,7 @@ def init_session_state():
 
 init_session_state()
 
-# Load configuration from secrets or environment variables
+# Load configuration from environment variables
 @st.cache_data
 def load_config():
     config = {
