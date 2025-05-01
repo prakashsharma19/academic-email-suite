@@ -18,10 +18,12 @@ from email.mime.text import MIMEText
 import yaml
 from yaml.loader import SafeLoader
 import hashlib
+import pytz
+from streamlit_tiny import st_tiny
 
 # App Configuration
 st.set_page_config(
-    page_title="Pushpa Publishing House", 
+    page_title="Academic Email Marketing Suite", 
     layout="wide",
     page_icon="✉️"
 )
@@ -46,7 +48,26 @@ def set_light_theme():
     .css-1aumxhk {
         color: var(--text-color);
     }
+    .footer {
+        position: fixed;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        background-color: #f0f2f6;
+        color: #31333f;
+        text-align: center;
+        padding: 10px;
+        font-size: 0.8em;
+    }
+    .footer a {
+        color: #4a8af4;
+        text-decoration: none;
+    }
     </style>
+    <div class="footer">
+        This app is made by <a href="https://www.cpsharma.com" target="_blank">Prakash</a>. 
+        Contact for any help at <a href="https://www.cpsharma.com" target="_blank">cpsharma.com</a>
+    </div>
     """
     st.markdown(light_theme, unsafe_allow_html=True)
 
@@ -93,6 +114,10 @@ def init_session_state():
         st.session_state.email_service = "SMTP2GO"
     if 'smtp2go_initialized' not in st.session_state:
         st.session_state.smtp2go_initialized = False
+    if 'campaign_history' not in st.session_state:
+        st.session_state.campaign_history = []
+    if 'journal_reply_addresses' not in st.session_state:
+        st.session_state.journal_reply_addresses = {journal: "" for journal in JOURNALS}
 
 init_session_state()
 
@@ -122,7 +147,10 @@ def load_config():
         },
         'smtp2go': {
             'api_key': os.getenv("SMTP2GO_API_KEY", ""),
-            'sender': os.getenv("SMTP2GO_SENDER_EMAIL", "")
+            'sender': os.getenv("SMTP2GO_SENDER_EMAIL", "noreply@cpsharma.com")
+        },
+        'webhook': {
+            'url': os.getenv("WEBHOOK_URL", "")
         }
     }
     return config
@@ -132,6 +160,10 @@ config = load_config()
 # Initialize Firebase Storage
 def initialize_firebase():
     try:
+        if not all(config['firebase'].values()):
+            st.error("Firebase credentials not fully configured. Please check environment variables.")
+            return None
+            
         creds_dict = {
             "type": config['firebase']['type'],
             "project_id": config['firebase']['project_id'],
@@ -217,10 +249,7 @@ def get_journal_template(journal_name):
     <div style="margin-bottom: 20px;">
         <p>To</p>
         <p>$$Author_Name$$<br>
-        $$Department$$<br>
-        $$University$$<br>
-        $$Country$$<br>
-        $$Author_Email$$</p>
+        $$Author_Address$$</p>
     </div>
     
     <p>Dear $$Author_Name$$,</p>
@@ -259,7 +288,13 @@ def upload_to_firebase(file, file_name, folder="email_lists"):
     try:
         bucket = st.session_state.firebase_storage.bucket()
         blob = bucket.blob(f"{folder}/{file_name}")
-        blob.upload_from_string(file.getvalue(), content_type='text/csv')
+        
+        if isinstance(file, StringIO):
+            content = file.getvalue().encode('utf-8')
+        else:
+            content = file.getvalue()
+            
+        blob.upload_from_string(content, content_type='text/csv')
         return True
     except Exception as e:
         st.error(f"Failed to upload file: {str(e)}")
@@ -291,9 +326,14 @@ def list_firebase_files(folder="email_lists"):
         return []
 
 # Email Functions
-def send_email_via_smtp2go(recipient, subject, body_html, body_text, unsubscribe_link):
+def send_email_via_smtp2go(recipient, subject, body_html, body_text, unsubscribe_link, reply_to=None):
     try:
         api_url = "https://api.smtp2go.com/v3/email/send"
+        
+        headers = {
+            "List-Unsubscribe": f"<{unsubscribe_link}>",
+            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"
+        }
         
         data = {
             "api_key": config['smtp2go']['api_key'],
@@ -306,54 +346,66 @@ def send_email_via_smtp2go(recipient, subject, body_html, body_text, unsubscribe
                 {
                     "header": "List-Unsubscribe",
                     "value": f"<{unsubscribe_link}>"
+                },
+                {
+                    "header": "List-Unsubscribe-Post",
+                    "value": "List-Unsubscribe=One-Click"
                 }
             ]
         }
+        
+        if reply_to:
+            data['reply_to'] = reply_to
         
         response = requests.post(api_url, json=data)
         result = response.json()
         
         if result.get('data', {}).get('succeeded', 0) == 1:
-            return True
+            return True, result.get('data', {}).get('email_id', '')
         else:
             st.error(f"SMTP2GO Error: {result.get('error', 'Unknown error')}")
-            return False
+            return False, None
     except Exception as e:
         st.error(f"Failed to send email via SMTP2GO: {str(e)}")
-        return False
+        return False, None
 
-def send_ses_email(ses_client, sender, recipient, subject, body_html, body_text, unsubscribe_link):
+def send_ses_email(ses_client, sender, recipient, subject, body_html, body_text, unsubscribe_link, reply_to=None):
     try:
+        message = {
+            'Subject': {
+                'Data': subject,
+                'Charset': 'UTF-8'
+            },
+            'Body': {
+                'Text': {
+                    'Data': body_text,
+                    'Charset': 'UTF-8'
+                },
+                'Html': {
+                    'Data': body_html,
+                    'Charset': 'UTF-8'
+                }
+            }
+        }
+        
+        if reply_to:
+            message['ReplyToAddresses'] = [reply_to]
+        
         response = ses_client.send_email(
             Source=sender,
             Destination={
                 'ToAddresses': [recipient],
             },
-            Message={
-                'Subject': {
-                    'Data': subject,
-                    'Charset': 'UTF-8'
-                },
-                'Body': {
-                    'Text': {
-                        'Data': body_text,
-                        'Charset': 'UTF-8'
-                    },
-                    'Html': {
-                        'Data': body_html,
-                        'Charset': 'UTF-8'
-                    }
-                }
-            },
+            Message=message,
             Tags=[{
                 'Name': 'unsubscribe',
                 'Value': unsubscribe_link
             }]
         )
-        return response
+        return response, response['MessageId']
     except Exception as e:
         st.error(f"Failed to send email: {str(e)}")
-        return None
+        return None, None
 
 # Verification Functions
 def verify_email(email, api_key):
@@ -409,8 +461,8 @@ def process_email_list(file_content, api_key):
             results.append(result)
             time.sleep(0.1)  # Rate limiting
         
-        df['verification_result'] = [r.get('result', 'error') for r in results]
-        df['verification_details'] = [str(r) for r in results]
+        df['verification_result'] = [r.get('result', 'error') if r else 'error' for r in results]
+        df['verification_details'] = [str(r) if r else 'error' for r in results]
         
         return df
     except Exception as e:
@@ -418,41 +470,86 @@ def process_email_list(file_content, api_key):
         return None
 
 # Analytics Functions
+def fetch_smtp2go_analytics():
+    try:
+        if not config['smtp2go']['api_key']:
+            st.error("SMTP2GO API key not configured")
+            return None
+        
+        # Fetch stats from SMTP2GO
+        stats_url = "https://api.smtp2go.com/v3/stats/email_summary"
+        params = {
+            'api_key': config['smtp2go']['api_key'],
+            'days': 30
+        }
+        
+        response = requests.get(stats_url, params=params)
+        data = response.json()
+        
+        if data.get('data'):
+            return data['data']
+        else:
+            st.error(f"Failed to fetch SMTP2GO analytics: {data.get('error', 'Unknown error')}")
+            return None
+    except Exception as e:
+        st.error(f"Error fetching SMTP2GO analytics: {str(e)}")
+        return None
+
 def show_email_analytics():
     st.subheader("Email Campaign Analytics Dashboard")
     
     if st.session_state.email_service == "SMTP2GO":
-        st.info("SMTP2GO Analytics would be displayed here. This requires additional API integration.")
+        analytics_data = fetch_smtp2go_analytics()
         
-        # Placeholder data for demonstration
-        analytics_data = {
-            'Date': ['2023-01-01', '2023-01-02', '2023-01-03', '2023-01-04', '2023-01-05'],
-            'Sent': [120, 150, 180, 200, 220],
-            'Delivered': [118, 147, 175, 195, 215],
-            'Opened': [85, 110, 130, 150, 170],
-            'Clicked': [45, 60, 75, 85, 95],
-            'Bounced': [2, 3, 5, 5, 5]
-        }
-        
-        df = pd.DataFrame(analytics_data)
-        df['Date'] = pd.to_datetime(df['Date'])
-        df.set_index('Date', inplace=True)
-        
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Total Sent", df['Sent'].sum())
-        with col2:
-            st.metric("Delivery Rate", f"{round(df['Delivered'].sum()/df['Sent'].sum()*100, 2)}%")
-        with col3:
-            st.metric("Open Rate", f"{round(df['Opened'].sum()/df['Delivered'].sum()*100, 2)}%")
-        with col4:
-            st.metric("Click Rate", f"{round(df['Clicked'].sum()/df['Opened'].sum()*100, 2)}%")
-        
-        st.line_chart(df[['Sent', 'Delivered', 'Opened', 'Clicked', 'Bounced']])
-        
-        st.subheader("Performance Metrics")
-        st.bar_chart(df[['Delivery Rate', 'Open Rate', 'Click Rate']].mean())
-        
+        if analytics_data:
+            # Process data for display
+            df = pd.DataFrame(analytics_data['stats'])
+            df['date'] = pd.to_datetime(df['date'])
+            df.set_index('date', inplace=True)
+            
+            # Calculate rates
+            df['delivery_rate'] = (df['delivered'] / df['sent']) * 100
+            df['open_rate'] = (df['opens_unique'] / df['delivered']) * 100
+            df['click_rate'] = (df['clicks_unique'] / df['opens_unique']) * 100
+            
+            # Summary metrics
+            col1, col2, col3, col4, col5 = st.columns(5)
+            with col1:
+                st.metric("Total Sent", df['sent'].sum())
+            with col2:
+                st.metric("Delivered", df['delivered'].sum(), 
+                         f"{df['delivery_rate'].mean():.1f}%")
+            with col3:
+                st.metric("Opened", df['opens_unique'].sum(), 
+                         f"{df['open_rate'].mean():.1f}%")
+            with col4:
+                st.metric("Clicked", df['clicks_unique'].sum(), 
+                         f"{df['click_rate'].mean():.1f}%")
+            with col5:
+                st.metric("Bounced", df['hard_bounces'].sum() + df['soft_bounces'].sum())
+            
+            # Time series charts
+            st.subheader("Performance Over Time")
+            tab1, tab2, tab3 = st.tabs(["Volume Metrics", "Engagement Rates", "Bounce & Complaints"])
+            
+            with tab1:
+                st.line_chart(df[['sent', 'delivered', 'opens_unique', 'clicks_unique']])
+            
+            with tab2:
+                st.line_chart(df[['delivery_rate', 'open_rate', 'click_rate']])
+            
+            with tab3:
+                st.line_chart(df[['hard_bounces', 'soft_bounces', 'spam_complaints']])
+            
+            # Campaign details
+            st.subheader("Recent Campaigns")
+            if st.session_state.campaign_history:
+                campaign_df = pd.DataFrame(st.session_state.campaign_history)
+                st.dataframe(campaign_df.sort_values('timestamp', ascending=False))
+            else:
+                st.info("No campaign history available")
+        else:
+            st.info("No analytics data available yet. Please send some emails first.")
     else:
         if not st.session_state.ses_client:
             st.error("SES client not initialized")
@@ -506,6 +603,8 @@ def email_campaign_section():
             if new_journal not in JOURNALS:
                 JOURNALS.append(new_journal)
                 st.session_state.selected_journal = new_journal
+                if new_journal not in st.session_state.journal_reply_addresses:
+                    st.session_state.journal_reply_addresses[new_journal] = ""
                 st.experimental_rerun()
     
     st.session_state.selected_journal = selected_journal
@@ -517,6 +616,17 @@ def email_campaign_section():
         index=0 if st.session_state.email_service == "SMTP2GO" else 1
     )
     
+    # Journal Reply Address Configuration
+    with st.expander("Journal Reply Address Configuration"):
+        reply_address = st.text_input(
+            f"Reply-to Address for {selected_journal}",
+            value=st.session_state.journal_reply_addresses.get(selected_journal, ""),
+            key=f"reply_{selected_journal}"
+        )
+        if st.button("Save Reply Address"):
+            st.session_state.journal_reply_addresses[selected_journal] = reply_address
+            st.success("Reply address saved!")
+    
     # Email Template Editor
     st.subheader("Email Template Editor")
     template = get_journal_template(st.session_state.selected_journal)
@@ -526,14 +636,22 @@ def email_campaign_section():
         email_subject = st.text_input("Email Subject", 
                                    f"Call for Papers - {st.session_state.selected_journal}")
     
-    # WYSIWYG Editor (simplified)
+    # TinyMCE Editor
     editor_col, preview_col = st.columns(2)
     
     with editor_col:
-        email_body = st.text_area("Email Body (HTML)", template, height=400)
+        st.markdown("**Template Editor**")
+        email_body = st_tiny(
+            value=template,
+            height=400,
+            toolbar='undo redo | styleselect | bold italic | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | link image',
+            plugins='autoresize lists link image',
+            key=f"editor_{selected_journal}"
+        )
         
         st.info("""Available template variables:
         - $$Author_Name$$: Author's full name
+        - $$Author_Address$$: All address lines before email
         - $$Department$$: Author's department
         - $$University$$: Author's university
         - $$Country$$: Author's country
@@ -544,6 +662,7 @@ def email_campaign_section():
     with preview_col:
         st.markdown("**Preview**")
         preview_html = email_body.replace("$$Author_Name$$", "Professor John Doe")
+        preview_html = preview_html.replace("$$Author_Address$$", "Department of Computer Science<br>Harvard University<br>United States")
         preview_html = preview_html.replace("$$Department$$", "Computer Science")
         preview_html = preview_html.replace("$$University$$", "Harvard University")
         preview_html = preview_html.replace("$$Country$$", "United States")
@@ -586,11 +705,16 @@ def email_campaign_section():
             else:
                 df = pd.read_csv(uploaded_file)
             
+            st.session_state.current_recipient_list = df
             st.dataframe(df.head())
             
             if st.button("Save to Firebase"):
-                if upload_to_firebase(uploaded_file, uploaded_file.name):
-                    st.success("File uploaded to Firebase successfully!")
+                if uploaded_file.name.endswith('.txt'):
+                    if upload_to_firebase(StringIO(file_content), uploaded_file.name):
+                        st.success("File uploaded to Firebase successfully!")
+                else:
+                    if upload_to_firebase(uploaded_file, uploaded_file.name):
+                        st.success("File uploaded to Firebase successfully!")
     else:
         if st.button("Refresh File List"):
             st.session_state.firebase_files = list_firebase_files()
@@ -658,10 +782,23 @@ def email_campaign_section():
             progress_bar = st.progress(0)
             status_text = st.empty()
             success_count = 0
+            email_ids = []
+            
+            reply_to = st.session_state.journal_reply_addresses.get(selected_journal, None)
             
             for i, row in df.iterrows():
+                # Build author address from all fields except email
+                author_address = ""
+                if row.get('department', ''):
+                    author_address += f"{row['department']}<br>"
+                if row.get('university', ''):
+                    author_address += f"{row['university']}<br>"
+                if row.get('country', ''):
+                    author_address += f"{row['country']}<br>"
+                
                 email_content = email_body
                 email_content = email_content.replace("$$Author_Name$$", str(row.get('name', '')))
+                email_content = email_content.replace("$$Author_Address$$", author_address)
                 email_content = email_content.replace("$$Department$$", str(row.get('department', '')))
                 email_content = email_content.replace("$$University$$", str(row.get('university', '')))
                 email_content = email_content.replace("$$Country$$", str(row.get('country', '')))
@@ -671,32 +808,53 @@ def email_campaign_section():
                 unsubscribe_link = f"{unsubscribe_base_url}{row.get('email', '')}"
                 email_content = email_content.replace("$$Unsubscribe_Link$$", unsubscribe_link)
                 
+                plain_text = email_content.replace("<br>", "\n").replace("</p>", "\n\n").replace("<p>", "")
+                
                 if st.session_state.email_service == "SMTP2GO":
-                    success = send_email_via_smtp2go(
+                    success, email_id = send_email_via_smtp2go(
                         row.get('email', ''),
                         email_subject,
                         email_content,
-                        email_content.replace("<br>", "\n").replace("</p>", "\n").replace("<p>", ""),
-                        unsubscribe_link
+                        plain_text,
+                        unsubscribe_link,
+                        reply_to
                     )
                 else:
-                    response = send_ses_email(
+                    response, email_id = send_ses_email(
                         st.session_state.ses_client,
                         sender_email,
                         row.get('email', ''),
                         email_subject,
                         email_content,
-                        email_content.replace("<br>", "\n").replace("</p>", "\n").replace("<p>", ""),
-                        unsubscribe_link
+                        plain_text,
+                        unsubscribe_link,
+                        reply_to
                     )
                     success = response is not None
                 
                 if success:
                     success_count += 1
+                    if email_id:
+                        email_ids.append(email_id)
                 
                 progress = (i + 1) / total_emails
                 progress_bar.progress(progress)
                 status_text.text(f"Processing {i+1} of {total_emails}: {row.get('email', '')}")
+                
+                # Rate limiting
+                time.sleep(0.1)
+            
+            # Record campaign details
+            campaign_data = {
+                'timestamp': datetime.now(),
+                'journal': selected_journal,
+                'emails_sent': success_count,
+                'total_emails': total_emails,
+                'subject': email_subject,
+                'email_ids': ','.join(email_ids),
+                'service': st.session_state.email_service
+            }
+            st.session_state.campaign_history.append(campaign_data)
             
             st.success(f"Campaign completed! {success_count} of {total_emails} emails sent successfully.")
             show_email_analytics()
@@ -707,8 +865,9 @@ def email_verification_section():
     
     # Check verification quota
     if config['millionverifier']['api_key']:
-        remaining_quota = check_millionverifier_quota(config['millionverifier']['api_key'])
-        st.metric("Remaining Verification Credits", remaining_quota)
+        with st.spinner("Checking verification quota..."):
+            remaining_quota = check_millionverifier_quota(config['millionverifier']['api_key'])
+            st.metric("Remaining Verification Credits", remaining_quota)
     else:
         st.warning("MillionVerifier API key not configured")
     
@@ -819,6 +978,88 @@ def email_verification_section():
         result_counts = df['verification_result'].value_counts()
         st.bar_chart(result_counts)
 
+def analytics_section():
+    st.header("Comprehensive Email Analytics")
+    
+    if st.session_state.email_service == "SMTP2GO":
+        st.info("SMTP2GO Analytics Dashboard")
+        
+        # Fetch detailed analytics
+        analytics_data = fetch_smtp2go_analytics()
+        
+        if analytics_data:
+            # Overall metrics
+            st.subheader("Overall Performance")
+            col1, col2, col3, col4, col5 = st.columns(5)
+            with col1:
+                st.metric("Total Sent", analytics_data['totals']['sent'])
+            with col2:
+                st.metric("Delivered", analytics_data['totals']['delivered'], 
+                         f"{analytics_data['totals']['delivered']/analytics_data['totals']['sent']*100:.1f}%")
+            with col3:
+                st.metric("Opened", analytics_data['totals']['opens_unique'], 
+                         f"{analytics_data['totals']['opens_unique']/analytics_data['totals']['delivered']*100:.1f}%")
+            with col4:
+                st.metric("Clicked", analytics_data['totals']['clicks_unique'], 
+                         f"{analytics_data['totals']['clicks_unique']/analytics_data['totals']['opens_unique']*100:.1f}%")
+            with col5:
+                st.metric("Bounced", analytics_data['totals']['hard_bounces'] + analytics_data['totals']['soft_bounces'])
+            
+            # Time series data
+            st.subheader("Performance Over Time")
+            df = pd.DataFrame(analytics_data['stats'])
+            df['date'] = pd.to_datetime(df['date'])
+            df.set_index('date', inplace=True)
+            
+            # Calculate rates
+            df['delivery_rate'] = (df['delivered'] / df['sent']) * 100
+            df['open_rate'] = (df['opens_unique'] / df['delivered']) * 100
+            df['click_rate'] = (df['clicks_unique'] / df['opens_unique']) * 100
+            
+            tab1, tab2, tab3 = st.tabs(["Volume Metrics", "Engagement Rates", "Bounce & Complaints"])
+            
+            with tab1:
+                st.line_chart(df[['sent', 'delivered', 'opens_unique', 'clicks_unique']])
+            
+            with tab2:
+                st.line_chart(df[['delivery_rate', 'open_rate', 'click_rate']])
+            
+            with tab3:
+                st.line_chart(df[['hard_bounces', 'soft_bounces', 'spam_complaints']])
+            
+            # Campaign details
+            st.subheader("Campaign Details")
+            if st.session_state.campaign_history:
+                campaign_df = pd.DataFrame(st.session_state.campaign_history)
+                
+                # Add performance metrics to campaign history
+                campaign_df['delivery_rate'] = campaign_df.apply(lambda x: (x['emails_sent'] / x['total_emails']) * 100, axis=1)
+                
+                st.dataframe(
+                    campaign_df.sort_values('timestamp', ascending=False),
+                    column_config={
+                        "timestamp": "Date",
+                        "journal": "Journal",
+                        "emails_sent": "Sent",
+                        "total_emails": "Total",
+                        "delivery_rate": st.column_config.ProgressColumn(
+                            "Delivery Rate",
+                            format="%.1f%%",
+                            min_value=0,
+                            max_value=100,
+                        ),
+                        "subject": "Subject",
+                        "service": "Service"
+                    }
+                )
+            else:
+                st.info("No campaign history available")
+        else:
+            st.info("No analytics data available yet. Please send some emails first.")
+    else:
+        st.info("Amazon SES Analytics would be displayed here")
+        show_email_analytics()
+
 def main():
     # Check authentication
     check_auth()
@@ -827,7 +1068,7 @@ def main():
     st.title(f"Academic Email Marketing Suite - Welcome admin")
     
     # Navigation
-    app_mode = st.sidebar.selectbox("Select Mode", ["Email Campaign", "Verify Emails"])
+    app_mode = st.sidebar.selectbox("Select Mode", ["Email Campaign", "Verify Emails", "Analytics"])
     
     # Initialize services
     if not st.session_state.ses_client and st.session_state.email_service == "Amazon SES":
@@ -841,8 +1082,10 @@ def main():
     
     if app_mode == "Email Campaign":
         email_campaign_section()
-    else:
+    elif app_mode == "Verify Emails":
         email_verification_section()
+    else:
+        analytics_section()
 
 if __name__ == "__main__":
     main()
