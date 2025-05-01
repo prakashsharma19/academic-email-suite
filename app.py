@@ -113,6 +113,8 @@ def init_session_state():
         st.session_state.campaign_history = []
     if 'journal_reply_addresses' not in st.session_state:
         st.session_state.journal_reply_addresses = {}
+    if 'verified_content' not in st.session_state:
+        st.session_state.verified_content = ""
 
 init_session_state()
 
@@ -908,29 +910,43 @@ def email_verification_section():
                 
                 with st.spinner("Verifying emails..."):
                     result_df = process_email_list(file_content, config['millionverifier']['api_key'])
-                    if result_df is not None:
+                    if result_df is not None and not result_df.empty:
                         st.session_state.verified_emails = result_df
                         st.dataframe(result_df)
                         
                         # Filter out invalid emails
                         valid_emails = result_df[result_df['verification_result'] == 'valid']
                         
-                        # Convert back to original format
-                        output_content = ""
-                        for _, row in valid_emails.iterrows():
-                            output_content += f"{row['name']}\n{row['department']}\n{row['university']}\n{row['country']}\n{row['email']}\n\n"
-                        
-                        verified_filename = f"verified_{uploaded_file.name}"
-                        st.download_button(
-                            "Download Verified List",
-                            output_content,
-                            verified_filename,
-                            "text/plain"
-                        )
-                        
-                        if st.button("Save Verified List to Firebase"):
-                            if upload_to_firebase(StringIO(output_content), verified_filename):
-                                st.success("Verified file uploaded to Firebase!")
+                        if not valid_emails.empty:
+                            # Convert back to original format
+                            output_content = ""
+                            for _, row in valid_emails.iterrows():
+                                output_content += f"{row['name']}\n"
+                                if pd.notna(row['department']):
+                                    output_content += f"{row['department']}\n"
+                                if pd.notna(row['university']):
+                                    output_content += f"{row['university']}\n"
+                                if pd.notna(row['country']):
+                                    output_content += f"{row['country']}\n"
+                                output_content += f"{row['email']}\n\n"
+                            
+                            st.session_state.verified_content = output_content
+                            verified_filename = f"verified_{uploaded_file.name}"
+                            
+                            st.download_button(
+                                "Download Verified List",
+                                output_content,
+                                verified_filename,
+                                "text/plain"
+                            )
+                            
+                            if st.button("Save Verified List to Firebase"):
+                                if upload_to_firebase(StringIO(output_content), verified_filename):
+                                    st.success("Verified file uploaded to Firebase!")
+                        else:
+                            st.warning("No valid emails found in the list")
+                    else:
+                        st.error("Failed to process email list or no emails found")
     else:
         if st.button("Refresh File List for Verification"):
             st.session_state.firebase_files_verification = list_firebase_files()
@@ -952,29 +968,43 @@ def email_verification_section():
                 
                 with st.spinner("Verifying emails..."):
                     result_df = process_email_list(st.session_state.current_verification_list, config['millionverifier']['api_key'])
-                    if result_df is not None:
+                    if result_df is not None and not result_df.empty:
                         st.session_state.verified_emails = result_df
                         st.dataframe(result_df)
                         
                         # Filter out invalid emails
                         valid_emails = result_df[result_df['verification_result'] == 'valid']
                         
-                        # Convert back to original format
-                        output_content = ""
-                        for _, row in valid_emails.iterrows():
-                            output_content += f"{row['name']}\n{row['department']}\n{row['university']}\n{row['country']}\n{row['email']}\n\n"
-                        
-                        verified_filename = f"verified_{selected_file}"
-                        st.download_button(
-                            "Download Verified List",
-                            output_content,
-                            verified_filename,
-                            "text/plain"
-                        )
-                        
-                        if st.button("Save Verified List to Firebase"):
-                            if upload_to_firebase(StringIO(output_content), verified_filename):
-                                st.success("Verified file uploaded to Firebase!")
+                        if not valid_emails.empty:
+                            # Convert back to original format
+                            output_content = ""
+                            for _, row in valid_emails.iterrows():
+                                output_content += f"{row['name']}\n"
+                                if pd.notna(row['department']):
+                                    output_content += f"{row['department']}\n"
+                                if pd.notna(row['university']):
+                                    output_content += f"{row['university']}\n"
+                                if pd.notna(row['country']):
+                                    output_content += f"{row['country']}\n"
+                                output_content += f"{row['email']}\n\n"
+                            
+                            st.session_state.verified_content = output_content
+                            verified_filename = f"verified_{selected_file}"
+                            
+                            st.download_button(
+                                "Download Verified List",
+                                output_content,
+                                verified_filename,
+                                "text/plain"
+                            )
+                            
+                            if st.button("Save Verified List to Firebase"):
+                                if upload_to_firebase(StringIO(output_content), verified_filename):
+                                    st.success("Verified file uploaded to Firebase!")
+                        else:
+                            st.warning("No valid emails found in the list")
+                    else:
+                        st.error("Failed to process email list or no emails found")
         else:
             st.info("No files found in Firebase Storage")
     
@@ -1007,48 +1037,56 @@ def analytics_section():
         # Fetch detailed analytics
         analytics_data = fetch_smtp2go_analytics()
         
-        if analytics_data:
+        if analytics_data and 'totals' in analytics_data:
             # Overall metrics
             st.subheader("Overall Performance")
             col1, col2, col3, col4, col5 = st.columns(5)
             with col1:
-                st.metric("Total Sent", analytics_data['totals']['sent'])
+                st.metric("Total Sent", analytics_data['totals'].get('sent', 0))
             with col2:
-                st.metric("Delivered", analytics_data['totals']['delivered'], 
-                         f"{analytics_data['totals']['delivered']/analytics_data['totals']['sent']*100:.1f}%")
+                delivered = analytics_data['totals'].get('delivered', 0)
+                sent = analytics_data['totals'].get('sent', 1)
+                delivery_rate = (delivered / sent) * 100 if sent > 0 else 0
+                st.metric("Delivered", delivered, f"{delivery_rate:.1f}%")
             with col3:
-                st.metric("Opened", analytics_data['totals']['opens_unique'], 
-                         f"{analytics_data['totals']['opens_unique']/analytics_data['totals']['delivered']*100:.1f}%")
+                opens_unique = analytics_data['totals'].get('opens_unique', 0)
+                open_rate = (opens_unique / delivered) * 100 if delivered > 0 else 0
+                st.metric("Opened", opens_unique, f"{open_rate:.1f}%")
             with col4:
-                st.metric("Clicked", analytics_data['totals']['clicks_unique'], 
-                         f"{analytics_data['totals']['clicks_unique']/analytics_data['totals']['opens_unique']*100:.1f}%")
+                clicks_unique = analytics_data['totals'].get('clicks_unique', 0)
+                click_rate = (clicks_unique / opens_unique) * 100 if opens_unique > 0 else 0
+                st.metric("Clicked", clicks_unique, f"{click_rate:.1f}%")
             with col5:
-                st.metric("Bounced", analytics_data['totals']['hard_bounces'] + analytics_data['totals']['soft_bounces'])
+                bounces = analytics_data['totals'].get('hard_bounces', 0) + analytics_data['totals'].get('soft_bounces', 0)
+                st.metric("Bounced", bounces)
             
             # Time series data
-            st.subheader("Performance Over Time")
-            df = pd.DataFrame(analytics_data['stats'])
-            df['date'] = pd.to_datetime(df['date'])
-            df.set_index('date', inplace=True)
-            
-            # Calculate rates
-            df['delivery_rate'] = (df['delivered'] / df['sent']) * 100
-            df['open_rate'] = (df['opens_unique'] / df['delivered']) * 100
-            df['click_rate'] = (df['clicks_unique'] / df['opens_unique']) * 100
-            
-            tab1, tab2, tab3 = st.tabs(["Volume Metrics", "Engagement Rates", "Bounce & Complaints"])
-            
-            with tab1:
-                st.line_chart(df[['sent', 'delivered', 'opens_unique', 'clicks_unique']])
-            
-            with tab2:
-                st.line_chart(df[['delivery_rate', 'open_rate', 'click_rate']])
-            
-            with tab3:
-                st.line_chart(df[['hard_bounces', 'soft_bounces', 'spam_complaints']])
+            if 'stats' in analytics_data and analytics_data['stats']:
+                st.subheader("Performance Over Time")
+                df = pd.DataFrame(analytics_data['stats'])
+                df['date'] = pd.to_datetime(df['date'])
+                df.set_index('date', inplace=True)
+                
+                # Calculate rates
+                df['delivery_rate'] = (df['delivered'] / df['sent']) * 100
+                df['open_rate'] = (df['opens_unique'] / df['delivered']) * 100
+                df['click_rate'] = (df['clicks_unique'] / df['opens_unique']) * 100
+                
+                tab1, tab2, tab3 = st.tabs(["Volume Metrics", "Engagement Rates", "Bounce & Complaints"])
+                
+                with tab1:
+                    st.line_chart(df[['sent', 'delivered', 'opens_unique', 'clicks_unique']])
+                
+                with tab2:
+                    st.line_chart(df[['delivery_rate', 'open_rate', 'click_rate']])
+                
+                with tab3:
+                    st.line_chart(df[['hard_bounces', 'soft_bounces', 'spam_complaints']])
+            else:
+                st.info("No time series data available")
             
             # Campaign details
-            st.subheader("Campaign Details")
+            st.subheader("Recent Campaigns")
             if st.session_state.campaign_history:
                 campaign_df = pd.DataFrame(st.session_state.campaign_history)
                 
