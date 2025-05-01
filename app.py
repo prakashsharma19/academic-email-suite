@@ -915,29 +915,31 @@ def email_verification_section():
                         st.dataframe(result_df)
                         
                         # Filter out invalid emails
-                        valid_emails = result_df[result_df['verification_result'] == 'valid']
+                        valid_emails = result_df[result_df['verification_result'].str.lower() == 'valid']
                         
                         if not valid_emails.empty:
                             # Convert back to original format
                             output_content = ""
                             for _, row in valid_emails.iterrows():
+                                # Build the address block
                                 output_content += f"{row['name']}\n"
-                                if pd.notna(row['department']):
+                                if pd.notna(row.get('department', '')):
                                     output_content += f"{row['department']}\n"
-                                if pd.notna(row['university']):
+                                if pd.notna(row.get('university', '')):
                                     output_content += f"{row['university']}\n"
-                                if pd.notna(row['country']):
+                                if pd.notna(row.get('country', '')):
                                     output_content += f"{row['country']}\n"
                                 output_content += f"{row['email']}\n\n"
                             
                             st.session_state.verified_content = output_content
                             verified_filename = f"verified_{uploaded_file.name}"
                             
+                            # Display download button
                             st.download_button(
                                 "Download Verified List",
                                 output_content,
-                                verified_filename,
-                                "text/plain"
+                                file_name=verified_filename,
+                                mime="text/plain"
                             )
                             
                             if st.button("Save Verified List to Firebase"):
@@ -973,18 +975,18 @@ def email_verification_section():
                         st.dataframe(result_df)
                         
                         # Filter out invalid emails
-                        valid_emails = result_df[result_df['verification_result'] == 'valid']
+                        valid_emails = result_df[result_df['verification_result'].str.lower() == 'valid']
                         
                         if not valid_emails.empty:
                             # Convert back to original format
                             output_content = ""
                             for _, row in valid_emails.iterrows():
                                 output_content += f"{row['name']}\n"
-                                if pd.notna(row['department']):
+                                if pd.notna(row.get('department', '')):
                                     output_content += f"{row['department']}\n"
-                                if pd.notna(row['university']):
+                                if pd.notna(row.get('university', '')):
                                     output_content += f"{row['university']}\n"
-                                if pd.notna(row['country']):
+                                if pd.notna(row.get('country', '')):
                                     output_content += f"{row['country']}\n"
                                 output_content += f"{row['email']}\n\n"
                             
@@ -994,8 +996,8 @@ def email_verification_section():
                             st.download_button(
                                 "Download Verified List",
                                 output_content,
-                                verified_filename,
-                                "text/plain"
+                                file_name=verified_filename,
+                                mime="text/plain"
                             )
                             
                             if st.button("Save Verified List to Firebase"):
@@ -1017,10 +1019,10 @@ def email_verification_section():
         with col1:
             st.metric("Total Emails", len(df))
         with col2:
-            valid = len(df[df['verification_result'] == 'valid'])
+            valid = len(df[df['verification_result'].str.lower() == 'valid'])
             st.metric("Valid Emails", valid)
         with col3:
-            invalid = len(df[df['verification_result'] == 'invalid'])
+            invalid = len(df[df['verification_result'].str.lower() == 'invalid'])
             st.metric("Invalid Emails", invalid)
         with col4:
             st.metric("Quality Score", f"{round(valid/len(df)*100 if len(df) > 0 else 0, 1)}%")
