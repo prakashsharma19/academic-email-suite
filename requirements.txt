@@ -5,4 +5,4 @@ requests==2.31.0
 google-cloud-storage==2.10.0
 pyyaml==6.0.1
 pytz==2023.3
-st-tinymce==1.0.7
+streamlit-ace==0.1.1
