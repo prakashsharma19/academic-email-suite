@@ -234,6 +234,13 @@ def initialize_firebase():
             "client_x509_cert_url": config['firebase']['client_x509_cert_url']
         }
         
+        # Remove empty values from the dictionary
+        creds_dict = {k: v for k, v in creds_dict.items() if v}
+        
+        if not creds_dict.get('private_key'):
+            st.error("Firebase private key not found in environment variables")
+            return None
+            
         credentials = service_account.Credentials.from_service_account_info(creds_dict)
         storage_client = storage.Client(credentials=credentials)
         
@@ -404,8 +411,12 @@ def verify_email(email, api_key):
     url = f"https://api.millionverifier.com/api/v3/?api={api_key}&email={email}"
     try:
         response = requests.get(url)
-        data = response.json()
-        return data
+        if response.status_code == 200:
+            data = response.json()
+            return data
+        else:
+            st.error(f"Verification API error: {response.status_code}")
+            return None
     except Exception as e:
         st.error(f"Verification failed: {str(e)}")
         return None
@@ -414,8 +425,17 @@ def check_millionverifier_quota(api_key):
     url = f"https://api.millionverifier.com/api/v3/?api={api_key}&cmd=remaining"
     try:
         response = requests.get(url)
-        data = response.json()
-        return data.get('remaining', 0)
+        if response.status_code == 200:
+            data = response.json()
+            if isinstance(data, dict):
+                return data.get('remaining', 0)
+            elif isinstance(data, int):
+                return data
+            else:
+                return 0
+        else:
+            st.error(f"Quota check failed: {response.status_code}")
+            return 0
     except Exception as e:
         st.error(f"Failed to check quota: {str(e)}")
         return 0
@@ -431,7 +451,8 @@ def process_email_list(file_content, api_key):
             if line:
                 if '@' in line and '.' in line and ' ' not in line:  # Likely email
                     current_entry['email'] = line
-                    entries.append(current_entry)
+                    if current_entry:  # Only add if we have some data
+                        entries.append(current_entry)
                     current_entry = {}
                 elif not current_entry.get('name', ''):
                     current_entry['name'] = line
@@ -470,18 +491,21 @@ def fetch_smtp2go_analytics():
         
         # Fetch stats from SMTP2GO
         stats_url = "https://api.smtp2go.com/v3/stats/email_summary"
-        params = {
+        data = {
             'api_key': config['smtp2go']['api_key'],
             'days': 30
         }
         
-        response = requests.get(stats_url, params=params)
-        data = response.json()
-        
-        if data.get('data'):
-            return data['data']
+        response = requests.post(stats_url, json=data)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get('data'):
+                return data['data']
+            else:
+                st.error(f"Failed to fetch SMTP2GO analytics: {data.get('error', 'Unknown error')}")
+                return None
         else:
-            st.error(f"Failed to fetch SMTP2GO analytics: {data.get('error', 'Unknown error')}")
+            st.error(f"SMTP2GO API error: {response.status_code}")
             return None
     except Exception as e:
         st.error(f"Error fetching SMTP2GO analytics: {str(e)}")
@@ -664,7 +688,7 @@ def email_campaign_section():
         preview_html = preview_html.replace("$$Country$$", "United States")
         preview_html = preview_html.replace("$$Author_Email$$", "john.doe@harvard.edu")
         preview_html = preview_html.replace("$$Journal_Name$$", st.session_state.selected_journal)
-        preview_html = preview_html.replace("$$Unsubscribe_Link$$", "https://example.com/unsubscribe?email=john.doe@harvard.edu")
+        preview_html = preview_html.replace("$$Unsubscribe_Link$$", "https://pphmjopenaccess.com/unsubscribe?email=john.doe@harvard.edu")
         
         st.markdown(preview_html, unsafe_allow_html=True)
     
@@ -757,7 +781,7 @@ def email_campaign_section():
         
         sender_email = st.text_input("Sender Email", config['smtp2go']['sender'] if st.session_state.email_service == "SMTP2GO" else "")
         unsubscribe_base_url = st.text_input("Unsubscribe Base URL", 
-                                           "https://yourdomain.com/unsubscribe?email=")
+                                           "https://pphmjopenaccess.com/unsubscribe?email=")
         
         send_option = st.radio("Send Option", ["Send Now", "Schedule"])
         
