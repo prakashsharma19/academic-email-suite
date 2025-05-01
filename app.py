@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from io import StringIO
 from google.cloud import storage
 from google.oauth2 import service_account
-from st_tinymce import st_tinymce
+from streamlit_ace import st_ace
 
 # App Configuration
 st.set_page_config(
@@ -177,8 +177,100 @@ def get_journal_template(journal_name):
         <p>If you no longer wish to receive these emails, please <a href="$$Unsubscribe_Link$$">unsubscribe here</a>.</p>
     </div>
 </div>"""
+
+# Load configuration from environment variables
+@st.cache_data
+def load_config():
+    config = {
+        'aws': {
+            'access_key': os.getenv("AWS_ACCESS_KEY_ID", ""),
+            'secret_key': os.getenv("AWS_SECRET_ACCESS_KEY", ""),
+            'region': os.getenv("AWS_REGION", "us-east-1")
+        },
+        'millionverifier': {
+            'api_key': os.getenv("MILLIONVERIFIER_API_KEY", "")
+        },
+        'firebase': {
+            'type': os.getenv("FIREBASE_TYPE", ""),
+            'project_id': os.getenv("FIREBASE_PROJECT_ID", ""),
+            'private_key_id': os.getenv("FIREBASE_PRIVATE_KEY_ID", ""),
+            'private_key': os.getenv("FIREBASE_PRIVATE_KEY", "").replace('\\n', '\n'),
+            'client_email': os.getenv("FIREBASE_CLIENT_EMAIL", ""),
+            'client_id': os.getenv("FIREBASE_CLIENT_ID", ""),
+            'auth_uri': os.getenv("FIREBASE_AUTH_URI", ""),
+            'token_uri': os.getenv("FIREBASE_TOKEN_URI", ""),
+            'auth_provider_x509_cert_url': os.getenv("FIREBASE_AUTH_PROVIDER_CERT_URL", ""),
+            'client_x509_cert_url': os.getenv("FIREBASE_CLIENT_CERT_URL", "")
+        },
+        'smtp2go': {
+            'api_key': os.getenv("SMTP2GO_API_KEY", ""),
+            'sender': os.getenv("SMTP2GO_SENDER_EMAIL", "noreply@cpsharma.com")
+        },
+        'webhook': {
+            'url': os.getenv("WEBHOOK_URL", "")
+        }
     }
-    return templates.get(journal_name, templates['default'])
+    return config
+
+config = load_config()
+
+# Initialize Firebase Storage
+def initialize_firebase():
+    try:
+        if not all(config['firebase'].values()):
+            st.error("Firebase credentials not fully configured. Please check environment variables.")
+            return None
+            
+        creds_dict = {
+            "type": config['firebase']['type'],
+            "project_id": config['firebase']['project_id'],
+            "private_key_id": config['firebase']['private_key_id'],
+            "private_key": config['firebase']['private_key'],
+            "client_email": config['firebase']['client_email'],
+            "client_id": config['firebase']['client_id'],
+            "auth_uri": config['firebase']['auth_uri'],
+            'token_uri': config['firebase']['token_uri'],
+            "auth_provider_x509_cert_url": config['firebase']['auth_provider_x509_cert_url'],
+            "client_x509_cert_url": config['firebase']['client_x509_cert_url']
+        }
+        
+        credentials = service_account.Credentials.from_service_account_info(creds_dict)
+        storage_client = storage.Client(credentials=credentials)
+        
+        st.session_state.firebase_storage = storage_client
+        st.session_state.firebase_initialized = True
+        return storage_client
+    except Exception as e:
+        st.error(f"Firebase initialization failed: {str(e)}")
+        return None
+
+# Initialize SES Client
+def initialize_ses():
+    try:
+        ses_client = boto3.client(
+            'ses',
+            aws_access_key_id=config['aws']['access_key'],
+            aws_secret_access_key=config['aws']['secret_key'],
+            region_name=config['aws']['region']
+        )
+        st.session_state.ses_client = ses_client
+        return ses_client
+    except Exception as e:
+        st.error(f"SES initialization failed: {str(e)}")
+        return None
+
+# Initialize SMTP2GO
+def initialize_smtp2go():
+    try:
+        if config['smtp2go']['api_key']:
+            st.session_state.smtp2go_initialized = True
+            return True
+        else:
+            st.error("SMTP2GO API key not configured")
+            return False
+    except Exception as e:
+        st.error(f"SMTP2GO initialization failed: {str(e)}")
+        return False
 
 # Firebase Storage Functions
 def upload_to_firebase(file, file_name, folder="email_lists"):
@@ -527,7 +619,7 @@ def email_campaign_section():
             st.session_state.journal_reply_addresses[selected_journal] = reply_address
             st.success("Reply address saved!")
     
-    # Email Template Editor with TinyMCE
+    # Email Template Editor with ACE Editor
     st.subheader("Email Template Editor")
     template = get_journal_template(st.session_state.selected_journal)
     
@@ -536,17 +628,21 @@ def email_campaign_section():
         email_subject = st.text_input("Email Subject", 
                                    f"Call for Papers - {st.session_state.selected_journal}")
     
-    # TinyMCE Editor
+    # ACE Editor
     editor_col, preview_col = st.columns(2)
     
     with editor_col:
         st.markdown("**Template Editor**")
-        email_body = st_tinymce(
+        email_body = st_ace(
             value=template,
-            height=400,
-            toolbar="undo redo | formatselect | bold italic | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | link image",
-            plugins="autoresize lists link image",
-            key=f"tinymce_{selected_journal}"
+            language="html",
+            theme="chrome",
+            font_size=14,
+            tab_size=2,
+            wrap=True,
+            show_gutter=True,
+            key=f"editor_{selected_journal}",
+            height=400
         )
         
         st.info("""Available template variables:
@@ -570,7 +666,7 @@ def email_campaign_section():
         preview_html = preview_html.replace("$$Journal_Name$$", st.session_state.selected_journal)
         preview_html = preview_html.replace("$$Unsubscribe_Link$$", "https://example.com/unsubscribe?email=john.doe@harvard.edu")
         
-        st.markdown(preview_html, unsafe_allow_html=True)st.markdown(preview_html, unsafe_allow_html=True)
+        st.markdown(preview_html, unsafe_allow_html=True)
     
     # File Upload
     st.subheader("Recipient List")
