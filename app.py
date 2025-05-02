@@ -424,7 +424,7 @@ def verify_email(email, api_key):
         return None
 
 def check_millionverifier_quota(api_key):
-    url = f"https://api.millionverifier.com/api/v3/?api={api_key}&cmd=remaining"
+    url = f"https://api.millionverifier.com/api/v3/credits?api={api_key}"
     try:
         response = requests.get(url)
         if response.status_code == 200:
