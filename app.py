@@ -113,8 +113,10 @@ def init_session_state():
         st.session_state.campaign_history = []
     if 'journal_reply_addresses' not in st.session_state:
         st.session_state.journal_reply_addresses = {}
-    if 'verified_content' not in st.session_state:
-        st.session_state.verified_content = ""
+    if 'verified_emails' not in st.session_state:
+        st.session_state.verified_emails = None
+    if 'verified_txt_content' not in st.session_state:
+        st.session_state.verified_txt_content = ""
 
 init_session_state()
 
@@ -236,13 +238,6 @@ def initialize_firebase():
             "client_x509_cert_url": config['firebase']['client_x509_cert_url']
         }
         
-        # Remove empty values from the dictionary
-        creds_dict = {k: v for k, v in creds_dict.items() if v}
-        
-        if not creds_dict.get('private_key'):
-            st.error("Firebase private key not found in environment variables")
-            return None
-            
         credentials = service_account.Credentials.from_service_account_info(creds_dict)
         storage_client = storage.Client(credentials=credentials)
         
@@ -413,30 +408,22 @@ def verify_email(email, api_key):
     url = f"https://api.millionverifier.com/api/v3/?api={api_key}&email={email}"
     try:
         response = requests.get(url)
-        if response.status_code == 200:
-            data = response.json()
-            return data
-        else:
-            st.error(f"Verification API error: {response.status_code}")
-            return None
+        data = response.json()
+        return data
     except Exception as e:
         st.error(f"Verification failed: {str(e)}")
         return None
 
 def check_millionverifier_quota(api_key):
+    """Check actual remaining credits using MillionVerifier's official API"""
     url = f"https://api.millionverifier.com/api/v3/credits?api={api_key}"
     try:
         response = requests.get(url)
-        if response.status_code == 200:
-            data = response.json()
-            if isinstance(data, dict):
-                return data.get('remaining', 0)
-            elif isinstance(data, int):
-                return data
-            else:
-                return 0
+        data = response.json()
+        if 'credits' in data:
+            return data['credits']
         else:
-            st.error(f"Quota check failed: {response.status_code}")
+            st.error(f"API Error: {data.get('error', 'Unknown error')}")
             return 0
     except Exception as e:
         st.error(f"Failed to check quota: {str(e)}")
@@ -453,8 +440,7 @@ def process_email_list(file_content, api_key):
             if line:
                 if '@' in line and '.' in line and ' ' not in line:  # Likely email
                     current_entry['email'] = line
-                    if current_entry:  # Only add if we have some data
-                        entries.append(current_entry)
+                    entries.append(current_entry)
                     current_entry = {}
                 elif not current_entry.get('name', ''):
                     current_entry['name'] = line
@@ -468,8 +454,9 @@ def process_email_list(file_content, api_key):
         df = pd.DataFrame(entries)
         
         if df.empty:
-            return pd.DataFrame(columns=['name', 'department', 'university', 'country', 'email', 'verification_result', 'verification_details'])
+            return pd.DataFrame(columns=['name', 'department', 'university', 'country', 'email', 'verification_result'])
         
+        # Verify emails
         results = []
         for email in df['email']:
             result = verify_email(email, api_key)
@@ -477,12 +464,26 @@ def process_email_list(file_content, api_key):
             time.sleep(0.1)  # Rate limiting
         
         df['verification_result'] = [r.get('result', 'error') if r else 'error' for r in results]
-        df['verification_details'] = [str(r) if r else 'error' for r in results]
         
         return df
     except Exception as e:
         st.error(f"Failed to process email list: {str(e)}")
         return None
+
+def generate_verified_txt_file(df):
+    """Convert verified emails back to original text format"""
+    output = ""
+    valid_statuses = ['valid', 'ok', 'good']  # Allowed statuses
+    
+    for _, row in df.iterrows():
+        if row['verification_result'].lower() in valid_statuses:
+            output += f"{row.get('name', '')}\n"
+            output += f"{row.get('department', '')}\n"
+            output += f"{row.get('university', '')}\n"
+            output += f"{row.get('country', '')}\n"
+            output += f"{row.get('email', '')}\n\n"  # Extra newline between entries
+    
+    return output.strip()  # Remove final extra newline
 
 # Analytics Functions
 def fetch_smtp2go_analytics():
@@ -493,21 +494,18 @@ def fetch_smtp2go_analytics():
         
         # Fetch stats from SMTP2GO
         stats_url = "https://api.smtp2go.com/v3/stats/email_summary"
-        data = {
+        params = {
             'api_key': config['smtp2go']['api_key'],
             'days': 30
         }
         
-        response = requests.post(stats_url, json=data)
-        if response.status_code == 200:
-            data = response.json()
-            if data.get('data'):
-                return data['data']
-            else:
-                st.error(f"Failed to fetch SMTP2GO analytics: {data.get('error', 'Unknown error')}")
-                return None
+        response = requests.get(stats_url, params=params)
+        data = response.json()
+        
+        if data.get('data'):
+            return data['data']
         else:
-            st.error(f"SMTP2GO API error: {response.status_code}")
+            st.error(f"Failed to fetch SMTP2GO analytics: {data.get('error', 'Unknown error')}")
             return None
     except Exception as e:
         st.error(f"Error fetching SMTP2GO analytics: {str(e)}")
@@ -690,7 +688,7 @@ def email_campaign_section():
         preview_html = preview_html.replace("$$Country$$", "United States")
         preview_html = preview_html.replace("$$Author_Email$$", "john.doe@harvard.edu")
         preview_html = preview_html.replace("$$Journal_Name$$", st.session_state.selected_journal)
-        preview_html = preview_html.replace("$$Unsubscribe_Link$$", "https://pphmjopenaccess.com/unsubscribe?email=john.doe@harvard.edu")
+        preview_html = preview_html.replace("$$Unsubscribe_Link$$", "https://example.com/unsubscribe?email=john.doe@harvard.edu")
         
         st.markdown(preview_html, unsafe_allow_html=True)
     
@@ -783,7 +781,7 @@ def email_campaign_section():
         
         sender_email = st.text_input("Sender Email", config['smtp2go']['sender'] if st.session_state.email_service == "SMTP2GO" else "")
         unsubscribe_base_url = st.text_input("Unsubscribe Base URL", 
-                                           "https://pphmjopenaccess.com/unsubscribe?email=")
+                                           "https://yourdomain.com/unsubscribe?email=")
         
         send_option = st.radio("Send Option", ["Send Now", "Schedule"])
         
@@ -885,7 +883,7 @@ def email_campaign_section():
 def email_verification_section():
     st.header("Email Verification")
     
-    # Check verification quota
+    # Check verification quota using correct endpoint
     if config['millionverifier']['api_key']:
         with st.spinner("Checking verification quota..."):
             remaining_quota = check_millionverifier_quota(config['millionverifier']['api_key'])
@@ -910,45 +908,24 @@ def email_verification_section():
                 
                 with st.spinner("Verifying emails..."):
                     result_df = process_email_list(file_content, config['millionverifier']['api_key'])
-                    if result_df is not None and not result_df.empty:
+                    if result_df is not None:
                         st.session_state.verified_emails = result_df
                         st.dataframe(result_df)
                         
-                        # Filter out invalid emails
-                        valid_emails = result_df[result_df['verification_result'].str.lower() == 'valid']
+                        # Generate downloadable TXT file
+                        verified_txt_content = generate_verified_txt_file(result_df)
+                        st.session_state.verified_txt_content = verified_txt_content
                         
-                        if not valid_emails.empty:
-                            # Convert back to original format
-                            output_content = ""
-                            for _, row in valid_emails.iterrows():
-                                # Build the address block
-                                output_content += f"{row['name']}\n"
-                                if pd.notna(row.get('department', '')):
-                                    output_content += f"{row['department']}\n"
-                                if pd.notna(row.get('university', '')):
-                                    output_content += f"{row['university']}\n"
-                                if pd.notna(row.get('country', '')):
-                                    output_content += f"{row['country']}\n"
-                                output_content += f"{row['email']}\n\n"
-                            
-                            st.session_state.verified_content = output_content
-                            verified_filename = f"verified_{uploaded_file.name}"
-                            
-                            # Display download button
-                            st.download_button(
-                                "Download Verified List",
-                                output_content,
-                                file_name=verified_filename,
-                                mime="text/plain"
-                            )
-                            
-                            if st.button("Save Verified List to Firebase"):
-                                if upload_to_firebase(StringIO(output_content), verified_filename):
-                                    st.success("Verified file uploaded to Firebase!")
-                        else:
-                            st.warning("No valid emails found in the list")
-                    else:
-                        st.error("Failed to process email list or no emails found")
+                        st.download_button(
+                            label="Download Verified List (TXT)",
+                            data=verified_txt_content,
+                            file_name=f"verified_{uploaded_file.name}",
+                            mime="text/plain"
+                        )
+                        
+                        if st.button("Save Verified List to Firebase"):
+                            if upload_to_firebase(StringIO(verified_txt_content), f"verified_{uploaded_file.name}"):
+                                st.success("Verified file uploaded to Firebase!")
     else:
         if st.button("Refresh File List for Verification"):
             st.session_state.firebase_files_verification = list_firebase_files()
@@ -970,43 +947,24 @@ def email_verification_section():
                 
                 with st.spinner("Verifying emails..."):
                     result_df = process_email_list(st.session_state.current_verification_list, config['millionverifier']['api_key'])
-                    if result_df is not None and not result_df.empty:
+                    if result_df is not None:
                         st.session_state.verified_emails = result_df
                         st.dataframe(result_df)
                         
-                        # Filter out invalid emails
-                        valid_emails = result_df[result_df['verification_result'].str.lower() == 'valid']
+                        # Generate downloadable TXT file
+                        verified_txt_content = generate_verified_txt_file(result_df)
+                        st.session_state.verified_txt_content = verified_txt_content
                         
-                        if not valid_emails.empty:
-                            # Convert back to original format
-                            output_content = ""
-                            for _, row in valid_emails.iterrows():
-                                output_content += f"{row['name']}\n"
-                                if pd.notna(row.get('department', '')):
-                                    output_content += f"{row['department']}\n"
-                                if pd.notna(row.get('university', '')):
-                                    output_content += f"{row['university']}\n"
-                                if pd.notna(row.get('country', '')):
-                                    output_content += f"{row['country']}\n"
-                                output_content += f"{row['email']}\n\n"
-                            
-                            st.session_state.verified_content = output_content
-                            verified_filename = f"verified_{selected_file}"
-                            
-                            st.download_button(
-                                "Download Verified List",
-                                output_content,
-                                file_name=verified_filename,
-                                mime="text/plain"
-                            )
-                            
-                            if st.button("Save Verified List to Firebase"):
-                                if upload_to_firebase(StringIO(output_content), verified_filename):
-                                    st.success("Verified file uploaded to Firebase!")
-                        else:
-                            st.warning("No valid emails found in the list")
-                    else:
-                        st.error("Failed to process email list or no emails found")
+                        st.download_button(
+                            label="Download Verified List (TXT)",
+                            data=verified_txt_content,
+                            file_name=f"verified_{selected_file}",
+                            mime="text/plain"
+                        )
+                        
+                        if st.button("Save Verified List to Firebase"):
+                            if upload_to_firebase(StringIO(verified_txt_content), f"verified_{selected_file}"):
+                                st.success("Verified file uploaded to Firebase!")
         else:
             st.info("No files found in Firebase Storage")
     
@@ -1019,10 +977,10 @@ def email_verification_section():
         with col1:
             st.metric("Total Emails", len(df))
         with col2:
-            valid = len(df[df['verification_result'].str.lower() == 'valid'])
+            valid = len(df[df['verification_result'].str.lower().isin(['valid', 'ok', 'good'])])
             st.metric("Valid Emails", valid)
         with col3:
-            invalid = len(df[df['verification_result'].str.lower() == 'invalid'])
+            invalid = len(df[df['verification_result'] == 'invalid'])
             st.metric("Invalid Emails", invalid)
         with col4:
             st.metric("Quality Score", f"{round(valid/len(df)*100 if len(df) > 0 else 0, 1)}%")
@@ -1039,56 +997,48 @@ def analytics_section():
         # Fetch detailed analytics
         analytics_data = fetch_smtp2go_analytics()
         
-        if analytics_data and 'totals' in analytics_data:
+        if analytics_data:
             # Overall metrics
             st.subheader("Overall Performance")
             col1, col2, col3, col4, col5 = st.columns(5)
             with col1:
-                st.metric("Total Sent", analytics_data['totals'].get('sent', 0))
+                st.metric("Total Sent", analytics_data['totals']['sent'])
             with col2:
-                delivered = analytics_data['totals'].get('delivered', 0)
-                sent = analytics_data['totals'].get('sent', 1)
-                delivery_rate = (delivered / sent) * 100 if sent > 0 else 0
-                st.metric("Delivered", delivered, f"{delivery_rate:.1f}%")
+                st.metric("Delivered", analytics_data['totals']['delivered'], 
+                         f"{analytics_data['totals']['delivered']/analytics_data['totals']['sent']*100:.1f}%")
             with col3:
-                opens_unique = analytics_data['totals'].get('opens_unique', 0)
-                open_rate = (opens_unique / delivered) * 100 if delivered > 0 else 0
-                st.metric("Opened", opens_unique, f"{open_rate:.1f}%")
+                st.metric("Opened", analytics_data['totals']['opens_unique'], 
+                         f"{analytics_data['totals']['opens_unique']/analytics_data['totals']['delivered']*100:.1f}%")
             with col4:
-                clicks_unique = analytics_data['totals'].get('clicks_unique', 0)
-                click_rate = (clicks_unique / opens_unique) * 100 if opens_unique > 0 else 0
-                st.metric("Clicked", clicks_unique, f"{click_rate:.1f}%")
+                st.metric("Clicked", analytics_data['totals']['clicks_unique'], 
+                         f"{analytics_data['totals']['clicks_unique']/analytics_data['totals']['opens_unique']*100:.1f}%")
             with col5:
-                bounces = analytics_data['totals'].get('hard_bounces', 0) + analytics_data['totals'].get('soft_bounces', 0)
-                st.metric("Bounced", bounces)
+                st.metric("Bounced", analytics_data['totals']['hard_bounces'] + analytics_data['totals']['soft_bounces'])
             
             # Time series data
-            if 'stats' in analytics_data and analytics_data['stats']:
-                st.subheader("Performance Over Time")
-                df = pd.DataFrame(analytics_data['stats'])
-                df['date'] = pd.to_datetime(df['date'])
-                df.set_index('date', inplace=True)
-                
-                # Calculate rates
-                df['delivery_rate'] = (df['delivered'] / df['sent']) * 100
-                df['open_rate'] = (df['opens_unique'] / df['delivered']) * 100
-                df['click_rate'] = (df['clicks_unique'] / df['opens_unique']) * 100
-                
-                tab1, tab2, tab3 = st.tabs(["Volume Metrics", "Engagement Rates", "Bounce & Complaints"])
-                
-                with tab1:
-                    st.line_chart(df[['sent', 'delivered', 'opens_unique', 'clicks_unique']])
-                
-                with tab2:
-                    st.line_chart(df[['delivery_rate', 'open_rate', 'click_rate']])
-                
-                with tab3:
-                    st.line_chart(df[['hard_bounces', 'soft_bounces', 'spam_complaints']])
-            else:
-                st.info("No time series data available")
+            st.subheader("Performance Over Time")
+            df = pd.DataFrame(analytics_data['stats'])
+            df['date'] = pd.to_datetime(df['date'])
+            df.set_index('date', inplace=True)
+            
+            # Calculate rates
+            df['delivery_rate'] = (df['delivered'] / df['sent']) * 100
+            df['open_rate'] = (df['opens_unique'] / df['delivered']) * 100
+            df['click_rate'] = (df['clicks_unique'] / df['opens_unique']) * 100
+            
+            tab1, tab2, tab3 = st.tabs(["Volume Metrics", "Engagement Rates", "Bounce & Complaints"])
+            
+            with tab1:
+                st.line_chart(df[['sent', 'delivered', 'opens_unique', 'clicks_unique']])
+            
+            with tab2:
+                st.line_chart(df[['delivery_rate', 'open_rate', 'click_rate']])
+            
+            with tab3:
+                st.line_chart(df[['hard_bounces', 'soft_bounces', 'spam_complaints']])
             
             # Campaign details
-            st.subheader("Recent Campaigns")
+            st.subheader("Campaign Details")
             if st.session_state.campaign_history:
                 campaign_df = pd.DataFrame(st.session_state.campaign_history)
                 
