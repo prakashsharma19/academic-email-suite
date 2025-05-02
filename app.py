@@ -558,4 +558,560 @@ def show_email_analytics():
             
             # Time series charts
             st.subheader("Performance Over Time")
-            tab1, tab2, tab3 = st.tabs(["Volume Metrics", "Engagement Rates", "Bounce & C
+            tab1, tab2, tab3 = st.tabs(["Volume Metrics", "Engagement Rates", "Bounce & Complaints"])
+            
+            with tab1:
+                st.line_chart(df[['sent', 'delivered', 'opens_unique', 'clicks_unique']])
+            
+            with tab2:
+                st.line_chart(df[['delivery_rate', 'open_rate', 'click_rate']])
+            
+            with tab3:
+                st.line_chart(df[['hard_bounces', 'soft_bounces', 'spam_complaints']])
+            
+            # Campaign details
+            st.subheader("Recent Campaigns")
+            if st.session_state.campaign_history:
+                campaign_df = pd.DataFrame(st.session_state.campaign_history)
+                st.dataframe(campaign_df.sort_values('timestamp', ascending=False))
+            else:
+                st.info("No campaign history available")
+        else:
+            st.info("No analytics data available yet. Please send some emails first.")
+    else:
+        if not st.session_state.ses_client:
+            st.error("SES client not initialized")
+            return
+        
+        try:
+            stats = st.session_state.ses_client.get_send_statistics()
+            datapoints = stats['SendDataPoints']
+            
+            if not datapoints:
+                st.info("No email statistics available yet.")
+                return
+            
+            df = pd.DataFrame(datapoints)
+            df['Timestamp'] = pd.to_datetime(df['Timestamp'])
+            df.set_index('Timestamp', inplace=True)
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Delivery Attempts", df['DeliveryAttempts'].sum())
+            with col2:
+                delivery_rate = (df['DeliveryAttempts'].sum() - df['Bounces'].sum()) / df['DeliveryAttempts'].sum() * 100
+                st.metric("Delivery Rate", f"{delivery_rate:.2f}%")
+            with col3:
+                st.metric("Bounces", df['Bounces'].sum())
+            with col4:
+                st.metric("Complaints", df['Complaints'].sum())
+            
+            st.line_chart(df[['DeliveryAttempts', 'Bounces', 'Complaints']])
+            
+            bounce_response = st.session_state.ses_client.list_bounces()
+            if bounce_response['Bounces']:
+                st.subheader("Bounce Details")
+                bounce_df = pd.DataFrame(bounce_response['Bounces'])
+                st.dataframe(bounce_df)
+            
+        except Exception as e:
+            st.error(f"Failed to fetch analytics: {str(e)}")
+
+# Email Campaign Section
+def email_campaign_section():
+    st.header("Email Campaign Management")
+    
+    # Journal Selection
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        selected_journal = st.selectbox("Select Journal", JOURNALS, key="journal_select")
+    with col2:
+        new_journal = st.text_input("Add New Journal", key="new_journal")
+        if new_journal and st.button("Add Journal"):
+            if new_journal not in JOURNALS:
+                JOURNALS.append(new_journal)
+                st.session_state.selected_journal = new_journal
+                if new_journal not in st.session_state.journal_reply_addresses:
+                    st.session_state.journal_reply_addresses[new_journal] = ""
+                st.rerun()
+    
+    st.session_state.selected_journal = selected_journal
+    
+    # Email Service Selection
+    st.session_state.email_service = st.radio(
+        "Select Email Service",
+        ["SMTP Service", "Amazon AWS"],
+        index=0 if st.session_state.email_service == "SMTP2GO" else 1
+    )
+    
+    # Journal Reply Address Configuration
+    with st.expander("Journal Reply Address Configuration"):
+        reply_address = st.text_input(
+            f"Reply-to Address for {selected_journal}",
+            value=st.session_state.journal_reply_addresses.get(selected_journal, ""),
+            key=f"reply_{selected_journal}"
+        )
+        if st.button("Save Reply Address"):
+            st.session_state.journal_reply_addresses[selected_journal] = reply_address
+            st.success("Reply address saved!")
+    
+    # Email Template Editor with ACE Editor
+    st.subheader("Email Template Editor")
+    template = get_journal_template(st.session_state.selected_journal)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        email_subject = st.text_input("Email Subject", 
+                                   f"Call for Papers - {st.session_state.selected_journal}")
+    
+    # ACE Editor
+    editor_col, preview_col = st.columns(2)
+    
+    with editor_col:
+        st.markdown("**Template Editor**")
+        email_body = st_ace(
+            value=template,
+            language="html",
+            theme="chrome",
+            font_size=14,
+            tab_size=2,
+            wrap=True,
+            show_gutter=True,
+            key=f"editor_{selected_journal}",
+            height=400
+        )
+        
+        st.info("""Available template variables:
+        - $$Author_Name$$: Author's full name
+        - $$Author_Address$$: All address lines before email
+        - $$Department$$: Author's department
+        - $$University$$: Author's university
+        - $$Country$$: Author's country
+        - $$Author_Email$$: Author's email
+        - $$Journal_Name$$: Selected journal name
+        - $$Unsubscribe_Link$$: Unsubscribe link""")
+    
+    with preview_col:
+        st.markdown("**Preview**")
+        preview_html = email_body.replace("$$Author_Name$$", "Professor John Doe")
+        preview_html = preview_html.replace("$$Author_Address$$", "Department of Computer Science<br>Harvard University<br>United States")
+        preview_html = preview_html.replace("$$Department$$", "Computer Science")
+        preview_html = preview_html.replace("$$University$$", "Harvard University")
+        preview_html = preview_html.replace("$$Country$$", "United States")
+        preview_html = preview_html.replace("$$Author_Email$$", "john.doe@harvard.edu")
+        preview_html = preview_html.replace("$$Journal_Name$$", st.session_state.selected_journal)
+        preview_html = preview_html.replace("$$Unsubscribe_Link$$", "https://example.com/unsubscribe?email=john.doe@harvard.edu")
+        
+        st.markdown(preview_html, unsafe_allow_html=True)
+    
+    # File Upload
+    st.subheader("Recipient List")
+    file_source = st.radio("Select file source", ["Local Upload", "Cloud Storage"])
+    
+    if file_source == "Local Upload":
+        uploaded_file = st.file_uploader("Upload recipient list (CSV or TXT)", type=["csv", "txt"])
+        if uploaded_file:
+            if uploaded_file.name.endswith('.txt'):
+                # Process the text file with the specific format
+                file_content = uploaded_file.read().decode('utf-8')
+                entries = []
+                current_entry = {}
+                
+                for line in file_content.split('\n'):
+                    line = line.strip()
+                    if line:
+                        if '@' in line and '.' in line and ' ' not in line:  # Likely email
+                            current_entry['email'] = line
+                            entries.append(current_entry)
+                            current_entry = {}
+                        elif not current_entry.get('name', ''):
+                            current_entry['name'] = line
+                        elif not current_entry.get('department', ''):
+                            current_entry['department'] = line
+                        elif not current_entry.get('university', ''):
+                            current_entry['university'] = line
+                        elif not current_entry.get('country', ''):
+                            current_entry['country'] = line
+                
+                df = pd.DataFrame(entries)
+            else:
+                df = pd.read_csv(uploaded_file)
+            
+            st.session_state.current_recipient_list = df
+            st.dataframe(df.head())
+            
+            if st.button("Save to Firebase"):
+                if uploaded_file.name.endswith('.txt'):
+                    if upload_to_firebase(StringIO(file_content), uploaded_file.name):
+                        st.success("File uploaded to Firebase successfully!")
+                else:
+                    if upload_to_firebase(uploaded_file, uploaded_file.name):
+                        st.success("File uploaded to Firebase successfully!")
+    else:
+        if st.button("Refresh File List"):
+            st.session_state.firebase_files = list_firebase_files()
+        
+        if 'firebase_files' in st.session_state and st.session_state.firebase_files:
+            selected_file = st.selectbox("Select file from Firebase", st.session_state.firebase_files)
+            
+            if st.button("Load File"):
+                file_content = download_from_firebase(selected_file)
+                if file_content:
+                    if selected_file.endswith('.txt'):
+                        # Process the text file with the specific format
+                        entries = []
+                        current_entry = {}
+                        
+                        for line in file_content.split('\n'):
+                            line = line.strip()
+                            if line:
+                                if '@' in line and '.' in line and ' ' not in line:  # Likely email
+                                    current_entry['email'] = line
+                                    entries.append(current_entry)
+                                    current_entry = {}
+                                elif not current_entry.get('name', ''):
+                                    current_entry['name'] = line
+                                elif not current_entry.get('department', ''):
+                                    current_entry['department'] = line
+                                elif not current_entry.get('university', ''):
+                                    current_entry['university'] = line
+                                elif not current_entry.get('country', ''):
+                                    current_entry['country'] = line
+                        
+                        df = pd.DataFrame(entries)
+                    else:
+                        df = pd.read_csv(StringIO(file_content))
+                    
+                    st.session_state.current_recipient_list = df
+                    st.dataframe(df.head())
+        else:
+            st.info("No files found in Cloud Storage")
+    
+    # Send Options
+    if 'current_recipient_list' in st.session_state:
+        st.subheader("Campaign Options")
+        
+        sender_email = st.text_input("Sender Email", config['smtp2go']['sender'] if st.session_state.email_service == "SMTP2GO" else "")
+        unsubscribe_base_url = st.text_input("Unsubscribe Base URL", 
+                                           "https://yourdomain.com/unsubscribe?email=")
+        
+        send_option = st.radio("Send Option", ["Send Now", "Schedule"])
+        
+        if send_option == "Schedule":
+            schedule_time = st.datetime_input("Schedule Time", 
+                                            datetime.now() + timedelta(days=1))
+        
+        if st.button("Start Campaign"):
+            if st.session_state.email_service == "SMTP2GO" and not st.session_state.smtp2go_initialized:
+                st.error("SMTP2GO not initialized. Please check your configuration.")
+                return
+            elif st.session_state.email_service == "Amazon SES" and not st.session_state.ses_client:
+                st.error("SES client not initialized. Please configure SES first.")
+                return
+            
+            df = st.session_state.current_recipient_list
+            total_emails = len(df)
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            success_count = 0
+            email_ids = []
+            
+            reply_to = st.session_state.journal_reply_addresses.get(selected_journal, None)
+            
+            for i, row in df.iterrows():
+                # Build author address from all fields except email
+                author_address = ""
+                if row.get('department', ''):
+                    author_address += f"{row['department']}<br>"
+                if row.get('university', ''):
+                    author_address += f"{row['university']}<br>"
+                if row.get('country', ''):
+                    author_address += f"{row['country']}<br>"
+                
+                email_content = email_body
+                email_content = email_content.replace("$$Author_Name$$", str(row.get('name', '')))
+                email_content = email_content.replace("$$Author_Address$$", author_address)
+                email_content = email_content.replace("$$Department$$", str(row.get('department', '')))
+                email_content = email_content.replace("$$University$$", str(row.get('university', '')))
+                email_content = email_content.replace("$$Country$$", str(row.get('country', '')))
+                email_content = email_content.replace("$$Author_Email$$", str(row.get('email', '')))
+                email_content = email_content.replace("$$Journal_Name$$", st.session_state.selected_journal)
+                
+                unsubscribe_link = f"{unsubscribe_base_url}{row.get('email', '')}"
+                email_content = email_content.replace("$$Unsubscribe_Link$$", unsubscribe_link)
+                
+                plain_text = email_content.replace("<br>", "\n").replace("</p>", "\n\n").replace("<p>", "")
+                
+                if st.session_state.email_service == "SMTP2GO":
+                    success, email_id = send_email_via_smtp2go(
+                        row.get('email', ''),
+                        email_subject,
+                        email_content,
+                        plain_text,
+                        unsubscribe_link,
+                        reply_to
+                    )
+                else:
+                    response, email_id = send_ses_email(
+                        st.session_state.ses_client,
+                        sender_email,
+                        row.get('email', ''),
+                        email_subject,
+                        email_content,
+                        plain_text,
+                        unsubscribe_link,
+                        reply_to
+                    )
+                    success = response is not None
+                
+                if success:
+                    success_count += 1
+                    if email_id:
+                        email_ids.append(email_id)
+                
+                progress = (i + 1) / total_emails
+                progress_bar.progress(progress)
+                status_text.text(f"Processing {i+1} of {total_emails}: {row.get('email', '')}")
+                
+                # Rate limiting
+                time.sleep(0.1)
+            
+            # Record campaign details
+            campaign_data = {
+                'timestamp': datetime.now(),
+                'journal': selected_journal,
+                'emails_sent': success_count,
+                'total_emails': total_emails,
+                'subject': email_subject,
+                'email_ids': ','.join(email_ids),
+                'service': st.session_state.email_service
+            }
+            st.session_state.campaign_history.append(campaign_data)
+            
+            st.success(f"Campaign completed! {success_count} of {total_emails} emails sent successfully.")
+            show_email_analytics()
+
+# Email Verification Section
+def email_verification_section():
+    st.header("Email Verification")
+    
+    # Check verification quota using correct endpoint
+    if config['millionverifier']['api_key']:
+        with st.spinner("Checking verification quota..."):
+            remaining_quota = check_millionverifier_quota(config['millionverifier']['api_key'])
+            st.metric("Remaining Verification Credits", remaining_quota)
+    else:
+        st.warning("MillionVerifier API key not configured")
+    
+    # File Upload for Verification
+    st.subheader("Email List Verification")
+    file_source = st.radio("Select file source for verification", ["Local Upload", "Cloud Storage"])
+    
+    if file_source == "Local Upload":
+        uploaded_file = st.file_uploader("Upload email list for verification (TXT format)", type=["txt"])
+        if uploaded_file:
+            file_content = uploaded_file.read().decode('utf-8')
+            st.text_area("File Content Preview", file_content, height=150)
+            
+            if st.button("Verify Emails"):
+                if not config['millionverifier']['api_key']:
+                    st.error("Please configure MillionVerifier API Key first")
+                    return
+                
+                with st.spinner("Verifying emails..."):
+                    result_df = process_email_list(file_content, config['millionverifier']['api_key'])
+                    if not result_df.empty:
+                        st.session_state.verified_emails = result_df
+                        st.dataframe(result_df)
+                        
+                        # Generate downloadable TXT file
+                        verified_txt_content = generate_verified_txt_file(result_df)
+                        st.session_state.verified_txt_content = verified_txt_content
+                        
+                        st.download_button(
+                            label="Download Verified List (TXT)",
+                            data=verified_txt_content,
+                            file_name=f"verified_{uploaded_file.name}",
+                            mime="text/plain"
+                        )
+                        
+                        if st.button("Save Verified List to Firebase"):
+                            if upload_to_firebase(StringIO(verified_txt_content), f"verified_{uploaded_file.name}"):
+                                st.success("Verified file uploaded to Firebase!")
+                    else:
+                        st.error("No valid emails found in the file")
+    else:
+        if st.button("Refresh File List for Verification"):
+            st.session_state.firebase_files_verification = list_firebase_files()
+        
+        if 'firebase_files_verification' in st.session_state and st.session_state.firebase_files_verification:
+            selected_file = st.selectbox("Select file to verify from Firebase", 
+                                       st.session_state.firebase_files_verification)
+            
+            if st.button("Load File for Verification"):
+                file_content = download_from_firebase(selected_file)
+                if file_content:
+                    st.text_area("File Content Preview", file_content, height=150)
+                    st.session_state.current_verification_list = file_content
+            
+            if 'current_verification_list' in st.session_state and st.button("Start Verification"):
+                if not config['millionverifier']['api_key']:
+                    st.error("Please configure MillionVerifier API Key first")
+                    return
+                
+                with st.spinner("Verifying emails..."):
+                    result_df = process_email_list(st.session_state.current_verification_list, config['millionverifier']['api_key'])
+                    if not result_df.empty:
+                        st.session_state.verified_emails = result_df
+                        st.dataframe(result_df)
+                        
+                        # Generate downloadable TXT file
+                        verified_txt_content = generate_verified_txt_file(result_df)
+                        st.session_state.verified_txt_content = verified_txt_content
+                        
+                        st.download_button(
+                            label="Download Verified List (TXT)",
+                            data=verified_txt_content,
+                            file_name=f"verified_{selected_file}",
+                            mime="text/plain"
+                        )
+                        
+                        if st.button("Save Verified List to Firebase"):
+                            if upload_to_firebase(StringIO(verified_txt_content), f"verified_{selected_file}"):
+                                st.success("Verified file uploaded to Firebase!")
+                    else:
+                        st.error("No valid emails found in the file")
+        else:
+            st.info("No files found in Cloud Storage")
+    
+    # Verification Analytics
+    if not st.session_state.verified_emails.empty:
+        st.subheader("Verification Results")
+        df = st.session_state.verified_emails
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Emails", len(df))
+        with col2:
+            valid = len(df[df['verification_result'].str.lower().isin(['valid', 'ok', 'good'])])
+            st.metric("Valid Emails", valid)
+        with col3:
+            invalid = len(df[df['verification_result'] == 'invalid'])
+            st.metric("Invalid Emails", invalid)
+        with col4:
+            st.metric("Quality Score", f"{round(valid/len(df)*100 if len(df) > 0 else 0, 1)}%")
+        
+        result_counts = df['verification_result'].value_counts()
+        st.bar_chart(result_counts)
+
+def analytics_section():
+    st.header("Comprehensive Email Analytics")
+    
+    if st.session_state.email_service == "SMTP2GO":
+        st.info("SMTP2GO Analytics Dashboard")
+        
+        # Fetch detailed analytics
+        analytics_data = fetch_smtp2go_analytics()
+        
+        if analytics_data:
+            # Overall metrics
+            st.subheader("Overall Performance")
+            col1, col2, col3, col4, col5 = st.columns(5)
+            with col1:
+                st.metric("Total Sent", analytics_data['totals']['sent'])
+            with col2:
+                st.metric("Delivered", analytics_data['totals']['delivered'], 
+                         f"{analytics_data['totals']['delivered']/analytics_data['totals']['sent']*100:.1f}%")
+            with col3:
+                st.metric("Opened", analytics_data['totals']['opens_unique'], 
+                         f"{analytics_data['totals']['opens_unique']/analytics_data['totals']['delivered']*100:.1f}%")
+            with col4:
+                st.metric("Clicked", analytics_data['totals']['clicks_unique'], 
+                         f"{analytics_data['totals']['clicks_unique']/analytics_data['totals']['opens_unique']*100:.1f}%")
+            with col5:
+                st.metric("Bounced", analytics_data['totals']['hard_bounces'] + analytics_data['totals']['soft_bounces'])
+            
+            # Time series data
+            st.subheader("Performance Over Time")
+            df = pd.DataFrame(analytics_data['stats'])
+            df['date'] = pd.to_datetime(df['date'])
+            df.set_index('date', inplace=True)
+            
+            # Calculate rates
+            df['delivery_rate'] = (df['delivered'] / df['sent']) * 100
+            df['open_rate'] = (df['opens_unique'] / df['delivered']) * 100
+            df['click_rate'] = (df['clicks_unique'] / df['opens_unique']) * 100
+            
+            tab1, tab2, tab3 = st.tabs(["Volume Metrics", "Engagement Rates", "Bounce & Complaints"])
+            
+            with tab1:
+                st.line_chart(df[['sent', 'delivered', 'opens_unique', 'clicks_unique']])
+            
+            with tab2:
+                st.line_chart(df[['delivery_rate', 'open_rate', 'click_rate']])
+            
+            with tab3:
+                st.line_chart(df[['hard_bounces', 'soft_bounces', 'spam_complaints']])
+            
+            # Campaign details
+            st.subheader("Campaign Details")
+            if st.session_state.campaign_history:
+                campaign_df = pd.DataFrame(st.session_state.campaign_history)
+                
+                # Add performance metrics to campaign history
+                campaign_df['delivery_rate'] = campaign_df.apply(lambda x: (x['emails_sent'] / x['total_emails']) * 100, axis=1)
+                
+                st.dataframe(
+                    campaign_df.sort_values('timestamp', ascending=False),
+                    column_config={
+                        "timestamp": "Date",
+                        "journal": "Journal",
+                        "emails_sent": "Sent",
+                        "total_emails": "Total",
+                        "delivery_rate": st.column_config.ProgressColumn(
+                            "Delivery Rate",
+                            format="%.1f%%",
+                            min_value=0,
+                            max_value=100,
+                        ),
+                        "subject": "Subject",
+                        "service": "Service"
+                    }
+                )
+            else:
+                st.info("No campaign history available")
+        else:
+            st.info("No analytics data available yet. Please send some emails first.")
+    else:
+        st.info("Amazon SES Analytics would be displayed here")
+        show_email_analytics()
+
+def main():
+    # Check authentication
+    check_auth()
+    
+    # Main app for authenticated users
+    st.title(f"PPH Email Manager - Welcome admin")
+    
+    # Navigation
+    app_mode = st.sidebar.selectbox("Select Mode", ["Email Campaign", "Verify Emails", "Analytics"])
+    
+    # Initialize services
+    if not st.session_state.ses_client and st.session_state.email_service == "Amazon SES":
+        initialize_ses()
+    
+    if not st.session_state.firebase_initialized:
+        initialize_firebase()
+    
+    if not st.session_state.smtp2go_initialized and st.session_state.email_service == "SMTP2GO":
+        initialize_smtp2go()
+    
+    if app_mode == "Email Campaign":
+        email_campaign_section()
+    elif app_mode == "Verify Emails":
+        email_verification_section()
+    else:
+        analytics_section()
+
+if __name__ == "__main__":
+    main()
