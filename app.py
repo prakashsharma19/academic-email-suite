@@ -15,11 +15,11 @@ from streamlit_ace import st_ace
 
 # App Configuration
 st.set_page_config(
-    page_title="Academic Email Marketing Suite", 
+    page_title="PPH Email Manager", 
     layout="wide",
     page_icon="✉️",
     menu_items={
-        'About': "### Academic Email Marketing Suite\n\nDeveloped by Prakash (cpsharma.com)"
+        'About': "### Academic Email Management Suite\n\nDeveloped by Prakash (cpsharma.com)"
     }
 )
 
@@ -76,7 +76,7 @@ def check_auth():
         st.session_state.authenticated = False
     
     if not st.session_state.authenticated:
-        st.title("Academic Email Marketing Suite - Login")
+        st.title("PPH Email Manager - Login")
         
         with st.form("login_form"):
             username = st.text_input("Username")
@@ -270,7 +270,7 @@ def initialize_smtp2go():
             st.session_state.smtp2go_initialized = True
             return True
         else:
-            st.error("SMTP2GO API key not configured")
+            st.error("SMTP API key not configured")
             return False
     except Exception as e:
         st.error(f"SMTP2GO initialization failed: {str(e)}")
@@ -489,7 +489,7 @@ def generate_verified_txt_file(df):
 def fetch_smtp2go_analytics():
     try:
         if not config['smtp2go']['api_key']:
-            st.error("SMTP2GO API key not configured")
+            st.error("SMTP API key not configured")
             return None
         
         # Fetch stats from SMTP2GO
@@ -505,10 +505,10 @@ def fetch_smtp2go_analytics():
         if data.get('data'):
             return data['data']
         else:
-            st.error(f"Failed to fetch SMTP2GO analytics: {data.get('error', 'Unknown error')}")
+            st.error(f"Failed to fetch SMTP analytics: {data.get('error', 'Unknown error')}")
             return None
     except Exception as e:
-        st.error(f"Error fetching SMTP2GO analytics: {str(e)}")
+        st.error(f"Error fetching SMTP analytics: {str(e)}")
         return None
 
 def show_email_analytics():
@@ -628,7 +628,7 @@ def email_campaign_section():
     # Email Service Selection
     st.session_state.email_service = st.radio(
         "Select Email Service",
-        ["SMTP2GO", "Amazon SES"],
+        ["SMTP Service", "Amazon AWS"],
         index=0 if st.session_state.email_service == "SMTP2GO" else 1
     )
     
@@ -694,7 +694,7 @@ def email_campaign_section():
     
     # File Upload
     st.subheader("Recipient List")
-    file_source = st.radio("Select file source", ["Local Upload", "Firebase Storage"])
+    file_source = st.radio("Select file source", ["Local Upload", "Cloud Storage"])
     
     if file_source == "Local Upload":
         uploaded_file = st.file_uploader("Upload recipient list (CSV or TXT)", type=["csv", "txt"])
@@ -773,7 +773,7 @@ def email_campaign_section():
                     st.session_state.current_recipient_list = df
                     st.dataframe(df.head())
         else:
-            st.info("No files found in Firebase Storage")
+            st.info("No files found in Cloud Storage")
     
     # Send Options
     if 'current_recipient_list' in st.session_state:
@@ -893,7 +893,7 @@ def email_verification_section():
     
     # File Upload for Verification
     st.subheader("Email List Verification")
-    file_source = st.radio("Select file source for verification", ["Local Upload", "Firebase Storage"])
+    file_source = st.radio("Select file source for verification", ["Local Upload", "Cloud Storage"])
     
     if file_source == "Local Upload":
         uploaded_file = st.file_uploader("Upload email list for verification (TXT format)", type=["txt"])
@@ -966,7 +966,7 @@ def email_verification_section():
                             if upload_to_firebase(StringIO(verified_txt_content), f"verified_{selected_file}"):
                                 st.success("Verified file uploaded to Firebase!")
         else:
-            st.info("No files found in Firebase Storage")
+            st.info("No files found in Cloud Storage")
     
     # Verification Analytics
     if 'verified_emails' in st.session_state:
@@ -1075,7 +1075,7 @@ def main():
     check_auth()
     
     # Main app for authenticated users
-    st.title(f"Academic Email Marketing Suite - Welcome admin")
+    st.title(f"PPH Email Manager - Welcome admin")
     
     # Navigation
     app_mode = st.sidebar.selectbox("Select Mode", ["Email Campaign", "Verify Emails", "Analytics"])
