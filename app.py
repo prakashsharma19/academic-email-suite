@@ -63,6 +63,36 @@ def set_light_theme():
         text-decoration: none;
         font-weight: bold;
     }
+    /* Button Colors */
+    .stDownloadButton button {
+        border-color: #4CAF50 !important;
+        color: white !important;
+        background-color: #4CAF50 !important;
+    }
+    .stDownloadButton button:hover {
+        background-color: #45a049 !important;
+    }
+    .bad-email-btn button {
+        background-color: #f44336 !important;
+        border-color: #f44336 !important;
+    }
+    .bad-email-btn button:hover {
+        background-color: #d32f2f !important;
+    }
+    .good-email-btn button {
+        background-color: #4CAF50 !important;
+        border-color: #4CAF50 !important;
+    }
+    .good-email-btn button:hover {
+        background-color: #388E3C !important;
+    }
+    .risky-email-btn button {
+        background-color: #9C27B0 !important;
+        border-color: #9C27B0 !important;
+    }
+    .risky-email-btn button:hover {
+        background-color: #7B1FA2 !important;
+    }
     </style>
     <div class="footer">
         This app is made by <a href="https://www.cpsharma.com" target="_blank">Prakash</a>. 
@@ -110,8 +140,6 @@ def init_session_state():
         st.session_state.selected_journal = None
     if 'email_service' not in st.session_state:
         st.session_state.email_service = "SMTP2GO"
-    if 'smtp2go_initialized' not in st.session_state:
-        st.session_state.smtp2go_initialized = False
     if 'campaign_history' not in st.session_state:
         st.session_state.campaign_history = []
     if 'journal_reply_addresses' not in st.session_state:
@@ -235,18 +263,23 @@ def load_config():
 
 config = load_config()
 
-# Initialize Firebase
+# Initialize Firebase with better error handling
 def initialize_firebase():
     try:
         if firebase_admin._apps:
             st.session_state.firebase_initialized = True
             return True
             
+        # Ensure private key is properly formatted
+        private_key = config['firebase']['private_key']
+        if not private_key.startswith('-----BEGIN PRIVATE KEY-----'):
+            private_key = '-----BEGIN PRIVATE KEY-----\n' + private_key + '\n-----END PRIVATE KEY-----'
+
         cred = credentials.Certificate({
             "type": config['firebase']['type'],
             "project_id": config['firebase']['project_id'],
             "private_key_id": config['firebase']['private_key_id'],
-            "private_key": config['firebase']['private_key'],
+            "private_key": private_key,
             "client_email": config['firebase']['client_email'],
             "client_id": config['firebase']['client_id'],
             "auth_uri": config['firebase']['auth_uri'],
@@ -255,6 +288,7 @@ def initialize_firebase():
             "client_x509_cert_url": config['firebase']['client_x509_cert_url'],
             "universe_domain": config['firebase']['universe_domain']
         })
+        
         firebase_admin.initialize_app(cred)
         st.session_state.firebase_initialized = True
         return True
@@ -268,9 +302,13 @@ def get_firestore_db():
         return None
     return firestore.client()
 
-# Initialize SES Client
+# Initialize SES Client with better error handling
 def initialize_ses():
     try:
+        if not config['aws']['access_key'] or not config['aws']['secret_key']:
+            st.error("AWS credentials not configured")
+            return None
+            
         ses_client = boto3.client(
             'ses',
             aws_access_key_id=config['aws']['access_key'],
@@ -575,12 +613,35 @@ def show_email_analytics():
             st.subheader("Recent Campaigns")
             if st.session_state.campaign_history:
                 campaign_df = pd.DataFrame(st.session_state.campaign_history)
-                st.dataframe(campaign_df.sort_values('timestamp', ascending=False))
+                
+                # Add performance metrics to campaign history
+                campaign_df['delivery_rate'] = campaign_df.apply(lambda x: (x['emails_sent'] / x['total_emails']) * 100, axis=1)
+                
+                st.dataframe(
+                    campaign_df.sort_values('timestamp', ascending=False),
+                    column_config={
+                        "timestamp": "Date",
+                        "journal": "Journal",
+                        "emails_sent": "Sent",
+                        "total_emails": "Total",
+                        "delivery_rate": st.column_config.ProgressColumn(
+                            "Delivery Rate",
+                            format="%.1f%%",
+                            min_value=0,
+                            max_value=100,
+                        ),
+                        "subject": "Subject",
+                        "service": "Service"
+                    }
+                )
             else:
                 st.info("No campaign history available")
         else:
             st.info("No analytics data available yet. Please send some emails first.")
     else:
+        if not st.session_state.ses_client:
+            initialize_ses()
+            
         if not st.session_state.ses_client:
             st.error("SES client not initialized")
             return
@@ -800,16 +861,23 @@ def email_campaign_section():
         send_option = st.radio("Send Option", ["Send Now", "Schedule"])
         
         if send_option == "Schedule":
-            schedule_time = st.datetime_input("Schedule Time", 
-                                            datetime.now() + timedelta(days=1))
+            col1, col2 = st.columns(2)
+            with col1:
+                schedule_date = st.date_input("Schedule Date", datetime.now() + timedelta(days=1))
+            with col2:
+                schedule_time = st.time_input("Schedule Time", datetime.now().time())
+            schedule_time = datetime.combine(schedule_date, schedule_time)
         
         if st.button("Start Campaign"):
             if st.session_state.email_service == "SMTP2GO" and not config['smtp2go']['api_key']:
                 st.error("SMTP2GO API key not configured")
                 return
-            elif st.session_state.email_service == "Amazon SES" and not st.session_state.ses_client:
-                st.error("SES client not initialized. Please configure SES first.")
-                return
+            elif st.session_state.email_service == "Amazon SES":
+                if not st.session_state.ses_client:
+                    initialize_ses()
+                if not st.session_state.ses_client:
+                    st.error("SES client not initialized. Please configure SES first.")
+                    return
             
             df = st.session_state.current_recipient_list
             total_emails = len(df)
@@ -973,18 +1041,20 @@ def email_verification_section():
             st.metric("Risky Emails", f"{stats['risky']} ({stats['risky_percent']}%)", 
                      help="Risky emails may exist or not. Use with caution.")
         
-        # Pie chart
-        fig, ax = plt.subplots()
+        # Pie chart with optimal size
+        fig, ax = plt.subplots(figsize=(6, 4))
         ax.pie(
             [stats['good'], stats['bad'], stats['risky']],
             labels=['Good', 'Bad', 'Risky'],
-            colors=['#4CAF50', '#F44336', '#FFC107'],
+            colors=['#4CAF50', '#F44336', '#9C27B0'],
             autopct='%1.1f%%'
         )
         st.pyplot(fig)
         
-        # Download reports
+        # Download reports - side by side buttons
         st.subheader("Download Reports")
+        
+        # First row of buttons
         col1, col2, col3 = st.columns(3)
         
         with col1:
@@ -994,7 +1064,9 @@ def email_verification_section():
                 data=good_content,
                 file_name="good_emails.txt",
                 mime="text/plain",
-                help="Download only emails verified as good"
+                help="Download only emails verified as good",
+                key="good_emails_btn",
+                use_container_width=True
             )
         
         with col2:
@@ -1004,7 +1076,9 @@ def email_verification_section():
                 data=bad_content,
                 file_name="bad_emails.txt",
                 mime="text/plain",
-                help="Download only emails verified as bad"
+                help="Download only emails verified as bad",
+                key="bad_emails_btn",
+                use_container_width=True
             )
         
         with col3:
@@ -1014,9 +1088,12 @@ def email_verification_section():
                 data=risky_content,
                 file_name="risky_emails.txt",
                 mime="text/plain",
-                help="Download only emails verified as risky"
+                help="Download only emails verified as risky",
+                key="risky_emails_btn",
+                use_container_width=True
             )
         
+        # Second row of buttons
         st.markdown("---")
         col1, col2 = st.columns(2)
         
@@ -1027,7 +1104,9 @@ def email_verification_section():
                 data=full_content,
                 file_name="full_report.txt",
                 mime="text/plain",
-                help="Download complete report in TXT format"
+                help="Download complete report in TXT format",
+                key="full_report_txt",
+                use_container_width=True
             )
         
         with col2:
@@ -1036,7 +1115,9 @@ def email_verification_section():
                 data=st.session_state.verified_emails.to_csv(index=False),
                 file_name="full_report.csv",
                 mime="text/csv",
-                help="Download complete report in CSV format"
+                help="Download complete report in CSV format",
+                key="full_report_csv",
+                use_container_width=True
             )
 
 def analytics_section():
@@ -1118,8 +1199,46 @@ def analytics_section():
         else:
             st.info("No analytics data available yet. Please send some emails first.")
     else:
-        st.info("Amazon SES Analytics would be displayed here")
-        show_email_analytics()
+        if not st.session_state.ses_client:
+            initialize_ses()
+            
+        if not st.session_state.ses_client:
+            st.error("SES client not initialized")
+            return
+        
+        try:
+            stats = st.session_state.ses_client.get_send_statistics()
+            datapoints = stats['SendDataPoints']
+            
+            if not datapoints:
+                st.info("No email statistics available yet.")
+                return
+            
+            df = pd.DataFrame(datapoints)
+            df['Timestamp'] = pd.to_datetime(df['Timestamp'])
+            df.set_index('Timestamp', inplace=True)
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Delivery Attempts", df['DeliveryAttempts'].sum())
+            with col2:
+                delivery_rate = (df['DeliveryAttempts'].sum() - df['Bounces'].sum()) / df['DeliveryAttempts'].sum() * 100
+                st.metric("Delivery Rate", f"{delivery_rate:.2f}%")
+            with col3:
+                st.metric("Bounces", df['Bounces'].sum())
+            with col4:
+                st.metric("Complaints", df['Complaints'].sum())
+            
+            st.line_chart(df[['DeliveryAttempts', 'Bounces', 'Complaints']])
+            
+            bounce_response = st.session_state.ses_client.list_bounces()
+            if bounce_response['Bounces']:
+                st.subheader("Bounce Details")
+                bounce_df = pd.DataFrame(bounce_response['Bounces'])
+                st.dataframe(bounce_df)
+            
+        except Exception as e:
+            st.error(f"Failed to fetch analytics: {str(e)}")
 
 def main():
     # Check authentication
@@ -1137,9 +1256,6 @@ def main():
         st.markdown("[📝 Entry Manager](https://pphmjcrm.streamlit.app)", unsafe_allow_html=True)
     
     # Initialize services
-    if not st.session_state.ses_client and st.session_state.email_service == "Amazon SES":
-        initialize_ses()
-    
     if not st.session_state.firebase_initialized:
         initialize_firebase()
     
