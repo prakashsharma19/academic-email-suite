@@ -15,7 +15,6 @@ from streamlit_ace import st_ace
 import firebase_admin
 from firebase_admin import credentials, firestore
 import matplotlib.pyplot as plt
-from smtp2go import Smtp2goClient
 
 # App Configuration
 st.set_page_config(
@@ -129,8 +128,10 @@ def init_session_state():
         st.session_state.current_verification_list = None
     if 'verification_stats' not in st.session_state:
         st.session_state.verification_stats = {}
-    if 'smtp2go_client' not in st.session_state:
-        st.session_state.smtp2go_client = None
+    if 'verification_start_time' not in st.session_state:
+        st.session_state.verification_start_time = None
+    if 'verification_progress' not in st.session_state:
+        st.session_state.verification_progress = 0
 
 init_session_state()
 
@@ -282,107 +283,20 @@ def initialize_ses():
         st.error(f"SES initialization failed: {str(e)}")
         return None
 
-# Initialize SMTP2GO
-def initialize_smtp2go():
-    try:
-        if config['smtp2go']['api_key']:
-            st.session_state.smtp2go_client = Smtp2goClient(api_key=config['smtp2go']['api_key'], api_url='https://api.smtp2go.com/v3/')
-            st.session_state.smtp2go_initialized = True
-            return True
-        else:
-            st.error("SMTP API key not configured")
-            return False
-    except Exception as e:
-        st.error(f"SMTP2GO initialization failed: {str(e)}")
-        return False
-
-# Firebase Storage Functions
-def upload_to_firebase(file, file_name, folder="email_lists"):
-    if not initialize_firebase():
-        return False
-    
-    try:
-        db = get_firestore_db()
-        if not db:
-            return False
-            
-        journal_ref = db.collection("journals").document(st.session_state.selected_journal)
-        if not journal_ref.get().exists:
-            journal_ref.set({"created": datetime.now()})
-            
-        file_ref = journal_ref.collection(folder).document(file_name)
-        if isinstance(file, StringIO):
-            content = file.getvalue()
-        else:
-            content = file.getvalue().decode('utf-8')
-            
-        file_ref.set({
-            "name": file_name,
-            "content": content,
-            "uploaded": datetime.now(),
-            "size": len(content)
-        })
-        return True
-    except Exception as e:
-        st.error(f"Failed to upload file: {str(e)}")
-        return False
-
-def download_from_firebase(file_name, folder="email_lists"):
-    if not initialize_firebase():
-        return None
-    
-    try:
-        db = get_firestore_db()
-        if not db:
-            return None
-            
-        file_ref = db.collection("journals").document(st.session_state.selected_journal) \
-                    .collection(folder).document(file_name)
-        file_data = file_ref.get()
-        
-        if file_data.exists:
-            return file_data.to_dict().get("content")
-        return None
-    except Exception as e:
-        st.error(f"Failed to download file: {str(e)}")
-        return None
-
-def list_firebase_files(folder="email_lists"):
-    if not initialize_firebase():
-        return []
-    
-    try:
-        db = get_firestore_db()
-        if not db:
-            return []
-            
-        files_ref = db.collection("journals").document(st.session_state.selected_journal) \
-                    .collection(folder)
-        files = files_ref.stream()
-        
-        return [file.id for file in files]
-    except Exception as e:
-        st.error(f"Failed to list files: {str(e)}")
-        return []
-
-# Email Functions
+# SMTP2GO Email Sending Function
 def send_email_via_smtp2go(recipient, subject, body_html, body_text, unsubscribe_link, reply_to=None):
     try:
-        if not st.session_state.smtp2go_initialized:
-            initialize_smtp2go()
+        if not config['smtp2go']['api_key']:
+            st.error("SMTP2GO API key not configured")
+            return False, None
             
         payload = {
+            "api_key": config['smtp2go']['api_key'],
             "sender": config['smtp2go']['sender'],
-            "recipients": [recipient],
+            "to": [recipient],
             "subject": subject,
             "text_body": body_text,
             "html_body": body_html,
-            "template_id": config['smtp2go']['template_id'],
-            "template_data": {
-                "author_name": "$$Author_Name$$",
-                "journal_name": st.session_state.selected_journal,
-                "unsubscribe_link": unsubscribe_link
-            },
             "custom_headers": {
                 "List-Unsubscribe": f"<{unsubscribe_link}>",
                 "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"
@@ -392,12 +306,21 @@ def send_email_via_smtp2go(recipient, subject, body_html, body_text, unsubscribe
         if reply_to:
             payload["reply_to"] = reply_to
             
-        response = st.session_state.smtp2go_client.send(**payload)
+        if config['smtp2go']['template_id']:
+            payload["template_id"] = config['smtp2go']['template_id']
+            payload["template_data"] = {
+                "author_name": "$$Author_Name$$",
+                "journal_name": st.session_state.selected_journal,
+                "unsubscribe_link": unsubscribe_link
+            }
+            
+        response = requests.post("https://api.smtp2go.com/v3/email/send", json=payload)
+        response_data = response.json()
         
-        if response.success:
-            return True, response.json.get('data', {}).get('email_id', '')
+        if response_data.get('data', {}).get('succeeded', 0) > 0:
+            return True, response_data.get('data', {}).get('email_id', '')
         else:
-            st.error(f"SMTP2GO Error: {response.errors}")
+            st.error(f"SMTP2GO Error: {response_data.get('error', 'Unknown error')}")
             return False, None
     except Exception as e:
         st.error(f"Failed to send email via SMTP2GO: {str(e)}")
@@ -500,12 +423,31 @@ def process_email_list(file_content, api_key):
         
         # Verify emails
         results = []
-        for email in df['email']:
+        total_emails = len(df)
+        st.session_state.verification_start_time = time.time()
+        
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        for i, email in enumerate(df['email']):
             result = verify_email(email, api_key)
             if result:
                 results.append(result)
             else:
                 results.append({'result': 'error'})
+            
+            # Update progress
+            progress = (i + 1) / total_emails
+            st.session_state.verification_progress = progress
+            progress_bar.progress(progress)
+            
+            # Calculate estimated time remaining
+            elapsed_time = time.time() - st.session_state.verification_start_time
+            if i > 0:
+                estimated_total_time = elapsed_time / progress
+                remaining_time = estimated_total_time - elapsed_time
+                status_text.text(f"Processing {i+1} of {total_emails} emails. Estimated time remaining: {int(remaining_time)} seconds")
+            
             time.sleep(0.1)  # Rate limiting
         
         df['verification_result'] = [r.get('result', 'error') if r else 'error' for r in results]
@@ -566,12 +508,12 @@ def fetch_smtp2go_analytics():
         
         # Fetch stats from SMTP2GO
         stats_url = "https://api.smtp2go.com/v3/stats/email_summary"
-        params = {
+        payload = {
             'api_key': config['smtp2go']['api_key'],
             'days': 30
         }
         
-        response = requests.get(stats_url, params=params)
+        response = requests.post(stats_url, json=payload)
         data = response.json()
         
         if data.get('data'):
@@ -862,8 +804,8 @@ def email_campaign_section():
                                             datetime.now() + timedelta(days=1))
         
         if st.button("Start Campaign"):
-            if st.session_state.email_service == "SMTP2GO" and not st.session_state.smtp2go_initialized:
-                st.error("SMTP2GO not initialized. Please check your configuration.")
+            if st.session_state.email_service == "SMTP2GO" and not config['smtp2go']['api_key']:
+                st.error("SMTP2GO API key not configured")
                 return
             elif st.session_state.email_service == "Amazon SES" and not st.session_state.ses_client:
                 st.error("SES client not initialized. Please configure SES first.")
@@ -1200,9 +1142,6 @@ def main():
     
     if not st.session_state.firebase_initialized:
         initialize_firebase()
-    
-    if not st.session_state.smtp2go_initialized and st.session_state.email_service == "SMTP2GO":
-        initialize_smtp2go()
     
     if app_mode == "Email Campaign":
         email_campaign_section()
