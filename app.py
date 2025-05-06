@@ -15,7 +15,7 @@ from streamlit_ace import st_ace
 import firebase_admin
 from firebase_admin import credentials, firestore
 import matplotlib.pyplot as plt
-from smtp2go.core import Smtp2goClient
+from smtp2go import Smtp2goClient
 
 # App Configuration
 st.set_page_config(
@@ -286,7 +286,7 @@ def initialize_ses():
 def initialize_smtp2go():
     try:
         if config['smtp2go']['api_key']:
-            st.session_state.smtp2go_client = Smtp2goClient(api_key=config['smtp2go']['api_key'])
+            st.session_state.smtp2go_client = Smtp2goClient(api_key=config['smtp2go']['api_key'], api_url='https://api.smtp2go.com/v3/')
             st.session_state.smtp2go_initialized = True
             return True
         else:
