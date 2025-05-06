@@ -321,44 +321,45 @@ def initialize_ses():
         st.error(f"SES initialization failed: {str(e)}")
         return None
 
-# SMTP2GO Email Sending Function
+# SMTP2GO Email Sending Function - Updated from working code
 def send_email_via_smtp2go(recipient, subject, body_html, body_text, unsubscribe_link, reply_to=None):
     try:
-        if not config['smtp2go']['api_key']:
-            st.error("SMTP2GO API key not configured")
-            return False, None
-            
-        payload = {
+        api_url = "https://api.smtp2go.com/v3/email/send"
+        
+        headers = {
+            "List-Unsubscribe": f"<{unsubscribe_link}>",
+            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"
+        }
+        
+        data = {
             "api_key": config['smtp2go']['api_key'],
             "sender": config['smtp2go']['sender'],
             "to": [recipient],
             "subject": subject,
             "text_body": body_text,
             "html_body": body_html,
-            "custom_headers": {
-                "List-Unsubscribe": f"<{unsubscribe_link}>",
-                "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"
-            }
+            "custom_headers": [
+                {
+                    "header": "List-Unsubscribe",
+                    "value": f"<{unsubscribe_link}>"
+                },
+                {
+                    "header": "List-Unsubscribe-Post",
+                    "value": "List-Unsubscribe=One-Click"
+                }
+            ]
         }
         
         if reply_to:
-            payload["reply_to"] = reply_to
-            
-        if config['smtp2go']['template_id']:
-            payload["template_id"] = config['smtp2go']['template_id']
-            payload["template_data"] = {
-                "author_name": "$$Author_Name$$",
-                "journal_name": st.session_state.selected_journal,
-                "unsubscribe_link": unsubscribe_link
-            }
-            
-        response = requests.post("https://api.smtp2go.com/v3/email/send", json=payload)
-        response_data = response.json()
+            data['reply_to'] = reply_to
         
-        if response_data.get('data', {}).get('succeeded', 0) > 0:
-            return True, response_data.get('data', {}).get('email_id', '')
+        response = requests.post(api_url, json=data)
+        result = response.json()
+        
+        if result.get('data', {}).get('succeeded', 0) == 1:
+            return True, result.get('data', {}).get('email_id', '')
         else:
-            st.error(f"SMTP2GO Error: {response_data.get('error', 'Unknown error')}")
+            st.error(f"SMTP2GO Error: {result.get('error', 'Unknown error')}")
             return False, None
     except Exception as e:
         st.error(f"Failed to send email via SMTP2GO: {str(e)}")
@@ -1117,6 +1118,125 @@ def analytics_section():
         if not st.session_state.ses_client:
             initialize_ses()
             
+        if not st.session_state.ses_client:
+            st.error("SES client not initialized")
+            return
+        
+        try:
+            stats = st.session_state.ses_client.get_send_statistics()
+            datapoints = stats['SendDataPoints']
+            
+            if not datapoints:
+                st.info("No email statistics available yet.")
+                return
+            
+            df = pd.DataFrame(datapoints)
+            df['Timestamp'] = pd.to_datetime(df['Timestamp'])
+            df.set_index('Timestamp', inplace=True)
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Delivery Attempts", df['DeliveryAttempts'].sum())
+            with col2:
+                delivery_rate = (df['DeliveryAttempts'].sum() - df['Bounces'].sum()) / df['DeliveryAttempts'].sum() * 100
+                st.metric("Delivery Rate", f"{delivery_rate:.2f}%")
+            with col3:
+                st.metric("Bounces", df['Bounces'].sum())
+            with col4:
+                st.metric("Complaints", df['Complaints'].sum())
+            
+            st.line_chart(df[['DeliveryAttempts', 'Bounces', 'Complaints']])
+            
+            bounce_response = st.session_state.ses_client.list_bounces()
+            if bounce_response['Bounces']:
+                st.subheader("Bounce Details")
+                bounce_df = pd.DataFrame(bounce_response['Bounces'])
+                st.dataframe(bounce_df)
+            
+        except Exception as e:
+            st.error(f"Failed to fetch analytics: {str(e)}")
+
+def fetch_smtp2go_analytics():
+    try:
+        if not config['smtp2go']['api_key']:
+            st.error("SMTP API key not configured")
+            return None
+        
+        # Fetch stats from SMTP2GO
+        stats_url = "https://api.smtp2go.com/v3/stats/email_summary"
+        params = {
+            'api_key': config['smtp2go']['api_key'],
+            'days': 30
+        }
+        
+        response = requests.get(stats_url, params=params)
+        data = response.json()
+        
+        if data.get('data'):
+            return data['data']
+        else:
+            st.error(f"Failed to fetch SMTP analytics: {data.get('error', 'Unknown error')}")
+            return None
+    except Exception as e:
+        st.error(f"Error fetching SMTP analytics: {str(e)}")
+        return None
+
+def show_email_analytics():
+    st.subheader("Email Campaign Analytics Dashboard")
+    
+    if st.session_state.email_service == "SMTP2GO":
+        analytics_data = fetch_smtp2go_analytics()
+        
+        if analytics_data:
+            # Process data for display
+            df = pd.DataFrame(analytics_data['stats'])
+            df['date'] = pd.to_datetime(df['date'])
+            df.set_index('date', inplace=True)
+            
+            # Calculate rates
+            df['delivery_rate'] = (df['delivered'] / df['sent']) * 100
+            df['open_rate'] = (df['opens_unique'] / df['delivered']) * 100
+            df['click_rate'] = (df['clicks_unique'] / df['opens_unique']) * 100
+            
+            # Summary metrics
+            col1, col2, col3, col4, col5 = st.columns(5)
+            with col1:
+                st.metric("Total Sent", df['sent'].sum())
+            with col2:
+                st.metric("Delivered", df['delivered'].sum(), 
+                         f"{df['delivery_rate'].mean():.1f}%")
+            with col3:
+                st.metric("Opened", df['opens_unique'].sum(), 
+                         f"{df['open_rate'].mean():.1f}%")
+            with col4:
+                st.metric("Clicked", df['clicks_unique'].sum(), 
+                         f"{df['click_rate'].mean():.1f}%")
+            with col5:
+                st.metric("Bounced", df['hard_bounces'].sum() + df['soft_bounces'].sum())
+            
+            # Time series charts
+            st.subheader("Performance Over Time")
+            tab1, tab2, tab3 = st.tabs(["Volume Metrics", "Engagement Rates", "Bounce & Complaints"])
+            
+            with tab1:
+                st.line_chart(df[['sent', 'delivered', 'opens_unique', 'clicks_unique']])
+            
+            with tab2:
+                st.line_chart(df[['delivery_rate', 'open_rate', 'click_rate']])
+            
+            with tab3:
+                st.line_chart(df[['hard_bounces', 'soft_bounces', 'spam_complaints']])
+            
+            # Campaign details
+            st.subheader("Recent Campaigns")
+            if st.session_state.campaign_history:
+                campaign_df = pd.DataFrame(st.session_state.campaign_history)
+                st.dataframe(campaign_df.sort_values('timestamp', ascending=False))
+            else:
+                st.info("No campaign history available")
+        else:
+            st.info("No analytics data available yet. Please send some emails first.")
+    else:
         if not st.session_state.ses_client:
             st.error("SES client not initialized")
             return
