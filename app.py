@@ -537,148 +537,53 @@ def generate_report_file(df, report_type):
     
     return output.strip()
 
-# Analytics Functions
-def fetch_smtp2go_analytics():
+# Firebase Storage Functions
+def upload_to_firebase(file_content, filename):
     try:
-        if not config['smtp2go']['api_key']:
-            st.error("SMTP API key not configured")
-            return None
-        
-        # Fetch stats from SMTP2GO
-        stats_url = "https://api.smtp2go.com/v3/stats/email_summary"
-        payload = {
-            'api_key': config['smtp2go']['api_key'],
-            'days': 30
-        }
-        
-        response = requests.post(stats_url, json=payload)
-        data = response.json()
-        
-        if data.get('data'):
-            return data['data']
-        else:
-            st.error(f"Failed to fetch SMTP analytics: {data.get('error', 'Unknown error')}")
-            return None
+        db = get_firestore_db()
+        if not db:
+            return False
+            
+        doc_ref = db.collection("email_files").document(filename)
+        doc_ref.set({
+            "content": file_content,
+            "uploaded_at": datetime.now(),
+            "uploaded_by": "admin"
+        })
+        return True
     except Exception as e:
-        st.error(f"Error fetching SMTP analytics: {str(e)}")
+        st.error(f"Failed to upload file: {str(e)}")
+        return False
+
+def download_from_firebase(filename):
+    try:
+        db = get_firestore_db()
+        if not db:
+            return None
+            
+        doc_ref = db.collection("email_files").document(filename)
+        doc = doc_ref.get()
+        if doc.exists:
+            return doc.to_dict().get("content", "")
+        return None
+    except Exception as e:
+        st.error(f"Failed to download file: {str(e)}")
         return None
 
-def show_email_analytics():
-    st.subheader("Email Campaign Analytics Dashboard")
-    
-    if st.session_state.email_service == "SMTP2GO":
-        analytics_data = fetch_smtp2go_analytics()
-        
-        if analytics_data:
-            # Process data for display
-            df = pd.DataFrame(analytics_data['stats'])
-            df['date'] = pd.to_datetime(df['date'])
-            df.set_index('date', inplace=True)
+def list_firebase_files():
+    try:
+        db = get_firestore_db()
+        if not db:
+            return []
             
-            # Calculate rates
-            df['delivery_rate'] = (df['delivered'] / df['sent']) * 100
-            df['open_rate'] = (df['opens_unique'] / df['delivered']) * 100
-            df['click_rate'] = (df['clicks_unique'] / df['opens_unique']) * 100
-            
-            # Summary metrics
-            col1, col2, col3, col4, col5 = st.columns(5)
-            with col1:
-                st.metric("Total Sent", df['sent'].sum())
-            with col2:
-                st.metric("Delivered", df['delivered'].sum(), 
-                         f"{df['delivery_rate'].mean():.1f}%")
-            with col3:
-                st.metric("Opened", df['opens_unique'].sum(), 
-                         f"{df['open_rate'].mean():.1f}%")
-            with col4:
-                st.metric("Clicked", df['clicks_unique'].sum(), 
-                         f"{df['click_rate'].mean():.1f}%")
-            with col5:
-                st.metric("Bounced", df['hard_bounces'].sum() + df['soft_bounces'].sum())
-            
-            # Time series charts
-            st.subheader("Performance Over Time")
-            tab1, tab2, tab3 = st.tabs(["Volume Metrics", "Engagement Rates", "Bounce & Complaints"])
-            
-            with tab1:
-                st.line_chart(df[['sent', 'delivered', 'opens_unique', 'clicks_unique']])
-            
-            with tab2:
-                st.line_chart(df[['delivery_rate', 'open_rate', 'click_rate']])
-            
-            with tab3:
-                st.line_chart(df[['hard_bounces', 'soft_bounces', 'spam_complaints']])
-            
-            # Campaign details
-            st.subheader("Recent Campaigns")
-            if st.session_state.campaign_history:
-                campaign_df = pd.DataFrame(st.session_state.campaign_history)
-                
-                # Add performance metrics to campaign history
-                campaign_df['delivery_rate'] = campaign_df.apply(lambda x: (x['emails_sent'] / x['total_emails']) * 100, axis=1)
-                
-                st.dataframe(
-                    campaign_df.sort_values('timestamp', ascending=False),
-                    column_config={
-                        "timestamp": "Date",
-                        "journal": "Journal",
-                        "emails_sent": "Sent",
-                        "total_emails": "Total",
-                        "delivery_rate": st.column_config.ProgressColumn(
-                            "Delivery Rate",
-                            format="%.1f%%",
-                            min_value=0,
-                            max_value=100,
-                        ),
-                        "subject": "Subject",
-                        "service": "Service"
-                    }
-                )
-            else:
-                st.info("No campaign history available")
-        else:
-            st.info("No analytics data available yet. Please send some emails first.")
-    else:
-        if not st.session_state.ses_client:
-            initialize_ses()
-            
-        if not st.session_state.ses_client:
-            st.error("SES client not initialized")
-            return
-        
-        try:
-            stats = st.session_state.ses_client.get_send_statistics()
-            datapoints = stats['SendDataPoints']
-            
-            if not datapoints:
-                st.info("No email statistics available yet.")
-                return
-            
-            df = pd.DataFrame(datapoints)
-            df['Timestamp'] = pd.to_datetime(df['Timestamp'])
-            df.set_index('Timestamp', inplace=True)
-            
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Delivery Attempts", df['DeliveryAttempts'].sum())
-            with col2:
-                delivery_rate = (df['DeliveryAttempts'].sum() - df['Bounces'].sum()) / df['DeliveryAttempts'].sum() * 100
-                st.metric("Delivery Rate", f"{delivery_rate:.2f}%")
-            with col3:
-                st.metric("Bounces", df['Bounces'].sum())
-            with col4:
-                st.metric("Complaints", df['Complaints'].sum())
-            
-            st.line_chart(df[['DeliveryAttempts', 'Bounces', 'Complaints']])
-            
-            bounce_response = st.session_state.ses_client.list_bounces()
-            if bounce_response['Bounces']:
-                st.subheader("Bounce Details")
-                bounce_df = pd.DataFrame(bounce_response['Bounces'])
-                st.dataframe(bounce_df)
-            
-        except Exception as e:
-            st.error(f"Failed to fetch analytics: {str(e)}")
+        files_ref = db.collection("email_files")
+        files = []
+        for doc in files_ref.stream():
+            files.append(doc.id)
+        return files
+    except Exception as e:
+        st.error(f"Failed to list files: {str(e)}")
+        return []
 
 # Email Campaign Section
 def email_campaign_section():
@@ -703,7 +608,7 @@ def email_campaign_section():
     # Email Service Selection
     st.session_state.email_service = st.radio(
         "Select Email Service",
-        ["SMTP Service", "Amazon AWS"],
+        ["SMTP2GO", "Amazon SES"],
         index=0 if st.session_state.email_service == "SMTP2GO" else 1
     )
     
@@ -805,10 +710,11 @@ def email_campaign_section():
             
             if st.button("Save to Firebase"):
                 if uploaded_file.name.endswith('.txt'):
-                    if upload_to_firebase(StringIO(file_content), uploaded_file.name):
+                    if upload_to_firebase(file_content, uploaded_file.name):
                         st.success("File uploaded to Firebase successfully!")
                 else:
-                    if upload_to_firebase(uploaded_file, uploaded_file.name):
+                    csv_content = df.to_csv(index=False)
+                    if upload_to_firebase(csv_content, uploaded_file.name):
                         st.success("File uploaded to Firebase successfully!")
     else:
         if st.button("Refresh File List"):
@@ -1041,14 +947,23 @@ def email_verification_section():
             st.metric("Risky Emails", f"{stats['risky']} ({stats['risky_percent']}%)", 
                      help="Risky emails may exist or not. Use with caution.")
         
-        # Pie chart with optimal size
-        fig, ax = plt.subplots(figsize=(6, 4))
-        ax.pie(
-            [stats['good'], stats['bad'], stats['risky']],
-            labels=['Good', 'Bad', 'Risky'],
-            colors=['#4CAF50', '#F44336', '#9C27B0'],
-            autopct='%1.1f%%'
-        )
+        # Bar chart instead of pie chart
+        fig, ax = plt.subplots(figsize=(8, 4))
+        categories = ['Good', 'Bad', 'Risky']
+        counts = [stats['good'], stats['bad'], stats['risky']]
+        colors = ['#4CAF50', '#F44336', '#9C27B0']
+        
+        bars = ax.bar(categories, counts, color=colors)
+        ax.set_title('Email Verification Results')
+        ax.set_ylabel('Count')
+        
+        # Add value labels on top of bars
+        for bar in bars:
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2., height,
+                    f'{int(height)}',
+                    ha='center', va='bottom')
+        
         st.pyplot(fig)
         
         # Download reports - side by side buttons
