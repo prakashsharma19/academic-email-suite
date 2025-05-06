@@ -565,4 +565,4 @@ def fetch_smtp2go_analytics():
             return None
         
         # Fetch stats from SMTP2GO
-        stats_url = 
+        stats_url =
