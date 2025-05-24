@@ -8,13 +8,17 @@ import json
 import os
 import pytz
 from datetime import datetime, timedelta
-from io import StringIO
+from io import StringIO, BytesIO
 from google.cloud import storage
 from google.oauth2 import service_account
 from streamlit_ace import st_ace
 import firebase_admin
 from firebase_admin import credentials, firestore
 import matplotlib.pyplot as plt
+import chardet
+import tempfile
+import win32com.client as win32
+import pythoncom
 
 # App Configuration
 st.set_page_config(
@@ -160,6 +164,8 @@ def init_session_state():
         st.session_state.verification_start_time = None
     if 'verification_progress' not in st.session_state:
         st.session_state.verification_progress = 0
+    if 'templates' not in st.session_state:
+        st.session_state.templates = {}
 
 init_session_state()
 
@@ -195,11 +201,11 @@ def get_journal_template(journal_name):
     return f"""<div style="font-family: Arial, sans-serif; line-height: 1.6; max-width: 600px; margin: 0 auto;">
     <div style="margin-bottom: 20px;">
         <p>To</p>
-        <p>$$Author_Name$$<br>
+        <p>$$Author_Name$$ $$Author_LastName$$<br>
         $$Author_Address$$</p>
     </div>
     
-    <p>Dear $$Author_Name$$,</p>
+    <p>Dear $$Author_Name$$ $$Author_LastName$$,</p>
     
     <p>We are pleased to invite you to submit your research work to <strong>{journal_name}</strong>.</p>
     
@@ -433,13 +439,23 @@ def check_millionverifier_quota(api_key):
         st.error(f"Failed to check quota: {str(e)}")
         return 0
 
+def detect_file_encoding(file_content):
+    try:
+        result = chardet.detect(file_content)
+        return result['encoding']
+    except:
+        return 'utf-8'
+
 def process_email_list(file_content, api_key):
     try:
+        # Detect file encoding
+        encoding = detect_file_encoding(file_content)
+        
         # Parse the text file with the specific format
         entries = []
         current_entry = {}
         
-        for line in file_content.split('\n'):
+        for line in file_content.decode(encoding).split('\n'):
             line = line.strip()
             if line:
                 if '@' in line and '.' in line and ' ' not in line:  # Likely email
@@ -448,6 +464,8 @@ def process_email_list(file_content, api_key):
                     current_entry = {}
                 elif not current_entry.get('name', ''):
                     current_entry['name'] = line
+                elif not current_entry.get('last_name', ''):
+                    current_entry['last_name'] = line
                 elif not current_entry.get('department', ''):
                     current_entry['department'] = line
                 elif not current_entry.get('university', ''):
@@ -458,7 +476,7 @@ def process_email_list(file_content, api_key):
         df = pd.DataFrame(entries)
         
         if df.empty:
-            return pd.DataFrame(columns=['name', 'department', 'university', 'country', 'email', 'verification_result'])
+            return pd.DataFrame(columns=['name', 'last_name', 'department', 'university', 'country', 'email', 'verification_result'])
         
         # Verify emails
         results = []
@@ -531,6 +549,7 @@ def generate_report_file(df, report_type):
     
     for _, row in filtered_df.iterrows():
         output += f"{row.get('name', '')}\n"
+        output += f"{row.get('last_name', '')}\n"
         output += f"{row.get('department', '')}\n"
         output += f"{row.get('university', '')}\n"
         output += f"{row.get('country', '')}\n"
@@ -539,7 +558,7 @@ def generate_report_file(df, report_type):
     return output.strip()
 
 # Firebase Storage Functions
-def upload_to_firebase(file_content, filename):
+def upload_to_firebase(file_content, filename, content_type="text/plain"):
     try:
         db = get_firestore_db()
         if not db:
@@ -547,13 +566,33 @@ def upload_to_firebase(file_content, filename):
             
         doc_ref = db.collection("email_files").document(filename)
         doc_ref.set({
-            "content": file_content,
+            "content": file_content if isinstance(file_content, str) else file_content.decode('utf-8'),
+            "uploaded_at": datetime.now(),
+            "uploaded_by": "admin",
+            "content_type": content_type
+        })
+        return True
+    except Exception as e:
+        st.error(f"Failed to upload file: {str(e)}")
+        return False
+
+def upload_template_to_firebase(template_content, journal_name, template_name):
+    try:
+        db = get_firestore_db()
+        if not db:
+            return False
+            
+        doc_ref = db.collection("email_templates").document(f"{journal_name}_{template_name}")
+        doc_ref.set({
+            "content": template_content,
+            "journal": journal_name,
+            "template_name": template_name,
             "uploaded_at": datetime.now(),
             "uploaded_by": "admin"
         })
         return True
     except Exception as e:
-        st.error(f"Failed to upload file: {str(e)}")
+        st.error(f"Failed to upload template: {str(e)}")
         return False
 
 def download_from_firebase(filename):
@@ -571,6 +610,21 @@ def download_from_firebase(filename):
         st.error(f"Failed to download file: {str(e)}")
         return None
 
+def download_template_from_firebase(journal_name, template_name):
+    try:
+        db = get_firestore_db()
+        if not db:
+            return None
+            
+        doc_ref = db.collection("email_templates").document(f"{journal_name}_{template_name}")
+        doc = doc_ref.get()
+        if doc.exists:
+            return doc.to_dict().get("content", "")
+        return None
+    except Exception as e:
+        st.error(f"Failed to download template: {str(e)}")
+        return None
+
 def list_firebase_files():
     try:
         db = get_firestore_db()
@@ -585,6 +639,65 @@ def list_firebase_files():
     except Exception as e:
         st.error(f"Failed to list files: {str(e)}")
         return []
+
+def list_firebase_templates(journal_name=None):
+    try:
+        db = get_firestore_db()
+        if not db:
+            return []
+            
+        templates_ref = db.collection("email_templates")
+        templates = []
+        
+        if journal_name:
+            query = templates_ref.where("journal", "==", journal_name)
+        else:
+            query = templates_ref
+            
+        for doc in query.stream():
+            templates.append({
+                "name": doc.to_dict().get("template_name", ""),
+                "journal": doc.to_dict().get("journal", ""),
+                "uploaded_at": doc.to_dict().get("uploaded_at", ""),
+                "content": doc.to_dict().get("content", "")
+            })
+        return templates
+    except Exception as e:
+        st.error(f"Failed to list templates: {str(e)}")
+        return []
+
+def extract_msg_content(msg_file):
+    try:
+        pythoncom.CoInitialize()
+        outlook = win32.Dispatch("Outlook.Application").GetNamespace("MAPI")
+        msg = outlook.OpenSharedItem(msg_file)
+        
+        html_body = msg.HTMLBody
+        text_body = msg.Body
+        
+        msg.Close(0)
+        pythoncom.CoUninitialize()
+        
+        return html_body if html_body else text_body
+    except Exception as e:
+        st.error(f"Failed to extract MSG content: {str(e)}")
+        return None
+
+def process_uploaded_template(uploaded_file):
+    try:
+        if uploaded_file.name.endswith('.msg'):
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.msg') as tmp:
+                tmp.write(uploaded_file.read())
+                tmp_path = tmp.name
+            
+            content = extract_msg_content(tmp_path)
+            os.unlink(tmp_path)
+            return content
+        else:
+            return uploaded_file.read().decode('utf-8')
+    except Exception as e:
+        st.error(f"Failed to process template file: {str(e)}")
+        return None
 
 # Email Campaign Section
 def email_campaign_section():
@@ -624,9 +737,50 @@ def email_campaign_section():
             st.session_state.journal_reply_addresses[selected_journal] = reply_address
             st.success("Reply address saved!")
     
+    # Template Management
+    with st.expander("Template Management"):
+        st.subheader("Manage Templates")
+        
+        # List existing templates
+        templates = list_firebase_templates(selected_journal)
+        template_names = [t['name'] for t in templates]
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            selected_template = st.selectbox("Select Template", template_names if template_names else ["Default"])
+        
+        with col2:
+            new_template_name = st.text_input("New Template Name", key="new_template_name")
+        
+        # Load selected template
+        current_template = get_journal_template(selected_journal)
+        if templates and selected_template != "Default":
+            for t in templates:
+                if t['name'] == selected_template:
+                    current_template = t['content']
+                    break
+        
+        # Upload new template
+        uploaded_template = st.file_uploader("Upload Template (HTML, TXT, or MSG)", type=["html", "txt", "msg"])
+        
+        if uploaded_template and new_template_name:
+            if st.button("Upload Template"):
+                template_content = process_uploaded_template(uploaded_template)
+                if template_content:
+                    if upload_template_to_firebase(template_content, selected_journal, new_template_name):
+                        st.success("Template uploaded successfully!")
+                        st.rerun()
+        
+        if templates and selected_template != "Default":
+            if st.button("Delete Template"):
+                db = get_firestore_db()
+                if db:
+                    db.collection("email_templates").document(f"{selected_journal}_{selected_template}").delete()
+                    st.success("Template deleted successfully!")
+                    st.rerun()
+    
     # Email Template Editor with ACE Editor
     st.subheader("Email Template Editor")
-    template = get_journal_template(st.session_state.selected_journal)
     
     col1, col2 = st.columns(2)
     with col1:
@@ -639,7 +793,7 @@ def email_campaign_section():
     with editor_col:
         st.markdown("**Template Editor**")
         email_body = st_ace(
-            value=template,
+            value=current_template,
             language="html",
             theme="chrome",
             font_size=14,
@@ -651,7 +805,8 @@ def email_campaign_section():
         )
         
         st.info("""Available template variables:
-        - $$Author_Name$$: Author's full name
+        - $$Author_Name$$: Author's first name
+        - $$Author_LastName$$: Author's last name
         - $$Author_Address$$: All address lines before email
         - $$Department$$: Author's department
         - $$University$$: Author's university
@@ -662,7 +817,8 @@ def email_campaign_section():
     
     with preview_col:
         st.markdown("**Preview**")
-        preview_html = email_body.replace("$$Author_Name$$", "Professor John Doe")
+        preview_html = email_body.replace("$$Author_Name$$", "John")
+        preview_html = preview_html.replace("$$Author_LastName$$", "Doe")
         preview_html = preview_html.replace("$$Author_Address$$", "Department of Computer Science<br>Harvard University<br>United States")
         preview_html = preview_html.replace("$$Department$$", "Computer Science")
         preview_html = preview_html.replace("$$University$$", "Harvard University")
@@ -680,43 +836,51 @@ def email_campaign_section():
     if file_source == "Local Upload":
         uploaded_file = st.file_uploader("Upload recipient list (CSV or TXT)", type=["csv", "txt"])
         if uploaded_file:
-            if uploaded_file.name.endswith('.txt'):
-                # Process the text file with the specific format
-                file_content = uploaded_file.read().decode('utf-8')
-                entries = []
-                current_entry = {}
+            try:
+                # Detect file encoding
+                file_content = uploaded_file.read()
+                encoding = detect_file_encoding(file_content)
                 
-                for line in file_content.split('\n'):
-                    line = line.strip()
-                    if line:
-                        if '@' in line and '.' in line and ' ' not in line:  # Likely email
-                            current_entry['email'] = line
-                            entries.append(current_entry)
-                            current_entry = {}
-                        elif not current_entry.get('name', ''):
-                            current_entry['name'] = line
-                        elif not current_entry.get('department', ''):
-                            current_entry['department'] = line
-                        elif not current_entry.get('university', ''):
-                            current_entry['university'] = line
-                        elif not current_entry.get('country', ''):
-                            current_entry['country'] = line
-                
-                df = pd.DataFrame(entries)
-            else:
-                df = pd.read_csv(uploaded_file)
-            
-            st.session_state.current_recipient_list = df
-            st.dataframe(df.head())
-            
-            if st.button("Save to Firebase"):
                 if uploaded_file.name.endswith('.txt'):
-                    if upload_to_firebase(file_content, uploaded_file.name):
-                        st.success("File uploaded to Firebase successfully!")
+                    # Process the text file with the specific format
+                    entries = []
+                    current_entry = {}
+                    
+                    for line in file_content.decode(encoding).split('\n'):
+                        line = line.strip()
+                        if line:
+                            if '@' in line and '.' in line and ' ' not in line:  # Likely email
+                                current_entry['email'] = line
+                                entries.append(current_entry)
+                                current_entry = {}
+                            elif not current_entry.get('name', ''):
+                                current_entry['name'] = line
+                            elif not current_entry.get('last_name', ''):
+                                current_entry['last_name'] = line
+                            elif not current_entry.get('department', ''):
+                                current_entry['department'] = line
+                            elif not current_entry.get('university', ''):
+                                current_entry['university'] = line
+                            elif not current_entry.get('country', ''):
+                                current_entry['country'] = line
+                    
+                    df = pd.DataFrame(entries)
                 else:
-                    csv_content = df.to_csv(index=False)
-                    if upload_to_firebase(csv_content, uploaded_file.name):
-                        st.success("File uploaded to Firebase successfully!")
+                    df = pd.read_csv(BytesIO(file_content))
+                
+                st.session_state.current_recipient_list = df
+                st.dataframe(df.head())
+                
+                if st.button("Save to Firebase"):
+                    if uploaded_file.name.endswith('.txt'):
+                        if upload_to_firebase(file_content, uploaded_file.name):
+                            st.success("File uploaded to Firebase successfully!")
+                    else:
+                        csv_content = df.to_csv(index=False)
+                        if upload_to_firebase(csv_content, uploaded_file.name):
+                            st.success("File uploaded to Firebase successfully!")
+            except Exception as e:
+                st.error(f"Error processing file: {str(e)}")
     else:
         if st.button("Refresh File List"):
             st.session_state.firebase_files = list_firebase_files()
@@ -741,6 +905,8 @@ def email_campaign_section():
                                     current_entry = {}
                                 elif not current_entry.get('name', ''):
                                     current_entry['name'] = line
+                                elif not current_entry.get('last_name', ''):
+                                    current_entry['last_name'] = line
                                 elif not current_entry.get('department', ''):
                                     current_entry['department'] = line
                                 elif not current_entry.get('university', ''):
@@ -807,6 +973,7 @@ def email_campaign_section():
                 
                 email_content = email_body
                 email_content = email_content.replace("$$Author_Name$$", str(row.get('name', '')))
+                email_content = email_content.replace("$$Author_LastName$$", str(row.get('last_name', '')))
                 email_content = email_content.replace("$$Author_Address$$", author_address)
                 email_content = email_content.replace("$$Department$$", str(row.get('department', '')))
                 email_content = email_content.replace("$$University$$", str(row.get('university', '')))
@@ -887,21 +1054,26 @@ def email_verification_section():
     if file_source == "Local Upload":
         uploaded_file = st.file_uploader("Upload email list for verification (TXT format)", type=["txt"])
         if uploaded_file:
-            file_content = uploaded_file.read().decode('utf-8')
-            st.text_area("File Content Preview", file_content, height=150)
-            
-            if st.button("Verify Emails"):
-                if not config['millionverifier']['api_key']:
-                    st.error("Please configure MillionVerifier API Key first")
-                    return
+            try:
+                file_content = uploaded_file.read()
+                encoding = detect_file_encoding(file_content)
+                decoded_content = file_content.decode(encoding)
+                st.text_area("File Content Preview", decoded_content, height=150)
                 
-                with st.spinner("Verifying emails..."):
-                    result_df = process_email_list(file_content, config['millionverifier']['api_key'])
-                    if not result_df.empty:
-                        st.session_state.verified_emails = result_df
-                        st.dataframe(result_df)
-                    else:
-                        st.error("No valid emails found in the file")
+                if st.button("Verify Emails"):
+                    if not config['millionverifier']['api_key']:
+                        st.error("Please configure MillionVerifier API Key first")
+                        return
+                    
+                    with st.spinner("Verifying emails..."):
+                        result_df = process_email_list(file_content, config['millionverifier']['api_key'])
+                        if not result_df.empty:
+                            st.session_state.verified_emails = result_df
+                            st.dataframe(result_df)
+                        else:
+                            st.error("No valid emails found in the file")
+            except Exception as e:
+                st.error(f"Error processing file: {str(e)}")
     else:
         if st.button("Refresh File List for Verification"):
             st.session_state.firebase_files_verification = list_firebase_files()
@@ -922,7 +1094,10 @@ def email_verification_section():
                     return
                 
                 with st.spinner("Verifying emails..."):
-                    result_df = process_email_list(st.session_state.current_verification_list, config['millionverifier']['api_key'])
+                    result_df = process_email_list(
+                        st.session_state.current_verification_list.encode('utf-8'), 
+                        config['millionverifier']['api_key']
+                    )
                     if not result_df.empty:
                         st.session_state.verified_emails = result_df
                         st.dataframe(result_df)
@@ -1045,7 +1220,7 @@ def analytics_section():
         # Fetch detailed analytics
         analytics_data = fetch_smtp2go_analytics()
         
-        if analytics_data:
+        if analytics_data and isinstance(analytics_data, dict) and 'totals' in analytics_data:
             # Overall metrics
             st.subheader("Overall Performance")
             col1, col2, col3, col4, col5 = st.columns(5)
@@ -1064,26 +1239,27 @@ def analytics_section():
                 st.metric("Bounced", analytics_data['totals']['hard_bounces'] + analytics_data['totals']['soft_bounces'])
             
             # Time series data
-            st.subheader("Performance Over Time")
-            df = pd.DataFrame(analytics_data['stats'])
-            df['date'] = pd.to_datetime(df['date'])
-            df.set_index('date', inplace=True)
-            
-            # Calculate rates
-            df['delivery_rate'] = (df['delivered'] / df['sent']) * 100
-            df['open_rate'] = (df['opens_unique'] / df['delivered']) * 100
-            df['click_rate'] = (df['clicks_unique'] / df['opens_unique']) * 100
-            
-            tab1, tab2, tab3 = st.tabs(["Volume Metrics", "Engagement Rates", "Bounce & Complaints"])
-            
-            with tab1:
-                st.line_chart(df[['sent', 'delivered', 'opens_unique', 'clicks_unique']])
-            
-            with tab2:
-                st.line_chart(df[['delivery_rate', 'open_rate', 'click_rate']])
-            
-            with tab3:
-                st.line_chart(df[['hard_bounces', 'soft_bounces', 'spam_complaints']])
+            if 'stats' in analytics_data and isinstance(analytics_data['stats'], list):
+                st.subheader("Performance Over Time")
+                df = pd.DataFrame(analytics_data['stats'])
+                df['date'] = pd.to_datetime(df['date'])
+                df.set_index('date', inplace=True)
+                
+                # Calculate rates
+                df['delivery_rate'] = (df['delivered'] / df['sent']) * 100
+                df['open_rate'] = (df['opens_unique'] / df['delivered']) * 100
+                df['click_rate'] = (df['clicks_unique'] / df['opens_unique']) * 100
+                
+                tab1, tab2, tab3 = st.tabs(["Volume Metrics", "Engagement Rates", "Bounce & Complaints"])
+                
+                with tab1:
+                    st.line_chart(df[['sent', 'delivered', 'opens_unique', 'clicks_unique']])
+                
+                with tab2:
+                    st.line_chart(df[['delivery_rate', 'open_rate', 'click_rate']])
+                
+                with tab3:
+                    st.line_chart(df[['hard_bounces', 'soft_bounces', 'spam_complaints']])
             
             # Campaign details
             st.subheader("Recent Campaigns")
@@ -1170,7 +1346,16 @@ def fetch_smtp2go_analytics():
         }
         
         response = requests.get(stats_url, params=params)
-        data = response.json()
+        
+        # Debugging: Print raw response
+        print("SMTP2GO Response:", response.text)
+        
+        try:
+            data = response.json()
+        except json.JSONDecodeError as e:
+            st.error(f"Failed to decode SMTP2GO response: {str(e)}")
+            st.error(f"Response content: {response.text}")
+            return None
         
         if data.get('data'):
             return data['data']
@@ -1187,53 +1372,56 @@ def show_email_analytics():
     if st.session_state.email_service == "SMTP2GO":
         analytics_data = fetch_smtp2go_analytics()
         
-        if analytics_data:
+        if analytics_data and isinstance(analytics_data, dict) and 'totals' in analytics_data:
             # Process data for display
-            df = pd.DataFrame(analytics_data['stats'])
-            df['date'] = pd.to_datetime(df['date'])
-            df.set_index('date', inplace=True)
-            
-            # Calculate rates
-            df['delivery_rate'] = (df['delivered'] / df['sent']) * 100
-            df['open_rate'] = (df['opens_unique'] / df['delivered']) * 100
-            df['click_rate'] = (df['clicks_unique'] / df['opens_unique']) * 100
-            
-            # Summary metrics
-            col1, col2, col3, col4, col5 = st.columns(5)
-            with col1:
-                st.metric("Total Sent", df['sent'].sum())
-            with col2:
-                st.metric("Delivered", df['delivered'].sum(), 
-                         f"{df['delivery_rate'].mean():.1f}%")
-            with col3:
-                st.metric("Opened", df['opens_unique'].sum(), 
-                         f"{df['open_rate'].mean():.1f}%")
-            with col4:
-                st.metric("Clicked", df['clicks_unique'].sum(), 
-                         f"{df['click_rate'].mean():.1f}%")
-            with col5:
-                st.metric("Bounced", df['hard_bounces'].sum() + df['soft_bounces'].sum())
-            
-            # Time series charts
-            st.subheader("Performance Over Time")
-            tab1, tab2, tab3 = st.tabs(["Volume Metrics", "Engagement Rates", "Bounce & Complaints"])
-            
-            with tab1:
-                st.line_chart(df[['sent', 'delivered', 'opens_unique', 'clicks_unique']])
-            
-            with tab2:
-                st.line_chart(df[['delivery_rate', 'open_rate', 'click_rate']])
-            
-            with tab3:
-                st.line_chart(df[['hard_bounces', 'soft_bounces', 'spam_complaints']])
-            
-            # Campaign details
-            st.subheader("Recent Campaigns")
-            if st.session_state.campaign_history:
-                campaign_df = pd.DataFrame(st.session_state.campaign_history)
-                st.dataframe(campaign_df.sort_values('timestamp', ascending=False))
+            if 'stats' in analytics_data and isinstance(analytics_data['stats'], list):
+                df = pd.DataFrame(analytics_data['stats'])
+                df['date'] = pd.to_datetime(df['date'])
+                df.set_index('date', inplace=True)
+                
+                # Calculate rates
+                df['delivery_rate'] = (df['delivered'] / df['sent']) * 100
+                df['open_rate'] = (df['opens_unique'] / df['delivered']) * 100
+                df['click_rate'] = (df['clicks_unique'] / df['opens_unique']) * 100
+                
+                # Summary metrics
+                col1, col2, col3, col4, col5 = st.columns(5)
+                with col1:
+                    st.metric("Total Sent", df['sent'].sum())
+                with col2:
+                    st.metric("Delivered", df['delivered'].sum(), 
+                             f"{df['delivery_rate'].mean():.1f}%")
+                with col3:
+                    st.metric("Opened", df['opens_unique'].sum(), 
+                             f"{df['open_rate'].mean():.1f}%")
+                with col4:
+                    st.metric("Clicked", df['clicks_unique'].sum(), 
+                             f"{df['click_rate'].mean():.1f}%")
+                with col5:
+                    st.metric("Bounced", df['hard_bounces'].sum() + df['soft_bounces'].sum())
+                
+                # Time series charts
+                st.subheader("Performance Over Time")
+                tab1, tab2, tab3 = st.tabs(["Volume Metrics", "Engagement Rates", "Bounce & Complaints"])
+                
+                with tab1:
+                    st.line_chart(df[['sent', 'delivered', 'opens_unique', 'clicks_unique']])
+                
+                with tab2:
+                    st.line_chart(df[['delivery_rate', 'open_rate', 'click_rate']])
+                
+                with tab3:
+                    st.line_chart(df[['hard_bounces', 'soft_bounces', 'spam_complaints']])
+                
+                # Campaign details
+                st.subheader("Recent Campaigns")
+                if st.session_state.campaign_history:
+                    campaign_df = pd.DataFrame(st.session_state.campaign_history)
+                    st.dataframe(campaign_df.sort_values('timestamp', ascending=False))
+                else:
+                    st.info("No campaign history available")
             else:
-                st.info("No campaign history available")
+                st.info("No stats data available in analytics response")
         else:
             st.info("No analytics data available yet. Please send some emails first.")
     else:
