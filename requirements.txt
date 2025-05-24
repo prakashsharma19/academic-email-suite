@@ -7,3 +7,4 @@ firebase-admin==6.2.0
 matplotlib==3.8.2
 streamlit-ace==0.1.1
 chardet==5.2.0
+pywin32==306  # For win32com
