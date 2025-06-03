@@ -15,12 +15,14 @@ from streamlit_ace import st_ace
 import firebase_admin
 from firebase_admin import credentials, firestore
 import matplotlib.pyplot as plt
+from firebase_functions import https_fn, scheduler_fn
+import threading
 
 # App Configuration
 st.set_page_config(
     page_title="PPH Email Manager", 
     layout="wide",
-    page_icon="??",
+    page_icon="📧",
     menu_items={
         'About': "### Academic Email Management Suite\n\nDeveloped by Prakash (cpsharma.com)"
     }
@@ -160,6 +162,14 @@ def init_session_state():
         st.session_state.verification_start_time = None
     if 'verification_progress' not in st.session_state:
         st.session_state.verification_progress = 0
+    if 'active_campaign' not in st.session_state:
+        st.session_state.active_campaign = None
+    if 'campaign_paused' not in st.session_state:
+        st.session_state.campaign_paused = False
+    if 'campaign_cancelled' not in st.session_state:
+        st.session_state.campaign_cancelled = False
+    if 'template_content' not in st.session_state:
+        st.session_state.template_content = {}
 
 init_session_state()
 
@@ -192,6 +202,11 @@ JOURNALS = [
 
 # Default email template
 def get_journal_template(journal_name):
+    # Check if we have a saved template in session state
+    if journal_name in st.session_state.template_content:
+        return st.session_state.template_content[journal_name]
+    
+    # Otherwise return default template
     return f"""<div style="font-family: Arial, sans-serif; line-height: 1.6; max-width: 600px; margin: 0 auto;">
     <div style="margin-bottom: 20px;">
         <p>To</p>
@@ -494,7 +509,7 @@ def process_email_list(file_content, api_key):
         # Calculate verification stats
         total = len(df)
         good = len(df[df['verification_result'].str.lower().isin(['valid', 'ok', 'good'])])
-        bad = len(df[df['verification_result'] == 'invalid'])
+        bad = len(df[df['verification_result'] == 'invalid')
         risky = len(df[df['verification_result'].str.lower().isin(['unknown', 'risky', 'accept_all'])])
         
         st.session_state.verification_stats = {
@@ -586,9 +601,205 @@ def list_firebase_files():
         st.error(f"Failed to list files: {str(e)}")
         return []
 
+# Firebase Cloud Functions for campaign management
+def save_template_to_firebase(journal_name, template_content):
+    try:
+        db = get_firestore_db()
+        if not db:
+            return False
+            
+        doc_ref = db.collection("email_templates").document(journal_name)
+        doc_ref.set({
+            "content": template_content,
+            "last_updated": datetime.now(),
+            "updated_by": "admin"
+        })
+        
+        # Also update session state
+        st.session_state.template_content[journal_name] = template_content
+        return True
+    except Exception as e:
+        st.error(f"Failed to save template: {str(e)}")
+        return False
+
+def load_template_from_firebase(journal_name):
+    try:
+        db = get_firestore_db()
+        if not db:
+            return None
+            
+        doc_ref = db.collection("email_templates").document(journal_name)
+        doc = doc_ref.get()
+        if doc.exists:
+            content = doc.to_dict().get("content", "")
+            st.session_state.template_content[journal_name] = content
+            return content
+        return None
+    except Exception as e:
+        st.error(f"Failed to load template: {str(e)}")
+        return None
+
+def save_campaign_state(campaign_data):
+    try:
+        db = get_firestore_db()
+        if not db:
+            return False
+            
+        doc_ref = db.collection("active_campaigns").document(str(campaign_data['campaign_id']))
+        doc_ref.set(campaign_data)
+        return True
+    except Exception as e:
+        st.error(f"Failed to save campaign state: {str(e)}")
+        return False
+
+def get_active_campaigns():
+    try:
+        db = get_firestore_db()
+        if not db:
+            return []
+            
+        campaigns_ref = db.collection("active_campaigns")
+        campaigns = []
+        for doc in campaigns_ref.stream():
+            campaigns.append(doc.to_dict())
+        return campaigns
+    except Exception as e:
+        st.error(f"Failed to get active campaigns: {str(e)}")
+        return []
+
+def delete_campaign(campaign_id):
+    try:
+        db = get_firestore_db()
+        if not db:
+            return False
+            
+        doc_ref = db.collection("active_campaigns").document(str(campaign_id))
+        doc_ref.delete()
+        return True
+    except Exception as e:
+        st.error(f"Failed to delete campaign: {str(e)}")
+        return False
+
+def update_campaign_progress(campaign_id, current_index, emails_sent):
+    try:
+        db = get_firestore_db()
+        if not db:
+            return False
+            
+        doc_ref = db.collection("active_campaigns").document(str(campaign_id))
+        doc_ref.update({
+            "current_index": current_index,
+            "emails_sent": emails_sent,
+            "last_updated": datetime.now()
+        })
+        return True
+    except Exception as e:
+        st.error(f"Failed to update campaign progress: {str(e)}")
+        return False
+
+# Cloud Function to resume campaign
+@https_fn.on_request()
+def resume_campaign(req: https_fn.Request) -> https_fn.Response:
+    try:
+        data = req.get_json()
+        campaign_id = data.get('campaign_id')
+        
+        db = firestore.client()
+        doc_ref = db.collection("active_campaigns").document(str(campaign_id))
+        doc = doc_ref.get()
+        
+        if not doc.exists:
+            return https_fn.Response("Campaign not found", status=404)
+        
+        campaign_data = doc.to_dict()
+        
+        # Resume the campaign
+        df = pd.DataFrame(campaign_data['recipient_list'])
+        total_emails = len(df)
+        current_index = campaign_data.get('current_index', 0)
+        emails_sent = campaign_data.get('emails_sent', 0)
+        
+        for i in range(current_index, total_emails):
+            row = df.iloc[i]
+            
+            # Check if campaign was cancelled
+            doc = doc_ref.get()
+            if not doc.exists or doc.to_dict().get('status') == 'cancelled':
+                break
+                
+            # Process email
+            email_content = campaign_data['email_body']
+            email_content = email_content.replace("$$Author_Name$$", str(row.get('name', '')))
+            email_content = email_content.replace("$$Author_Address$$", str(row.get('author_address', '')))
+            email_content = email_content.replace("$$Department$$", str(row.get('department', '')))
+            email_content = email_content.replace("$$University$$", str(row.get('university', '')))
+            email_content = email_content.replace("$$Country$$", str(row.get('country', '')))
+            email_content = email_content.replace("$$Author_Email$$", str(row.get('email', '')))
+            email_content = email_content.replace("$$Journal_Name$$", campaign_data['journal_name'])
+            email_content = email_content.replace("$$Unsubscribe_Link$$", campaign_data['unsubscribe_base_url'] + str(row.get('email', '')))
+            
+            plain_text = email_content.replace("<br>", "\n").replace("</p>", "\n\n").replace("<p>", "")
+            
+            if campaign_data['email_service'] == "SMTP2GO":
+                success, email_id = send_email_via_smtp2go(
+                    row.get('email', ''),
+                    campaign_data['email_subject'],
+                    email_content,
+                    plain_text,
+                    campaign_data['unsubscribe_base_url'] + str(row.get('email', '')),
+                    campaign_data.get('reply_to')
+                )
+            else:
+                ses_client = boto3.client(
+                    'ses',
+                    aws_access_key_id=config['aws']['access_key'],
+                    aws_secret_access_key=config['aws']['secret_key'],
+                    region_name=config['aws']['region']
+                )
+                response, email_id = send_ses_email(
+                    ses_client,
+                    campaign_data['sender_email'],
+                    row.get('email', ''),
+                    campaign_data['email_subject'],
+                    email_content,
+                    plain_text,
+                    campaign_data['unsubscribe_base_url'] + str(row.get('email', '')),
+                    campaign_data.get('reply_to')
+                )
+                success = response is not None
+            
+            if success:
+                emails_sent += 1
+            
+            # Update progress in Firestore
+            update_campaign_progress(campaign_id, i+1, emails_sent)
+            
+            # Rate limiting
+            time.sleep(0.1)
+        
+        # Mark campaign as completed
+        if doc_ref.get().exists:
+            doc_ref.update({
+                "status": "completed",
+                "completed_at": datetime.now(),
+                "emails_sent": emails_sent
+            })
+        
+        return https_fn.Response("Campaign completed", status=200)
+    except Exception as e:
+        return https_fn.Response(f"Error: {str(e)}", status=500)
+
 # Email Campaign Section
 def email_campaign_section():
     st.header("Email Campaign Management")
+    
+    # Check for active campaigns on load
+    if 'active_campaign_checked' not in st.session_state:
+        active_campaigns = get_active_campaigns()
+        if active_campaigns:
+            st.session_state.active_campaign = active_campaigns[0]
+            st.session_state.campaign_paused = True
+        st.session_state.active_campaign_checked = True
     
     # Journal Selection
     col1, col2 = st.columns([3, 1])
@@ -605,6 +816,12 @@ def email_campaign_section():
                 st.rerun()
     
     st.session_state.selected_journal = selected_journal
+    
+    # Load template from Firebase if available
+    if selected_journal not in st.session_state.template_content:
+        loaded_template = load_template_from_firebase(selected_journal)
+        if loaded_template:
+            st.session_state.template_content[selected_journal] = loaded_template
     
     # Email Service Selection
     st.session_state.email_service = st.radio(
@@ -650,9 +867,15 @@ def email_campaign_section():
             height=400
         )
         
+        # Save template button
+        if st.button("Save Template"):
+            if save_template_to_firebase(selected_journal, email_body):
+                st.success("Template saved to cloud!")
+        
         st.info("""Available template variables:
         - $$Author_Name$$: Author's full name
         - $$Author_Address$$: All address lines before email
+        - $$AuthorLastname$$: Author's last name
         - $$Department$$: Author's department
         - $$University$$: Author's university
         - $$Country$$: Author's country
@@ -664,6 +887,7 @@ def email_campaign_section():
         st.markdown("**Preview**")
         preview_html = email_body.replace("$$Author_Name$$", "Professor John Doe")
         preview_html = preview_html.replace("$$Author_Address$$", "Department of Computer Science<br>Harvard University<br>United States")
+        preview_html = preview_html.replace("$$AuthorLastname$$", "Doe")
         preview_html = preview_html.replace("$$Department$$", "Computer Science")
         preview_html = preview_html.replace("$$University$$", "Harvard University")
         preview_html = preview_html.replace("$$Country$$", "United States")
@@ -757,8 +981,39 @@ def email_campaign_section():
         else:
             st.info("No files found in Cloud Storage")
     
+    # Resume campaign if one exists
+    if st.session_state.active_campaign:
+        st.warning("An active/paused campaign was found")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Resume Campaign"):
+                # Call the cloud function to resume
+                url = "https://your-firebase-project.cloudfunctions.net/resume_campaign"
+                data = {
+                    "campaign_id": st.session_state.active_campaign['campaign_id']
+                }
+                response = requests.post(url, json=data)
+                
+                if response.status_code == 200:
+                    st.success("Campaign resumed in the cloud!")
+                    st.session_state.active_campaign = None
+                    st.session_state.campaign_paused = False
+                    st.rerun()
+                else:
+                    st.error(f"Failed to resume campaign: {response.text}")
+        with col2:
+            if st.button("Cancel Campaign"):
+                if delete_campaign(st.session_state.active_campaign['campaign_id']):
+                    st.success("Campaign cancelled!")
+                    st.session_state.active_campaign = None
+                    st.session_state.campaign_paused = False
+                    st.session_state.campaign_cancelled = True
+                    st.rerun()
+                else:
+                    st.error("Failed to cancel campaign")
+    
     # Send Options
-    if 'current_recipient_list' in st.session_state:
+    if 'current_recipient_list' in st.session_state and not st.session_state.campaign_paused:
         st.subheader("Campaign Options")
         
         sender_email = st.text_input("Sender Email", config['smtp2go']['sender'] if st.session_state.email_service == "SMTP2GO" else "")
@@ -788,14 +1043,49 @@ def email_campaign_section():
             
             df = st.session_state.current_recipient_list
             total_emails = len(df)
+            
+            # Create campaign record in Firestore
+            campaign_id = int(time.time())
+            campaign_data = {
+                'campaign_id': campaign_id,
+                'journal_name': selected_journal,
+                'email_subject': email_subject,
+                'email_body': email_body,
+                'email_service': st.session_state.email_service,
+                'sender_email': sender_email,
+                'unsubscribe_base_url': unsubscribe_base_url,
+                'reply_to': st.session_state.journal_reply_addresses.get(selected_journal, None),
+                'recipient_list': df.to_dict('records'),
+                'total_emails': total_emails,
+                'current_index': 0,
+                'emails_sent': 0,
+                'status': 'active',
+                'created_at': datetime.now(),
+                'last_updated': datetime.now()
+            }
+            
+            if not save_campaign_state(campaign_data):
+                st.error("Failed to save campaign state")
+                return
+            
+            st.session_state.active_campaign = campaign_data
+            st.session_state.campaign_paused = False
+            st.session_state.campaign_cancelled = False
+            
+            # Show progress UI
             progress_bar = st.progress(0)
             status_text = st.empty()
+            cancel_button = st.button("Cancel Campaign")
+            
             success_count = 0
             email_ids = []
             
             reply_to = st.session_state.journal_reply_addresses.get(selected_journal, None)
             
             for i, row in df.iterrows():
+                if st.session_state.campaign_cancelled:
+                    break
+                
                 # Build author address from all fields except email
                 author_address = ""
                 if row.get('department', ''):
@@ -808,6 +1098,14 @@ def email_campaign_section():
                 email_content = email_body
                 email_content = email_content.replace("$$Author_Name$$", str(row.get('name', '')))
                 email_content = email_content.replace("$$Author_Address$$", author_address)
+                
+                # Extract last name if available
+                if 'name' in row and isinstance(row['name'], str) and ' ' in row['name']:
+                    last_name = row['name'].split()[-1]
+                else:
+                    last_name = ''
+                email_content = email_content.replace("$$AuthorLastname$$", last_name)
+                
                 email_content = email_content.replace("$$Department$$", str(row.get('department', '')))
                 email_content = email_content.replace("$$University$$", str(row.get('university', '')))
                 email_content = email_content.replace("$$Country$$", str(row.get('country', '')))
@@ -850,23 +1148,46 @@ def email_campaign_section():
                 progress_bar.progress(progress)
                 status_text.text(f"Processing {i+1} of {total_emails}: {row.get('email', '')}")
                 
+                # Update progress in Firestore
+                update_campaign_progress(campaign_id, i+1, success_count)
+                
+                # Check for cancel button
+                if cancel_button:
+                    st.session_state.campaign_cancelled = True
+                    st.warning("Campaign cancellation requested...")
+                    break
+                
                 # Rate limiting
                 time.sleep(0.1)
             
-            # Record campaign details
-            campaign_data = {
-                'timestamp': datetime.now(),
-                'journal': selected_journal,
-                'emails_sent': success_count,
-                'total_emails': total_emails,
-                'subject': email_subject,
-                'email_ids': ','.join(email_ids),
-                'service': st.session_state.email_service
-            }
-            st.session_state.campaign_history.append(campaign_data)
-            
-            st.success(f"Campaign completed! {success_count} of {total_emails} emails sent successfully.")
-            show_email_analytics()
+            # Mark campaign as completed if not cancelled
+            if not st.session_state.campaign_cancelled:
+                campaign_data = {
+                    'status': 'completed',
+                    'completed_at': datetime.now(),
+                    'emails_sent': success_count
+                }
+                db = get_firestore_db()
+                if db:
+                    doc_ref = db.collection("active_campaigns").document(str(campaign_id))
+                    doc_ref.update(campaign_data)
+                
+                # Record campaign details
+                campaign_data = {
+                    'timestamp': datetime.now(),
+                    'journal': selected_journal,
+                    'emails_sent': success_count,
+                    'total_emails': total_emails,
+                    'subject': email_subject,
+                    'email_ids': ','.join(email_ids),
+                    'service': st.session_state.email_service
+                }
+                st.session_state.campaign_history.append(campaign_data)
+                
+                st.success(f"Campaign completed! {success_count} of {total_emails} emails sent successfully.")
+                show_email_analytics()
+            else:
+                st.warning(f"Campaign cancelled. {success_count} of {total_emails} emails were sent.")
 
 # Email Verification Section
 def email_verification_section():
@@ -1287,8 +1608,8 @@ def main():
         app_mode = st.selectbox("Select Mode", ["Email Campaign", "Verify Emails", "Analytics"])
         st.markdown("---")
         st.markdown("### Quick Links")
-        st.markdown("[?? Email Reports](https://app-us.smtp2go.com/reports/activity/)", unsafe_allow_html=True)
-        st.markdown("[?? Entry Manager](https://pphmjcrm.streamlit.app)", unsafe_allow_html=True)
+        st.markdown("[📊 Email Reports](https://app-us.smtp2go.com/reports/activity/)", unsafe_allow_html=True)
+        st.markdown("[📝 Entry Manager](https://pphmjcrm.streamlit.app)", unsafe_allow_html=True)
     
     # Initialize services
     if not st.session_state.firebase_initialized:
