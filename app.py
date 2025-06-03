@@ -509,7 +509,7 @@ def process_email_list(file_content, api_key):
         # Calculate verification stats
         total = len(df)
         good = len(df[df['verification_result'].str.lower().isin(['valid', 'ok', 'good'])])
-        bad = len(df[df['verification_result'] == 'invalid')
+        bad = len(df[df['verification_result'] == 'invalid'])
         risky = len(df[df['verification_result'].str.lower().isin(['unknown', 'risky', 'accept_all'])])
         
         st.session_state.verification_stats = {
