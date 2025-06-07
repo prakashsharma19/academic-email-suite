@@ -195,6 +195,7 @@ JOURNALS = [
     "Far East Journal of Mathematical Sciences (FJMS)",
     "Far East Journal of Theoretical Statistics",
     "JP Journal of Algebra, Number Theory and Applications",
+    "JP Journal of Geometry and Topology",
     "JP Journal of Biostatistics",
     "JP Journal of Fixed Point Theory and Applications",
     "JP Journal of Heat and Mass Transfer",
