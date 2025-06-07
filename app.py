@@ -1604,7 +1604,7 @@ def main():
     check_auth()
     
     # Main app for authenticated users
-    st.title(f"PPH Email Manager - Welcome admin")
+    st.title(f"PPH Email Manager - 1 Welcome admin")
     
     # Navigation with additional links
     with st.sidebar:
