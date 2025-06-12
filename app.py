@@ -24,7 +24,7 @@ st.set_page_config(
     layout="wide",
     page_icon="📧",
     menu_items={
-        'About': "### Academic Email Management Suite\n\nDeveloped by Prakash (cpsharma.com)"
+        'About': "### Academic Email Management Suite\n\nDeveloped by Prakash (contact@cpsharma.com)"
     }
 )
 
@@ -1604,7 +1604,7 @@ def main():
     check_auth()
     
     # Main app for authenticated users
-    st.title(f"PPH Email Manager - 1 Welcome admin")
+    st.title(f"PPH Email Manager - Welcome admin")
     
     # Navigation with additional links
     with st.sidebar:
