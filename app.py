@@ -170,6 +170,8 @@ def init_session_state():
         st.session_state.campaign_cancelled = False
     if 'template_content' not in st.session_state:
         st.session_state.template_content = {}
+    if 'journal_subjects' not in st.session_state:
+        st.session_state.journal_subjects = {}
 
 init_session_state()
 
@@ -642,6 +644,45 @@ def load_template_from_firebase(journal_name):
         st.error(f"Failed to load template: {str(e)}")
         return None
 
+def add_subject_to_firebase(journal_name, subject):
+    try:
+        db = get_firestore_db()
+        if not db:
+            return False
+
+        doc_ref = db.collection("journal_subjects").document(journal_name)
+        doc = doc_ref.get()
+        subjects = doc.to_dict().get("subjects", []) if doc.exists else []
+        if subject not in subjects:
+            subjects.append(subject)
+        doc_ref.set({
+            "subjects": subjects,
+            "last_updated": datetime.now(),
+            "updated_by": "admin"
+        })
+        st.session_state.journal_subjects[journal_name] = subjects
+        return True
+    except Exception as e:
+        st.error(f"Failed to save subject: {str(e)}")
+        return False
+
+def load_subjects_from_firebase(journal_name):
+    try:
+        db = get_firestore_db()
+        if not db:
+            return []
+
+        doc_ref = db.collection("journal_subjects").document(journal_name)
+        doc = doc_ref.get()
+        if doc.exists:
+            subjects = doc.to_dict().get("subjects", [])
+            st.session_state.journal_subjects[journal_name] = subjects
+            return subjects
+        return []
+    except Exception as e:
+        st.error(f"Failed to load subjects: {str(e)}")
+        return []
+
 def save_campaign_state(campaign_data):
     try:
         db = get_firestore_db()
@@ -743,10 +784,13 @@ def resume_campaign(req: https_fn.Request) -> https_fn.Response:
             
             plain_text = email_content.replace("<br>", "\n").replace("</p>", "\n\n").replace("<p>", "")
             
+            subjects = campaign_data.get('email_subjects', [campaign_data.get('email_subject', '')])
+            subject = subjects[i % len(subjects)] if subjects else ''
+
             if campaign_data['email_service'] == "SMTP2GO":
                 success, email_id = send_email_via_smtp2go(
                     row.get('email', ''),
-                    campaign_data['email_subject'],
+                    subject,
                     email_content,
                     plain_text,
                     campaign_data['unsubscribe_base_url'] + str(row.get('email', '')),
@@ -763,7 +807,7 @@ def resume_campaign(req: https_fn.Request) -> https_fn.Response:
                     ses_client,
                     campaign_data['sender_email'],
                     row.get('email', ''),
-                    campaign_data['email_subject'],
+                    subject,
                     email_content,
                     plain_text,
                     campaign_data['unsubscribe_base_url'] + str(row.get('email', '')),
@@ -825,6 +869,9 @@ def email_campaign_section():
         loaded_template = load_template_from_firebase(selected_journal)
         if loaded_template:
             st.session_state.template_content[selected_journal] = loaded_template
+
+    if selected_journal not in st.session_state.journal_subjects:
+        load_subjects_from_firebase(selected_journal)
     
     # Email Service Selection
     st.session_state.email_service = st.radio(
@@ -843,62 +890,84 @@ def email_campaign_section():
         if st.button("Save Reply Address"):
             st.session_state.journal_reply_addresses[selected_journal] = reply_address
             st.success("Reply address saved!")
+
+    # Journal Subject Management
+    with st.expander("Journal Subjects"):
+        subjects = st.session_state.journal_subjects.get(selected_journal, [])
+        if subjects:
+            st.write("Saved Subjects", subjects)
+        else:
+            st.write("No subjects added yet")
+        new_subject = st.text_input("Add Subject", key=f"subject_{selected_journal}")
+        if st.button("Save Subject"):
+            if new_subject:
+                if add_subject_to_firebase(selected_journal, new_subject):
+                    st.success("Subject saved!")
     
     # Email Template Editor with ACE Editor
-    st.subheader("Email Template Editor")
-    template = get_journal_template(st.session_state.selected_journal)
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        email_subject = st.text_input("Email Subject", 
-                                   f"Call for Papers - {st.session_state.selected_journal}")
-    
-    # ACE Editor
-    editor_col, preview_col = st.columns(2)
-    
-    with editor_col:
-        st.markdown("**Template Editor**")
-        email_body = st_ace(
-            value=template,
-            language="html",
-            theme="chrome",
-            font_size=14,
-            tab_size=2,
-            wrap=True,
-            show_gutter=True,
-            key=f"editor_{selected_journal}",
-            height=400
-        )
-        
-        # Save template button
-        if st.button("Save Template"):
-            if save_template_to_firebase(selected_journal, email_body):
-                st.success("Template saved to cloud!")
-        
-        st.info("""Available template variables:
-        - $$Author_Name$$: Author's full name
-        - $$Author_Address$$: All address lines before email
-        - $$AuthorLastname$$: Author's last name
-        - $$Department$$: Author's department
-        - $$University$$: Author's university
-        - $$Country$$: Author's country
-        - $$Author_Email$$: Author's email
-        - $$Journal_Name$$: Selected journal name
-        - $$Unsubscribe_Link$$: Unsubscribe link""")
-    
-    with preview_col:
-        st.markdown("**Preview**")
-        preview_html = email_body.replace("$$Author_Name$$", "Professor John Doe")
-        preview_html = preview_html.replace("$$Author_Address$$", "Department of Computer Science<br>Harvard University<br>United States")
-        preview_html = preview_html.replace("$$AuthorLastname$$", "Doe")
-        preview_html = preview_html.replace("$$Department$$", "Computer Science")
-        preview_html = preview_html.replace("$$University$$", "Harvard University")
-        preview_html = preview_html.replace("$$Country$$", "United States")
-        preview_html = preview_html.replace("$$Author_Email$$", "john.doe@harvard.edu")
-        preview_html = preview_html.replace("$$Journal_Name$$", st.session_state.selected_journal)
-        preview_html = preview_html.replace("$$Unsubscribe_Link$$", "https://pphmjopenaccess.com/unsubscribe?email=john.doe@harvard.edu")
-        
-        st.markdown(preview_html, unsafe_allow_html=True)
+    with st.expander("Email Template Editor"):
+        template = get_journal_template(st.session_state.selected_journal)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            email_subject = st.text_input(
+                "Email Subject",
+                f"Call for Papers - {st.session_state.selected_journal}"
+            )
+
+        editor_col, preview_col = st.columns(2)
+
+        with editor_col:
+            st.markdown("**Template Editor**")
+            email_body = st_ace(
+                value=template,
+                language="html",
+                theme="chrome",
+                font_size=14,
+                tab_size=2,
+                wrap=True,
+                show_gutter=True,
+                key=f"editor_{selected_journal}",
+                height=400
+            )
+
+            if st.button("Save Template"):
+                if save_template_to_firebase(selected_journal, email_body):
+                    st.success("Template saved to cloud!")
+
+            st.info("""Available template variables:
+            - $$Author_Name$$: Author's full name
+            - $$Author_Address$$: All address lines before email
+            - $$AuthorLastname$$: Author's last name
+            - $$Department$$: Author's department
+            - $$University$$: Author's university
+            - $$Country$$: Author's country
+            - $$Author_Email$$: Author's email
+            - $$Journal_Name$$: Selected journal name
+            - $$Unsubscribe_Link$$: Unsubscribe link""")
+
+        with preview_col:
+            st.markdown("**Preview**")
+            preview_html = email_body.replace("$$Author_Name$$", "Professor John Doe")
+            preview_html = preview_html.replace(
+                "$$Author_Address$$",
+                "Department of Computer Science<br>Harvard University<br>United States"
+            )
+            preview_html = preview_html.replace("$$AuthorLastname$$", "Doe")
+            preview_html = preview_html.replace("$$Department$$", "Computer Science")
+            preview_html = preview_html.replace("$$University$$", "Harvard University")
+            preview_html = preview_html.replace("$$Country$$", "United States")
+            preview_html = preview_html.replace("$$Author_Email$$", "john.doe@harvard.edu")
+            preview_html = preview_html.replace(
+                "$$Journal_Name$$",
+                st.session_state.selected_journal
+            )
+            preview_html = preview_html.replace(
+                "$$Unsubscribe_Link$$",
+                "https://pphmjopenaccess.com/unsubscribe?email=john.doe@harvard.edu"
+            )
+
+            st.markdown(preview_html, unsafe_allow_html=True)
     
     # File Upload
     st.subheader("Recipient List")
@@ -1020,8 +1089,18 @@ def email_campaign_section():
         st.subheader("Campaign Options")
         
         sender_email = st.text_input("Sender Email", config['smtp2go']['sender'] if st.session_state.email_service == "SMTP2GO" else "")
-        unsubscribe_base_url = st.text_input("Unsubscribe Base URL", 
-                                           "https://pphmjopenaccess.com/unsubscribe?email=")
+        unsubscribe_base_url = st.text_input(
+            "Unsubscribe Base URL",
+            "https://pphmjopenaccess.com/unsubscribe?email="
+        )
+
+        subjects_for_journal = st.session_state.journal_subjects.get(selected_journal, [])
+        selected_subjects = st.multiselect(
+            "Select Subjects",
+            subjects_for_journal,
+            default=subjects_for_journal,
+            key=f"subject_select_{selected_journal}"
+        )
         
         send_option = st.radio("Send Option", ["Send Now", "Schedule"])
         
@@ -1052,7 +1131,7 @@ def email_campaign_section():
             campaign_data = {
                 'campaign_id': campaign_id,
                 'journal_name': selected_journal,
-                'email_subject': email_subject,
+                'email_subjects': selected_subjects,
                 'email_body': email_body,
                 'email_service': st.session_state.email_service,
                 'sender_email': sender_email,
@@ -1120,10 +1199,13 @@ def email_campaign_section():
                 
                 plain_text = email_content.replace("<br>", "\n").replace("</p>", "\n\n").replace("<p>", "")
                 
+                subject_cycle = selected_subjects if selected_subjects else [email_subject]
+                subject = subject_cycle[i % len(subject_cycle)]
+
                 if st.session_state.email_service == "SMTP2GO":
                     success, email_id = send_email_via_smtp2go(
                         row.get('email', ''),
-                        email_subject,
+                        subject,
                         email_content,
                         plain_text,
                         unsubscribe_link,
@@ -1134,7 +1216,7 @@ def email_campaign_section():
                         st.session_state.ses_client,
                         sender_email,
                         row.get('email', ''),
-                        email_subject,
+                        subject,
                         email_content,
                         plain_text,
                         unsubscribe_link,
@@ -1181,7 +1263,7 @@ def email_campaign_section():
                     'journal': selected_journal,
                     'emails_sent': success_count,
                     'total_emails': total_emails,
-                    'subject': email_subject,
+                    'subject': ','.join(selected_subjects) if selected_subjects else email_subject,
                     'email_ids': ','.join(email_ids),
                     'service': st.session_state.email_service
                 }
