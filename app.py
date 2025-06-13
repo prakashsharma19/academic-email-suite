@@ -175,8 +175,6 @@ def init_session_state():
     if 'sender_email' not in st.session_state:
         st.session_state.sender_email = config['smtp2go']['sender']
 
-init_session_state()
-
 # Journal Data
 JOURNALS = [
     "Computer Science and Artificial Intelligence",
@@ -284,6 +282,7 @@ def load_config():
     return config
 
 config = load_config()
+init_session_state()
 
 # Initialize Firebase with better error handling
 def initialize_firebase():
