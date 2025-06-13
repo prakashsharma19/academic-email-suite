@@ -15,7 +15,7 @@ from streamlit_ace import st_ace
 import firebase_admin
 from firebase_admin import credentials, firestore
 import matplotlib.pyplot as plt
-from firebase_functions import https_fn, scheduler_fn
+
 import threading
 
 # App Configuration
@@ -172,6 +172,8 @@ def init_session_state():
         st.session_state.template_content = {}
     if 'journal_subjects' not in st.session_state:
         st.session_state.journal_subjects = {}
+    if 'sender_email' not in st.session_state:
+        st.session_state.sender_email = config['smtp2go']['sender']
 
 init_session_state()
 
@@ -741,112 +743,11 @@ def update_campaign_progress(campaign_id, current_index, emails_sent):
         st.error(f"Failed to update campaign progress: {str(e)}")
         return False
 
-# Cloud Function to resume campaign
-@https_fn.on_request()
-def resume_campaign(req: https_fn.Request) -> https_fn.Response:
-    try:
-        data = req.get_json()
-        campaign_id = data.get('campaign_id')
-        
-        db = firestore.client()
-        doc_ref = db.collection("active_campaigns").document(str(campaign_id))
-        doc = doc_ref.get()
-        
-        if not doc.exists:
-            return https_fn.Response("Campaign not found", status=404)
-        
-        campaign_data = doc.to_dict()
-        
-        # Resume the campaign
-        df = pd.DataFrame(campaign_data['recipient_list'])
-        total_emails = len(df)
-        current_index = campaign_data.get('current_index', 0)
-        emails_sent = campaign_data.get('emails_sent', 0)
-        
-        for i in range(current_index, total_emails):
-            row = df.iloc[i]
-            
-            # Check if campaign was cancelled
-            doc = doc_ref.get()
-            if not doc.exists or doc.to_dict().get('status') == 'cancelled':
-                break
-                
-            # Process email
-            email_content = campaign_data['email_body']
-            email_content = email_content.replace("$$Author_Name$$", str(row.get('name', '')))
-            email_content = email_content.replace("$$Author_Address$$", str(row.get('author_address', '')))
-            email_content = email_content.replace("$$Department$$", str(row.get('department', '')))
-            email_content = email_content.replace("$$University$$", str(row.get('university', '')))
-            email_content = email_content.replace("$$Country$$", str(row.get('country', '')))
-            email_content = email_content.replace("$$Author_Email$$", str(row.get('email', '')))
-            email_content = email_content.replace("$$Journal_Name$$", campaign_data['journal_name'])
-            email_content = email_content.replace("$$Unsubscribe_Link$$", campaign_data['unsubscribe_base_url'] + str(row.get('email', '')))
-            
-            plain_text = email_content.replace("<br>", "\n").replace("</p>", "\n\n").replace("<p>", "")
-            
-            subjects = campaign_data.get('email_subjects', [campaign_data.get('email_subject', '')])
-            subject = subjects[i % len(subjects)] if subjects else ''
-
-            if campaign_data['email_service'] == "SMTP2GO":
-                success, email_id = send_email_via_smtp2go(
-                    row.get('email', ''),
-                    subject,
-                    email_content,
-                    plain_text,
-                    campaign_data['unsubscribe_base_url'] + str(row.get('email', '')),
-                    campaign_data.get('reply_to')
-                )
-            else:
-                ses_client = boto3.client(
-                    'ses',
-                    aws_access_key_id=config['aws']['access_key'],
-                    aws_secret_access_key=config['aws']['secret_key'],
-                    region_name=config['aws']['region']
-                )
-                response, email_id = send_ses_email(
-                    ses_client,
-                    campaign_data['sender_email'],
-                    row.get('email', ''),
-                    subject,
-                    email_content,
-                    plain_text,
-                    campaign_data['unsubscribe_base_url'] + str(row.get('email', '')),
-                    campaign_data.get('reply_to')
-                )
-                success = response is not None
-            
-            if success:
-                emails_sent += 1
-            
-            # Update progress in Firestore
-            update_campaign_progress(campaign_id, i+1, emails_sent)
-            
-            # Rate limiting
-            time.sleep(0.1)
-        
-        # Mark campaign as completed
-        if doc_ref.get().exists:
-            doc_ref.update({
-                "status": "completed",
-                "completed_at": datetime.now(),
-                "emails_sent": emails_sent
-            })
-        
-        return https_fn.Response("Campaign completed", status=200)
-    except Exception as e:
-        return https_fn.Response(f"Error: {str(e)}", status=500)
 
 # Email Campaign Section
 def email_campaign_section():
     st.header("Email Campaign Management")
     
-    # Check for active campaigns on load
-    if 'active_campaign_checked' not in st.session_state:
-        active_campaigns = get_active_campaigns()
-        if active_campaigns:
-            st.session_state.active_campaign = active_campaigns[0]
-            st.session_state.campaign_paused = True
-        st.session_state.active_campaign_checked = True
     
     # Journal Selection
     col1, col2 = st.columns([3, 1])
@@ -873,23 +774,29 @@ def email_campaign_section():
     if selected_journal not in st.session_state.journal_subjects:
         load_subjects_from_firebase(selected_journal)
     
-    # Email Service Selection
-    st.session_state.email_service = st.radio(
-        "Select Email Service",
-        ["SMTP2GO", "Amazon SES"],
-        index=0 if st.session_state.email_service == "SMTP2GO" else 1
-    )
-    
-    # Journal Reply Address Configuration
-    with st.expander("Journal Reply Address Configuration"):
+    # Campaign settings in the sidebar
+    with st.sidebar.expander("Campaign Settings", expanded=False):
+        st.session_state.email_service = st.radio(
+            "Select Email Service",
+            ["SMTP2GO", "Amazon SES"],
+            index=0 if st.session_state.email_service == "SMTP2GO" else 1,
+            key="email_service_select"
+        )
+
         reply_address = st.text_input(
             f"Reply-to Address for {selected_journal}",
             value=st.session_state.journal_reply_addresses.get(selected_journal, ""),
             key=f"reply_{selected_journal}"
         )
-        if st.button("Save Reply Address"):
+        if st.button("Save Reply Address", key="save_reply_address"):
             st.session_state.journal_reply_addresses[selected_journal] = reply_address
             st.success("Reply address saved!")
+
+        st.session_state.sender_email = st.text_input(
+            "Sender Email",
+            value=st.session_state.sender_email,
+            key="sender_email"
+        )
 
     # Journal Subject Management
     with st.expander("Journal Subjects"):
@@ -1053,42 +960,11 @@ def email_campaign_section():
         else:
             st.info("No files found in Cloud Storage")
     
-    # Resume campaign if one exists
-    if st.session_state.active_campaign:
-        st.warning("An active/paused campaign was found")
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Resume Campaign"):
-                # Call the cloud function to resume
-                url = "https://your-firebase-project.cloudfunctions.net/resume_campaign"
-                data = {
-                    "campaign_id": st.session_state.active_campaign['campaign_id']
-                }
-                response = requests.post(url, json=data)
-                
-                if response.status_code == 200:
-                    st.success("Campaign resumed in the cloud!")
-                    st.session_state.active_campaign = None
-                    st.session_state.campaign_paused = False
-                    st.rerun()
-                else:
-                    st.error(f"Failed to resume campaign: {response.text}")
-        with col2:
-            if st.button("Cancel Campaign"):
-                if delete_campaign(st.session_state.active_campaign['campaign_id']):
-                    st.success("Campaign cancelled!")
-                    st.session_state.active_campaign = None
-                    st.session_state.campaign_paused = False
-                    st.session_state.campaign_cancelled = True
-                    st.rerun()
-                else:
-                    st.error("Failed to cancel campaign")
     
     # Send Options
     if 'current_recipient_list' in st.session_state and not st.session_state.campaign_paused:
         st.subheader("Campaign Options")
         
-        sender_email = st.text_input("Sender Email", config['smtp2go']['sender'] if st.session_state.email_service == "SMTP2GO" else "")
         unsubscribe_base_url = st.text_input(
             "Unsubscribe Base URL",
             "https://pphmjopenaccess.com/unsubscribe?email="
@@ -1134,7 +1010,7 @@ def email_campaign_section():
                 'email_subjects': selected_subjects,
                 'email_body': email_body,
                 'email_service': st.session_state.email_service,
-                'sender_email': sender_email,
+                'sender_email': st.session_state.sender_email,
                 'unsubscribe_base_url': unsubscribe_base_url,
                 'reply_to': st.session_state.journal_reply_addresses.get(selected_journal, None),
                 'recipient_list': df.to_dict('records'),
@@ -1214,7 +1090,7 @@ def email_campaign_section():
                 else:
                     response, email_id = send_ses_email(
                         st.session_state.ses_client,
-                        sender_email,
+                        st.session_state.sender_email,
                         row.get('email', ''),
                         subject,
                         email_content,
