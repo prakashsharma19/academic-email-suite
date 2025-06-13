@@ -791,7 +791,7 @@ def email_campaign_section():
             st.session_state.journal_reply_addresses[selected_journal] = reply_address
             st.success("Reply address saved!")
 
-        st.session_state.sender_email = st.text_input(
+        st.text_input(
             "Sender Email",
             value=st.session_state.sender_email,
             key="sender_email"
