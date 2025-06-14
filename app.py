@@ -1327,22 +1327,36 @@ def analytics_section():
         analytics_data = fetch_smtp2go_analytics()
         
         if analytics_data:
+            # Calculate totals (API may not always provide a 'totals' key)
+            if 'totals' in analytics_data:
+                totals = analytics_data['totals']
+            else:
+                df_totals = pd.DataFrame(analytics_data['stats'])
+                totals = {
+                    'sent': df_totals['sent'].sum(),
+                    'delivered': df_totals['delivered'].sum(),
+                    'opens_unique': df_totals['opens_unique'].sum(),
+                    'clicks_unique': df_totals['clicks_unique'].sum(),
+                    'hard_bounces': df_totals['hard_bounces'].sum(),
+                    'soft_bounces': df_totals['soft_bounces'].sum()
+                }
+
             # Overall metrics
             st.subheader("Overall Performance")
             col1, col2, col3, col4, col5 = st.columns(5)
             with col1:
-                st.metric("Total Sent", analytics_data['totals']['sent'])
+                st.metric("Total Sent", totals['sent'])
             with col2:
-                st.metric("Delivered", analytics_data['totals']['delivered'], 
-                         f"{analytics_data['totals']['delivered']/analytics_data['totals']['sent']*100:.1f}%")
+                delivery_rate = (totals['delivered'] / totals['sent'] * 100) if totals['sent'] else 0
+                st.metric("Delivered", totals['delivered'], f"{delivery_rate:.1f}%")
             with col3:
-                st.metric("Opened", analytics_data['totals']['opens_unique'], 
-                         f"{analytics_data['totals']['opens_unique']/analytics_data['totals']['delivered']*100:.1f}%")
+                open_rate = (totals['opens_unique'] / totals['delivered'] * 100) if totals['delivered'] else 0
+                st.metric("Opened", totals['opens_unique'], f"{open_rate:.1f}%")
             with col4:
-                st.metric("Clicked", analytics_data['totals']['clicks_unique'], 
-                         f"{analytics_data['totals']['clicks_unique']/analytics_data['totals']['opens_unique']*100:.1f}%")
+                click_rate = (totals['clicks_unique'] / totals['opens_unique'] * 100) if totals['opens_unique'] else 0
+                st.metric("Clicked", totals['clicks_unique'], f"{click_rate:.1f}%")
             with col5:
-                st.metric("Bounced", analytics_data['totals']['hard_bounces'] + analytics_data['totals']['soft_bounces'])
+                st.metric("Bounced", totals['hard_bounces'] + totals['soft_bounces'])
             
             # Time series data
             st.subheader("Performance Over Time")
