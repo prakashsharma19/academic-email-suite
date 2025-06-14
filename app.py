@@ -282,6 +282,7 @@ def load_config():
     return config
 
 config = load_config()
+DEFAULT_UNSUBSCRIBE_BASE_URL = "https://pphmjopenaccess.com/unsubscribe?email="
 init_session_state()
 
 # Initialize Firebase with better error handling
@@ -715,6 +716,52 @@ def load_subjects_from_firebase(journal_name):
         st.error(f"Failed to load subjects: {str(e)}")
         return []
 
+def update_subject_in_firebase(journal_name, old_subject, new_subject):
+    try:
+        db = get_firestore_db()
+        if not db:
+            return False
+
+        doc_ref = db.collection("journal_subjects").document(journal_name)
+        doc = doc_ref.get()
+        subjects = doc.to_dict().get("subjects", []) if doc.exists else []
+        if old_subject in subjects:
+            subjects[subjects.index(old_subject)] = new_subject
+            doc_ref.set({
+                "subjects": subjects,
+                "last_updated": datetime.now(),
+                "updated_by": "admin"
+            })
+            st.session_state.journal_subjects[journal_name] = subjects
+            return True
+        return False
+    except Exception as e:
+        st.error(f"Failed to update subject: {str(e)}")
+        return False
+
+def delete_subject_from_firebase(journal_name, subject):
+    try:
+        db = get_firestore_db()
+        if not db:
+            return False
+
+        doc_ref = db.collection("journal_subjects").document(journal_name)
+        doc = doc_ref.get()
+        subjects = doc.to_dict().get("subjects", []) if doc.exists else []
+        if subject in subjects:
+            subjects.remove(subject)
+            doc_ref.set({
+                "subjects": subjects,
+                "last_updated": datetime.now(),
+                "updated_by": "admin"
+            })
+            st.session_state.journal_subjects[journal_name] = subjects
+            return True
+        return False
+    except Exception as e:
+        st.error(f"Failed to delete subject: {str(e)}")
+        return False
+
 def save_campaign_state(campaign_data):
     try:
         db = get_firestore_db()
@@ -863,11 +910,27 @@ def email_campaign_section():
     with st.expander("Journal Subjects"):
         subjects = st.session_state.journal_subjects.get(selected_journal, [])
         if subjects:
-            st.write("Saved Subjects", subjects)
+            for idx, subj in enumerate(subjects):
+                col1, col2, col3 = st.columns([3, 1, 1])
+                edited = col1.text_input(
+                    f"Subject {idx+1}",
+                    subj,
+                    key=f"edit_subj_{selected_journal}_{idx}"
+                )
+                if col2.button("Update", key=f"update_subj_{selected_journal}_{idx}"):
+                    if edited and edited != subj:
+                        if update_subject_in_firebase(selected_journal, subj, edited):
+                            st.success("Subject updated!")
+                            st.experimental_rerun()
+                if col3.button("Delete", key=f"delete_subj_{selected_journal}_{idx}"):
+                    if delete_subject_from_firebase(selected_journal, subj):
+                        st.success("Subject deleted!")
+                        st.experimental_rerun()
         else:
             st.write("No subjects added yet")
+
         new_subject = st.text_input("Add Subject", key=f"subject_{selected_journal}")
-        if st.button("Save Subject"):
+        if st.button("Save Subject", key=f"save_subj_{selected_journal}"):
             if new_subject:
                 if add_subject_to_firebase(selected_journal, new_subject):
                     st.success("Subject saved!")
@@ -972,6 +1035,7 @@ def email_campaign_section():
             
             st.session_state.current_recipient_list = df
             st.dataframe(df.head())
+            st.info(f"Total emails loaded: {len(df)}")
             
             if st.button("Save to Firebase"):
                 if uploaded_file.name.endswith('.txt'):
@@ -1018,6 +1082,7 @@ def email_campaign_section():
                     
                     st.session_state.current_recipient_list = df
                     st.dataframe(df.head())
+                    st.info(f"Total emails loaded: {len(df)}")
         else:
             st.info("No files found in Cloud Storage")
     
@@ -1026,10 +1091,7 @@ def email_campaign_section():
     if 'current_recipient_list' in st.session_state and not st.session_state.campaign_paused:
         st.subheader("Campaign Options")
         
-        unsubscribe_base_url = st.text_input(
-            "Unsubscribe Base URL",
-            "https://pphmjopenaccess.com/unsubscribe?email="
-        )
+        unsubscribe_base_url = DEFAULT_UNSUBSCRIBE_BASE_URL
 
         subjects_for_journal = st.session_state.journal_subjects.get(selected_journal, [])
         selected_subjects = st.multiselect(
@@ -1072,7 +1134,6 @@ def email_campaign_section():
                 'email_body': email_body,
                 'email_service': st.session_state.email_service,
                 'sender_email': st.session_state.sender_email,
-                'unsubscribe_base_url': unsubscribe_base_url,
                 'reply_to': st.session_state.journal_reply_addresses.get(selected_journal, None),
                 'recipient_list': df.to_dict('records'),
                 'total_emails': total_emails,
@@ -1207,8 +1268,9 @@ def email_campaign_section():
                 st.session_state.campaign_history.append(campaign_data)
                 save_campaign_history(campaign_data)
                 
+                progress_bar.progress(1.0)
+                status_text.text("Campaign completed")
                 st.success(f"Campaign completed! {success_count} of {total_emails} emails sent successfully.")
-                show_email_analytics()
             else:
                 st.warning(f"Campaign cancelled. {success_count} of {total_emails} emails were sent.")
 
