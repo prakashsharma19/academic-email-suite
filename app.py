@@ -1338,12 +1338,12 @@ def analytics_section():
             else:
                 df_totals = pd.DataFrame(stats_list)
                 totals = {
-                    'sent': df_totals['sent'].sum(),
-                    'delivered': df_totals['delivered'].sum(),
-                    'opens_unique': df_totals['opens_unique'].sum(),
-                    'clicks_unique': df_totals['clicks_unique'].sum(),
-                    'hard_bounces': df_totals['hard_bounces'].sum(),
-                    'soft_bounces': df_totals['soft_bounces'].sum()
+                    'sent': df_totals['sent'].sum() if 'sent' in df_totals else 0,
+                    'delivered': df_totals['delivered'].sum() if 'delivered' in df_totals else 0,
+                    'opens_unique': df_totals['opens_unique'].sum() if 'opens_unique' in df_totals else 0,
+                    'clicks_unique': df_totals['clicks_unique'].sum() if 'clicks_unique' in df_totals else 0,
+                    'hard_bounces': df_totals['hard_bounces'].sum() if 'hard_bounces' in df_totals else 0,
+                    'soft_bounces': df_totals['soft_bounces'].sum() if 'soft_bounces' in df_totals else 0
                 }
 
             # Overall metrics
@@ -1370,20 +1370,35 @@ def analytics_section():
             df.set_index('date', inplace=True)
             
             # Calculate rates
-            df['delivery_rate'] = (df['delivered'] / df['sent']) * 100
-            df['open_rate'] = (df['opens_unique'] / df['delivered']) * 100
-            df['click_rate'] = (df['clicks_unique'] / df['opens_unique']) * 100
+            if 'sent' in df and 'delivered' in df:
+                df['delivery_rate'] = (df['delivered'] / df['sent']) * 100
+            else:
+                df['delivery_rate'] = 0
+            if 'opens_unique' in df and 'delivered' in df:
+                df['open_rate'] = (df['opens_unique'] / df['delivered']) * 100
+            else:
+                df['open_rate'] = 0
+            if 'clicks_unique' in df and 'opens_unique' in df:
+                df['click_rate'] = (df['clicks_unique'] / df['opens_unique']) * 100
+            else:
+                df['click_rate'] = 0
             
             tab1, tab2, tab3 = st.tabs(["Volume Metrics", "Engagement Rates", "Bounce & Complaints"])
-            
+
             with tab1:
-                st.line_chart(df[['sent', 'delivered', 'opens_unique', 'clicks_unique']])
-            
+                cols = [c for c in ['sent', 'delivered', 'opens_unique', 'clicks_unique'] if c in df]
+                if cols:
+                    st.line_chart(df[cols])
+
             with tab2:
-                st.line_chart(df[['delivery_rate', 'open_rate', 'click_rate']])
-            
+                cols = [c for c in ['delivery_rate', 'open_rate', 'click_rate'] if c in df]
+                if cols:
+                    st.line_chart(df[cols])
+
             with tab3:
-                st.line_chart(df[['hard_bounces', 'soft_bounces', 'spam_complaints']])
+                cols = [c for c in ['hard_bounces', 'soft_bounces', 'spam_complaints'] if c in df]
+                if cols:
+                    st.line_chart(df[cols])
 
             # Campaign details
             st.subheader("Recent Campaigns")
@@ -1519,38 +1534,61 @@ def show_email_analytics():
             df.set_index('date', inplace=True)
             
             # Calculate rates
-            df['delivery_rate'] = (df['delivered'] / df['sent']) * 100
-            df['open_rate'] = (df['opens_unique'] / df['delivered']) * 100
-            df['click_rate'] = (df['clicks_unique'] / df['opens_unique']) * 100
+            if 'sent' in df and 'delivered' in df:
+                df['delivery_rate'] = (df['delivered'] / df['sent']) * 100
+            else:
+                df['delivery_rate'] = 0
+            if 'opens_unique' in df and 'delivered' in df:
+                df['open_rate'] = (df['opens_unique'] / df['delivered']) * 100
+            else:
+                df['open_rate'] = 0
+            if 'clicks_unique' in df and 'opens_unique' in df:
+                df['click_rate'] = (df['clicks_unique'] / df['opens_unique']) * 100
+            else:
+                df['click_rate'] = 0
             
             # Summary metrics
             col1, col2, col3, col4, col5 = st.columns(5)
             with col1:
-                st.metric("Total Sent", df['sent'].sum())
+                st.metric("Total Sent", df['sent'].sum() if 'sent' in df else 0)
             with col2:
-                st.metric("Delivered", df['delivered'].sum(), 
+                delivered_total = df['delivered'].sum() if 'delivered' in df else 0
+                st.metric("Delivered", delivered_total,
                          f"{df['delivery_rate'].mean():.1f}%")
             with col3:
-                st.metric("Opened", df['opens_unique'].sum(), 
+                opened_total = df['opens_unique'].sum() if 'opens_unique' in df else 0
+                st.metric("Opened", opened_total,
                          f"{df['open_rate'].mean():.1f}%")
             with col4:
-                st.metric("Clicked", df['clicks_unique'].sum(), 
+                clicked_total = df['clicks_unique'].sum() if 'clicks_unique' in df else 0
+                st.metric("Clicked", clicked_total,
                          f"{df['click_rate'].mean():.1f}%")
             with col5:
-                st.metric("Bounced", df['hard_bounces'].sum() + df['soft_bounces'].sum())
+                bounce_total = 0
+                if 'hard_bounces' in df:
+                    bounce_total += df['hard_bounces'].sum()
+                if 'soft_bounces' in df:
+                    bounce_total += df['soft_bounces'].sum()
+                st.metric("Bounced", bounce_total)
             
             # Time series charts
             st.subheader("Performance Over Time")
             tab1, tab2, tab3 = st.tabs(["Volume Metrics", "Engagement Rates", "Bounce & Complaints"])
-            
+
             with tab1:
-                st.line_chart(df[['sent', 'delivered', 'opens_unique', 'clicks_unique']])
-            
+                cols = [c for c in ['sent', 'delivered', 'opens_unique', 'clicks_unique'] if c in df]
+                if cols:
+                    st.line_chart(df[cols])
+
             with tab2:
-                st.line_chart(df[['delivery_rate', 'open_rate', 'click_rate']])
-            
+                cols = [c for c in ['delivery_rate', 'open_rate', 'click_rate'] if c in df]
+                if cols:
+                    st.line_chart(df[cols])
+
             with tab3:
-                st.line_chart(df[['hard_bounces', 'soft_bounces', 'spam_complaints']])
+                cols = [c for c in ['hard_bounces', 'soft_bounces', 'spam_complaints'] if c in df]
+                if cols:
+                    st.line_chart(df[cols])
             
             # Campaign details
             st.subheader("Recent Campaigns")
