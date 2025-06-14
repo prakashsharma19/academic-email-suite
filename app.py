@@ -556,8 +556,39 @@ def generate_report_file(df, report_type):
         output += f"{row.get('university', '')}\n"
         output += f"{row.get('country', '')}\n"
         output += f"{row.get('email', '')}\n\n"
-    
+
     return output.strip()
+
+def analyze_subject_csv(df):
+    """Return subject wise delivery, open and click rates."""
+    if df.empty or not {'Subject', 'Event', 'EmailID'}.issubset(df.columns):
+        return pd.DataFrame()
+
+    df['Subject'] = df['Subject'].astype(str)
+    df['Event'] = df['Event'].astype(str)
+
+    summary = []
+    for subject, grp in df.groupby('Subject'):
+        delivered = grp[grp['Event'].str.contains('deliver', case=False, na=False)]['EmailID'].nunique()
+        opened = grp[grp['Event'].str.contains('open', case=False, na=False)]['EmailID'].nunique()
+        clicked = grp[grp['Event'].str.contains('click', case=False, na=False)]['EmailID'].nunique()
+
+        open_rate = (opened / delivered * 100) if delivered else 0
+        click_rate = (clicked / opened * 100) if opened else 0
+
+        summary.append({
+            'Subject': subject,
+            'Delivered': delivered,
+            'Opened': opened,
+            'Clicked': clicked,
+            'Open Rate (%)': round(open_rate, 1),
+            'Click Rate (%)': round(click_rate, 1)
+        })
+
+    result = pd.DataFrame(summary)
+    if not result.empty:
+        result.sort_values('Delivered', ascending=False, inplace=True)
+    return result
 
 # Firebase Storage Functions
 def upload_to_firebase(file_content, filename):
@@ -1499,6 +1530,19 @@ def analytics_section():
                 else:
                     bounce_df = pd.DataFrame(bounce_data)
                 st.dataframe(bounce_df)
+
+            st.markdown("---")
+            st.subheader("Subject-wise CSV Analysis")
+            csv_file = st.file_uploader("Upload SMTP2Go Activity CSV", type=["csv"], key="activity_csv")
+            if csv_file and st.button("Analyze CSV"):
+                csv_df = pd.read_csv(csv_file)
+                result = analyze_subject_csv(csv_df)
+                if result.empty:
+                    st.warning("Uploaded CSV is missing required data.")
+                else:
+                    st.dataframe(result)
+                    rates = result.set_index('Subject')[['Open Rate (%)', 'Click Rate (%)']]
+                    st.bar_chart(rates)
         else:
             st.info("No analytics data available yet. Please send some emails first.")
     else:
