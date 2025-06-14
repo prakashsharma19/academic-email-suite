@@ -1366,8 +1366,19 @@ def analytics_section():
             # Time series data
             st.subheader("Performance Over Time")
             df = pd.DataFrame(stats_list)
-            df['date'] = pd.to_datetime(df['date'])
-            df.set_index('date', inplace=True)
+
+            # Some API responses may not include a 'date' column (e.g. when only
+            # totals are returned).  Gracefully handle these cases by checking
+            # for alternate timestamp fields before attempting to convert to a
+            # datetime index.
+            if 'date' in df.columns:
+                df['date'] = pd.to_datetime(df['date'])
+                df.set_index('date', inplace=True)
+            elif 'timestamp' in df.columns:
+                df['timestamp'] = pd.to_datetime(df['timestamp'])
+                df.set_index('timestamp', inplace=True)
+            else:
+                st.info("Date information not available in analytics data.")
             
             # Calculate rates
             if 'sent' in df and 'delivered' in df:
@@ -1530,8 +1541,18 @@ def show_email_analytics():
 
             # Process data for display
             df = pd.DataFrame(stats_list)
-            df['date'] = pd.to_datetime(df['date'])
-            df.set_index('date', inplace=True)
+
+            # The history endpoint may sometimes return only totals without a
+            # specific date field. Handle that scenario gracefully by checking
+            # for possible timestamp columns before indexing.
+            if 'date' in df.columns:
+                df['date'] = pd.to_datetime(df['date'])
+                df.set_index('date', inplace=True)
+            elif 'timestamp' in df.columns:
+                df['timestamp'] = pd.to_datetime(df['timestamp'])
+                df.set_index('timestamp', inplace=True)
+            else:
+                st.info("Date information not available in analytics data.")
             
             # Calculate rates
             if 'sent' in df and 'delivered' in df:
