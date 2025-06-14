@@ -1327,7 +1327,7 @@ def analytics_section():
         analytics_data = fetch_smtp2go_analytics()
 
         if analytics_data:
-            stats_list = analytics_data.get('stats')
+            stats_list = analytics_data.get('history')
             if not stats_list:
                 st.info("No statistics available yet.")
                 return
@@ -1384,7 +1384,7 @@ def analytics_section():
             
             with tab3:
                 st.line_chart(df[['hard_bounces', 'soft_bounces', 'spam_complaints']])
-            
+
             # Campaign details
             st.subheader("Recent Campaigns")
             if st.session_state.campaign_history:
@@ -1412,6 +1412,12 @@ def analytics_section():
                 )
             else:
                 st.info("No campaign history available")
+
+            # Show bounce details if available
+            if analytics_data.get('bounces'):
+                st.subheader("Recent Bounces")
+                bounce_df = pd.DataFrame(analytics_data['bounces'])
+                st.dataframe(bounce_df)
         else:
             st.info("No analytics data available yet. Please send some emails first.")
     else:
@@ -1457,36 +1463,40 @@ def analytics_section():
             st.error(f"Failed to fetch analytics: {str(e)}")
 
 def fetch_smtp2go_analytics():
+    """Retrieve analytics details from SMTP2GO using POST requests."""
     try:
-        if not config['smtp2go']['api_key']:
+        api_key = config['smtp2go']['api_key']
+        if not api_key:
             st.error("SMTP API key not configured")
             return None
-        
-        # Fetch stats from SMTP2GO
-        stats_url = "https://api.smtp2go.com/v3/stats/email_summary"
-        params = {
-            'api_key': config['smtp2go']['api_key'],
-            'days': 30
+
+        base_url = "https://api.smtp2go.com/v3"
+        payload = {
+            "api_key": api_key,
+            "date_start": (datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d"),
+            "date_end": datetime.utcnow().strftime("%Y-%m-%d")
         }
-        
-        response = requests.post(stats_url, json=params)
-        response.raise_for_status()
-        data = response.json()
-        
-        if data.get('data'):
-            result = data['data']
-            if isinstance(result, list):
-                return {'stats': result}
-            elif isinstance(result, dict):
-                # Some responses may only contain totals without a 'stats' key
-                # Normalize so that 'stats' is always a list of dictionaries
-                return result if 'stats' in result else {'stats': [result]}
-            else:
-                st.error("Unexpected analytics format")
-                return None
-        else:
-            st.error(f"Failed to fetch SMTP analytics: {data.get('error', 'Unknown error')}")
-            return None
+
+        # Email history
+        hist_resp = requests.post(f"{base_url}/stats/email_history", json=payload)
+        hist_resp.raise_for_status()
+        history_data = hist_resp.json().get("data", [])
+
+        # Bounce statistics
+        bounce_resp = requests.post(f"{base_url}/stats/email_bounces", json=payload)
+        bounce_resp.raise_for_status()
+        bounces_data = bounce_resp.json().get("data", [])
+
+        # Recent activity/search
+        search_resp = requests.post(f"{base_url}/activity/search", json=payload)
+        search_resp.raise_for_status()
+        activity_data = search_resp.json().get("data", [])
+
+        return {
+            "history": history_data,
+            "bounces": bounces_data,
+            "activity": activity_data
+        }
     except Exception as e:
         st.error(f"Error fetching SMTP analytics: {str(e)}")
         return None
@@ -1496,9 +1506,9 @@ def show_email_analytics():
     
     if st.session_state.email_service == "SMTP2GO":
         analytics_data = fetch_smtp2go_analytics()
-        
+
         if analytics_data:
-            stats_list = analytics_data.get('stats')
+            stats_list = analytics_data.get('history')
             if not stats_list:
                 st.info("No statistics available yet.")
                 return
@@ -1549,6 +1559,11 @@ def show_email_analytics():
                 st.dataframe(campaign_df.sort_values('timestamp', ascending=False))
             else:
                 st.info("No campaign history available")
+
+            if analytics_data.get('bounces'):
+                st.subheader("Recent Bounces")
+                bounce_df = pd.DataFrame(analytics_data['bounces'])
+                st.dataframe(bounce_df)
         else:
             st.info("No analytics data available yet. Please send some emails first.")
     else:
