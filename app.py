@@ -742,6 +742,37 @@ def update_campaign_progress(campaign_id, current_index, emails_sent):
         st.error(f"Failed to update campaign progress: {str(e)}")
         return False
 
+# Persist completed campaign details to Firestore
+def save_campaign_history(campaign_data):
+    try:
+        db = get_firestore_db()
+        if not db:
+            return False
+
+        db.collection("campaign_history").add(campaign_data)
+        return True
+    except Exception as e:
+        st.error(f"Failed to save campaign history: {str(e)}")
+        return False
+
+
+def load_campaign_history():
+    try:
+        db = get_firestore_db()
+        if not db:
+            return []
+
+        hist_ref = db.collection("campaign_history")
+        history = []
+        for doc in hist_ref.stream():
+            history.append(doc.to_dict())
+        history.sort(key=lambda x: x.get("timestamp", datetime.min), reverse=True)
+        st.session_state.campaign_history = history
+        return history
+    except Exception as e:
+        st.error(f"Failed to load campaign history: {str(e)}")
+        return []
+
 
 # Email Campaign Section
 def email_campaign_section():
@@ -1143,6 +1174,7 @@ def email_campaign_section():
                     'service': st.session_state.email_service
                 }
                 st.session_state.campaign_history.append(campaign_data)
+                save_campaign_history(campaign_data)
                 
                 st.success(f"Campaign completed! {success_count} of {total_emails} emails sent successfully.")
                 show_email_analytics()
@@ -1322,12 +1354,17 @@ def analytics_section():
     
     if st.session_state.email_service == "SMTP2GO":
         st.info("SMTP2GO Analytics Dashboard")
-        
+
         # Fetch detailed analytics
         analytics_data = fetch_smtp2go_analytics()
 
+        if not st.session_state.campaign_history:
+            load_campaign_history()
+
         if analytics_data:
             stats_list = analytics_data.get('history')
+            if isinstance(stats_list, dict):
+                stats_list = [stats_list]
             if not stats_list:
                 st.info("No statistics available yet.")
                 return
@@ -1348,7 +1385,7 @@ def analytics_section():
 
             # Overall metrics
             st.subheader("Overall Performance")
-            col1, col2, col3, col4, col5 = st.columns(5)
+            col1, col2, col3, col4, col5, col6 = st.columns(6)
             with col1:
                 st.metric("Total Sent", totals['sent'])
             with col2:
@@ -1362,6 +1399,18 @@ def analytics_section():
                 st.metric("Clicked", totals['clicks_unique'], f"{click_rate:.1f}%")
             with col5:
                 st.metric("Bounced", totals['hard_bounces'] + totals['soft_bounces'])
+            with col6:
+                bounce_rate = ((totals['hard_bounces'] + totals['soft_bounces']) / totals['sent'] * 100) if totals['sent'] else 0
+                if bounce_rate < 4:
+                    status_color = "green"
+                    status_text = "Healthy"
+                elif bounce_rate < 7:
+                    status_color = "orange"
+                    status_text = "Warning"
+                else:
+                    status_color = "red"
+                    status_text = "Unhealthy"
+                st.markdown(f"**Status:** <span style='color:{status_color}'>{status_text}</span>", unsafe_allow_html=True)
             
             # Time series data
             st.subheader("Performance Over Time")
@@ -1441,7 +1490,7 @@ def analytics_section():
 
             # Show bounce details if available
             if analytics_data.get('bounces'):
-                st.subheader("Recent Bounces")
+                st.subheader("Bounces")
                 bounce_data = analytics_data['bounces']
                 # The bounce endpoint may return aggregated values rather than
                 # a list of records. Handle both possibilities gracefully.
@@ -1535,12 +1584,17 @@ def fetch_smtp2go_analytics():
 
 def show_email_analytics():
     st.subheader("Email Campaign Analytics Dashboard")
-    
+
     if st.session_state.email_service == "SMTP2GO":
         analytics_data = fetch_smtp2go_analytics()
 
+        if not st.session_state.campaign_history:
+            load_campaign_history()
+
         if analytics_data:
             stats_list = analytics_data.get('history')
+            if isinstance(stats_list, dict):
+                stats_list = [stats_list]
             if not stats_list:
                 st.info("No statistics available yet.")
                 return
@@ -1575,7 +1629,7 @@ def show_email_analytics():
                 df['click_rate'] = 0
             
             # Summary metrics
-            col1, col2, col3, col4, col5 = st.columns(5)
+            col1, col2, col3, col4, col5, col6 = st.columns(6)
             with col1:
                 st.metric("Total Sent", df['sent'].sum() if 'sent' in df else 0)
             with col2:
@@ -1597,6 +1651,21 @@ def show_email_analytics():
                 if 'soft_bounces' in df:
                     bounce_total += df['soft_bounces'].sum()
                 st.metric("Bounced", bounce_total)
+            with col6:
+                if df['sent'].sum() > 0:
+                    bounce_rate = (bounce_total / df['sent'].sum()) * 100
+                else:
+                    bounce_rate = 0
+                if bounce_rate < 4:
+                    status_color = "green"
+                    status_text = "Healthy"
+                elif bounce_rate < 7:
+                    status_color = "orange"
+                    status_text = "Warning"
+                else:
+                    status_color = "red"
+                    status_text = "Unhealthy"
+                st.markdown(f"**Status:** <span style='color:{status_color}'>{status_text}</span>", unsafe_allow_html=True)
             
             # Time series charts
             st.subheader("Performance Over Time")
@@ -1626,7 +1695,7 @@ def show_email_analytics():
                 st.info("No campaign history available")
 
             if analytics_data.get('bounces'):
-                st.subheader("Recent Bounces")
+                st.subheader("Bounces")
                 bounce_data = analytics_data['bounces']
                 if isinstance(bounce_data, dict):
                     bounce_df = pd.DataFrame([bounce_data])
