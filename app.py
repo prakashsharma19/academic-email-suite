@@ -1442,7 +1442,13 @@ def analytics_section():
             # Show bounce details if available
             if analytics_data.get('bounces'):
                 st.subheader("Recent Bounces")
-                bounce_df = pd.DataFrame(analytics_data['bounces'])
+                bounce_data = analytics_data['bounces']
+                # The bounce endpoint may return aggregated values rather than
+                # a list of records. Handle both possibilities gracefully.
+                if isinstance(bounce_data, dict):
+                    bounce_df = pd.DataFrame([bounce_data])
+                else:
+                    bounce_df = pd.DataFrame(bounce_data)
                 st.dataframe(bounce_df)
         else:
             st.info("No analytics data available yet. Please send some emails first.")
@@ -1621,7 +1627,11 @@ def show_email_analytics():
 
             if analytics_data.get('bounces'):
                 st.subheader("Recent Bounces")
-                bounce_df = pd.DataFrame(analytics_data['bounces'])
+                bounce_data = analytics_data['bounces']
+                if isinstance(bounce_data, dict):
+                    bounce_df = pd.DataFrame([bounce_data])
+                else:
+                    bounce_df = pd.DataFrame(bounce_data)
                 st.dataframe(bounce_df)
         else:
             st.info("No analytics data available yet. Please send some emails first.")
