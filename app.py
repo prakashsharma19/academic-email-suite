@@ -1325,13 +1325,18 @@ def analytics_section():
         
         # Fetch detailed analytics
         analytics_data = fetch_smtp2go_analytics()
-        
+
         if analytics_data:
+            stats_list = analytics_data.get('stats')
+            if not stats_list:
+                st.info("No statistics available yet.")
+                return
+
             # Calculate totals (API may not always provide a 'totals' key)
             if 'totals' in analytics_data:
                 totals = analytics_data['totals']
             else:
-                df_totals = pd.DataFrame(analytics_data['stats'])
+                df_totals = pd.DataFrame(stats_list)
                 totals = {
                     'sent': df_totals['sent'].sum(),
                     'delivered': df_totals['delivered'].sum(),
@@ -1360,7 +1365,7 @@ def analytics_section():
             
             # Time series data
             st.subheader("Performance Over Time")
-            df = pd.DataFrame(analytics_data['stats'])
+            df = pd.DataFrame(stats_list)
             df['date'] = pd.to_datetime(df['date'])
             df.set_index('date', inplace=True)
             
@@ -1469,7 +1474,14 @@ def fetch_smtp2go_analytics():
         data = response.json()
         
         if data.get('data'):
-            return data['data']
+            result = data['data']
+            if isinstance(result, list):
+                return {'stats': result}
+            elif isinstance(result, dict):
+                return result if 'stats' in result else {'stats': result}
+            else:
+                st.error("Unexpected analytics format")
+                return None
         else:
             st.error(f"Failed to fetch SMTP analytics: {data.get('error', 'Unknown error')}")
             return None
@@ -1484,8 +1496,13 @@ def show_email_analytics():
         analytics_data = fetch_smtp2go_analytics()
         
         if analytics_data:
+            stats_list = analytics_data.get('stats')
+            if not stats_list:
+                st.info("No statistics available yet.")
+                return
+
             # Process data for display
-            df = pd.DataFrame(analytics_data['stats'])
+            df = pd.DataFrame(stats_list)
             df['date'] = pd.to_datetime(df['date'])
             df.set_index('date', inplace=True)
             
