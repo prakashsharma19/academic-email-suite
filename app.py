@@ -1450,7 +1450,8 @@ def fetch_smtp2go_analytics():
             'days': 30
         }
         
-        response = requests.get(stats_url, params=params)
+        response = requests.post(stats_url, json=params)
+        response.raise_for_status()
         data = response.json()
         
         if data.get('data'):
