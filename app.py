@@ -1478,7 +1478,9 @@ def fetch_smtp2go_analytics():
             if isinstance(result, list):
                 return {'stats': result}
             elif isinstance(result, dict):
-                return result if 'stats' in result else {'stats': result}
+                # Some responses may only contain totals without a 'stats' key
+                # Normalize so that 'stats' is always a list of dictionaries
+                return result if 'stats' in result else {'stats': [result]}
             else:
                 st.error("Unexpected analytics format")
                 return None
