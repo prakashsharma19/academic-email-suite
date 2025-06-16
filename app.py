@@ -174,6 +174,12 @@ def init_session_state():
         st.session_state.journal_subjects = {}
     if 'sender_email' not in st.session_state:
         st.session_state.sender_email = config['smtp2go']['sender']
+    if 'blocked_domains' not in st.session_state:
+        st.session_state.blocked_domains = []
+    if 'blocked_emails' not in st.session_state:
+        st.session_state.blocked_emails = []
+    if 'block_settings_loaded' not in st.session_state:
+        st.session_state.block_settings_loaded = False
 
 # Journal Data
 JOURNALS = [
@@ -762,6 +768,51 @@ def delete_subject_from_firebase(journal_name, subject):
         st.error(f"Failed to delete subject: {str(e)}")
         return False
 
+def save_block_settings():
+    try:
+        db = get_firestore_db()
+        if not db:
+            return False
+
+        doc_ref = db.collection("block_settings").document("settings")
+        doc_ref.set({
+            "blocked_domains": st.session_state.blocked_domains,
+            "blocked_emails": st.session_state.blocked_emails,
+            "last_updated": datetime.now(),
+            "updated_by": "admin",
+        })
+        return True
+    except Exception as e:
+        st.error(f"Failed to save block settings: {str(e)}")
+        return False
+
+def load_block_settings():
+    try:
+        db = get_firestore_db()
+        if not db:
+            return False
+
+        doc_ref = db.collection("block_settings").document("settings")
+        doc = doc_ref.get()
+        if doc.exists:
+            data = doc.to_dict()
+            st.session_state.blocked_domains = data.get("blocked_domains", [])
+            st.session_state.blocked_emails = data.get("blocked_emails", [])
+        return True
+    except Exception as e:
+        st.error(f"Failed to load block settings: {str(e)}")
+        return False
+
+def is_email_blocked(email):
+    email_lower = email.lower()
+    domain = email_lower.split('@')[-1]
+    if email_lower in [e.lower() for e in st.session_state.blocked_emails]:
+        return True
+    for d in st.session_state.blocked_domains:
+        if d.lower() in domain:
+            return True
+    return False
+
 def save_campaign_state(campaign_data):
     try:
         db = get_firestore_db()
@@ -855,8 +906,12 @@ def load_campaign_history():
 # Email Campaign Section
 def email_campaign_section():
     st.header("Email Campaign Management")
-    
-    
+
+    if not st.session_state.block_settings_loaded:
+        load_block_settings()
+        st.session_state.block_settings_loaded = True
+
+
     # Journal Selection
     col1, col2 = st.columns([3, 1])
     with col1:
@@ -905,6 +960,22 @@ def email_campaign_section():
             value=st.session_state.sender_email,
             key="sender_email"
         )
+
+        blocked_domains_text = st.text_area(
+            "Blocked Domains (one per line)",
+            "\n".join(st.session_state.blocked_domains),
+            key="blocked_domains"
+        )
+        blocked_emails_text = st.text_area(
+            "Blocked Emails (one per line)",
+            "\n".join(st.session_state.blocked_emails),
+            key="blocked_emails"
+        )
+        if st.button("Save Block Settings", key="save_block_settings"):
+            st.session_state.blocked_domains = [d.strip() for d in blocked_domains_text.splitlines() if d.strip()]
+            st.session_state.blocked_emails = [e.strip() for e in blocked_emails_text.splitlines() if e.strip()]
+            if save_block_settings():
+                st.success("Block settings saved!")
 
     # Journal Subject Management
     with st.expander("Journal Subjects"):
@@ -1165,7 +1236,15 @@ def email_campaign_section():
             for i, row in df.iterrows():
                 if st.session_state.campaign_cancelled:
                     break
-                
+
+                recipient_email = row.get('email', '')
+                if is_email_blocked(recipient_email):
+                    progress = (i + 1) / total_emails
+                    progress_bar.progress(progress)
+                    status_text.text(f"Skipping {i+1} of {total_emails}: {recipient_email} (blocked)")
+                    update_campaign_progress(campaign_id, i+1, success_count)
+                    continue
+
                 # Build author address from all fields except email
                 author_address = ""
                 if row.get('department', ''):
