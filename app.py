@@ -964,12 +964,12 @@ def email_campaign_section():
         blocked_domains_text = st.text_area(
             "Blocked Domains (one per line)",
             "\n".join(st.session_state.blocked_domains),
-            key="blocked_domains"
+            key="blocked_domains_text"
         )
         blocked_emails_text = st.text_area(
             "Blocked Emails (one per line)",
             "\n".join(st.session_state.blocked_emails),
-            key="blocked_emails"
+            key="blocked_emails_text"
         )
         if st.button("Save Block Settings", key="save_block_settings"):
             st.session_state.blocked_domains = [d.strip() for d in blocked_domains_text.splitlines() if d.strip()]
