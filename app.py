@@ -7,6 +7,7 @@ import requests
 import json
 import os
 import pytz
+import re
 from datetime import datetime, timedelta
 from io import StringIO
 from google.cloud import storage
@@ -289,6 +290,10 @@ def load_config():
 
 config = load_config()
 DEFAULT_UNSUBSCRIBE_BASE_URL = "https://pphmjopenaccess.com/unsubscribe?email="
+SPAMMY_WORDS = [
+    "offer", "discount", "free", "win", "winner", "cash", "prize",
+    "buy now", "cheap", "limited time", "money", "urgent"
+]
 init_session_state()
 
 # Initialize Firebase with better error handling
@@ -813,6 +818,16 @@ def is_email_blocked(email):
             return True
     return False
 
+def highlight_spam_words(text):
+    words_found = []
+    highlighted = text
+    for word in SPAMMY_WORDS:
+        pattern = re.compile(re.escape(word), re.IGNORECASE)
+        if pattern.search(text):
+            words_found.append(word)
+            highlighted = pattern.sub(lambda m: f"<span style='color:red'>{m.group(0)}</span>", highlighted)
+    return words_found, highlighted
+
 def save_campaign_state(campaign_data):
     try:
         db = get_firestore_db()
@@ -988,6 +1003,11 @@ def email_campaign_section():
                     subj,
                     key=f"edit_subj_{selected_journal}_{idx}"
                 )
+                if edited:
+                    spam_words, highlighted_edit = highlight_spam_words(edited)
+                    if spam_words:
+                        col1.warning("Your email may get spammed with this subject:")
+                        col1.markdown(highlighted_edit, unsafe_allow_html=True)
                 if col2.button("Update", key=f"update_subj_{selected_journal}_{idx}"):
                     if edited and edited != subj:
                         if update_subject_in_firebase(selected_journal, subj, edited):
@@ -1001,6 +1021,11 @@ def email_campaign_section():
             st.write("No subjects added yet")
 
         new_subject = st.text_input("Add Subject", key=f"subject_{selected_journal}")
+        if new_subject:
+            spam_words, highlighted_new = highlight_spam_words(new_subject)
+            if spam_words:
+                st.warning("Your email may get spammed with this subject:")
+                st.markdown(highlighted_new, unsafe_allow_html=True)
         if st.button("Save Subject", key=f"save_subj_{selected_journal}"):
             if new_subject:
                 if add_subject_to_firebase(selected_journal, new_subject):
@@ -1016,6 +1041,11 @@ def email_campaign_section():
                 "Email Subject",
                 f"Call for Papers - {st.session_state.selected_journal}"
             )
+            if email_subject:
+                spam_words, highlighted = highlight_spam_words(email_subject)
+                if spam_words:
+                    st.warning("Your email may get spammed with this subject:")
+                    st.markdown(highlighted, unsafe_allow_html=True)
 
         editor_col, preview_col = st.columns(2)
 
