@@ -184,19 +184,13 @@ def init_session_state():
 
 # Journal Data
 JOURNALS = [
-    "Computer Science and Artificial Intelligence",
-    "Advanced Studies in Artificial Intelligence",
-    "Advances in Computer Science and Engineering",
-    "Far East Journal of Experimental and Theoretical Artificial Intelligence",
     "Advances and Applications in Fluid Mechanics",
     "Advances in Fuzzy Sets and Systems",
     "Far East Journal of Electronics and Communications",
     "Far East Journal of Mathematical Education",
-    "Far East Journal of Mechanical Engineering and Physics",
     "International Journal of Nutrition and Dietetics",
     "International Journal of Numerical Methods and Applications",
     "International Journal of Materials Engineering and Technology",
-    "JP Journal of Solids and Structures",
     "Advances and Applications in Discrete Mathematics",
     "Advances and Applications in Statistics",
     "Far East Journal of Applied Mathematics",
@@ -208,7 +202,6 @@ JOURNALS = [
     "JP Journal of Biostatistics",
     "JP Journal of Fixed Point Theory and Applications",
     "JP Journal of Heat and Mass Transfer",
-    "Surveys in Mathematics and Mathematical Sciences",
     "Universal Journal of Mathematics and Mathematical Sciences"
 ]
 
