@@ -181,6 +181,8 @@ def init_session_state():
         st.session_state.blocked_emails = []
     if 'block_settings_loaded' not in st.session_state:
         st.session_state.block_settings_loaded = False
+    if 'journals_loaded' not in st.session_state:
+        st.session_state.journals_loaded = False
 
 # Journal Data
 JOURNALS = [
@@ -643,6 +645,52 @@ def list_firebase_files():
         st.error(f"Failed to list files: {str(e)}")
         return []
 
+# Journal management functions
+def load_journals_from_firebase():
+    try:
+        db = get_firestore_db()
+        if not db:
+            return False
+
+        doc_ref = db.collection("journals").document("journal_list")
+        doc = doc_ref.get()
+        if doc.exists:
+            data = doc.to_dict()
+            journals = data.get("journals", [])
+            if journals:
+                global JOURNALS
+                JOURNALS = journals
+        return True
+    except Exception as e:
+        st.error(f"Failed to load journals: {str(e)}")
+        return False
+
+
+def add_journal_to_firebase(journal_name):
+    try:
+        db = get_firestore_db()
+        if not db:
+            return False
+
+        doc_ref = db.collection("journals").document("journal_list")
+        doc = doc_ref.get()
+        journals = doc.to_dict().get("journals", []) if doc.exists else []
+        if journal_name not in journals:
+            journals.append(journal_name)
+            doc_ref.set({
+                "journals": journals,
+                "last_updated": datetime.now(),
+                "updated_by": "admin",
+            })
+
+        global JOURNALS
+        if journal_name not in JOURNALS:
+            JOURNALS.append(journal_name)
+        return True
+    except Exception as e:
+        st.error(f"Failed to save journal: {str(e)}")
+        return False
+
 # Firebase Cloud Functions for campaign management
 def save_template_to_firebase(journal_name, template_content):
     try:
@@ -919,6 +967,10 @@ def email_campaign_section():
         load_block_settings()
         st.session_state.block_settings_loaded = True
 
+    if not st.session_state.journals_loaded:
+        load_journals_from_firebase()
+        st.session_state.journals_loaded = True
+
 
     # Journal Selection
     col1, col2 = st.columns([3, 1])
@@ -927,8 +979,7 @@ def email_campaign_section():
     with col2:
         new_journal = st.text_input("Add New Journal", key="new_journal")
         if new_journal and st.button("Add Journal"):
-            if new_journal not in JOURNALS:
-                JOURNALS.append(new_journal)
+            if add_journal_to_firebase(new_journal):
                 st.session_state.selected_journal = new_journal
                 if new_journal not in st.session_state.journal_reply_addresses:
                     st.session_state.journal_reply_addresses[new_journal] = ""
