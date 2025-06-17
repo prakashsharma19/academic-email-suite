@@ -647,6 +647,12 @@ def list_firebase_files():
 
 # Journal management functions
 def load_journals_from_firebase():
+    """Load the list of journals from Firestore.
+
+    If the document does not exist, it will be created using the default
+    ``JOURNALS`` list. Loaded journals are merged with the defaults so that
+    existing journals are preserved when new ones are added.
+    """
     try:
         db = get_firestore_db()
         if not db:
@@ -654,12 +660,20 @@ def load_journals_from_firebase():
 
         doc_ref = db.collection("journals").document("journal_list")
         doc = doc_ref.get()
+
+        global JOURNALS
         if doc.exists:
             data = doc.to_dict()
             journals = data.get("journals", [])
-            if journals:
-                global JOURNALS
-                JOURNALS = journals
+            # Merge loaded journals with defaults and remove duplicates
+            JOURNALS = sorted(set(JOURNALS + journals))
+        else:
+            # Document doesn't exist; initialise with default journals
+            doc_ref.set({
+                "journals": JOURNALS,
+                "last_updated": datetime.now(),
+                "updated_by": "admin",
+            })
         return True
     except Exception as e:
         st.error(f"Failed to load journals: {str(e)}")
@@ -667,6 +681,7 @@ def load_journals_from_firebase():
 
 
 def add_journal_to_firebase(journal_name):
+    """Add a journal to Firestore and update the in-memory list."""
     try:
         db = get_firestore_db()
         if not db:
@@ -674,16 +689,20 @@ def add_journal_to_firebase(journal_name):
 
         doc_ref = db.collection("journals").document("journal_list")
         doc = doc_ref.get()
-        journals = doc.to_dict().get("journals", []) if doc.exists else []
+
+        global JOURNALS
+        # Start with existing journals from Firestore or the defaults
+        journals = doc.to_dict().get("journals", JOURNALS.copy()) if doc.exists else JOURNALS.copy()
+
         if journal_name not in journals:
             journals.append(journal_name)
+            # Ensure list is stored without duplicates
             doc_ref.set({
-                "journals": journals,
+                "journals": sorted(set(journals)),
                 "last_updated": datetime.now(),
                 "updated_by": "admin",
             })
 
-        global JOURNALS
         if journal_name not in JOURNALS:
             JOURNALS.append(journal_name)
         return True
