@@ -8,6 +8,7 @@ import json
 import os
 import pytz
 import re
+import hashlib
 from datetime import datetime, timedelta
 from io import StringIO
 from google.cloud import storage
@@ -189,6 +190,8 @@ def init_session_state():
         st.session_state.template_spam_report = {}
     if 'template_spam_summary' not in st.session_state:
         st.session_state.template_spam_summary = {}
+    if 'spam_check_cache' not in st.session_state:
+        st.session_state.spam_check_cache = {}
 
 # Journal Data
 JOURNALS = [
@@ -1199,7 +1202,13 @@ def email_campaign_section():
                     st.success("Template saved to cloud!")
 
             if st.button("Check Spam Score"):
-                score, report = check_postmark_spam(email_body, email_subject)
+                cache_key = hashlib.md5((email_subject + email_body).encode("utf-8")).hexdigest()
+                if cache_key in st.session_state.spam_check_cache:
+                    score, report = st.session_state.spam_check_cache[cache_key]
+                else:
+                    score, report = check_postmark_spam(email_body, email_subject)
+                    if score is not None:
+                        st.session_state.spam_check_cache[cache_key] = (score, report)
                 if score is not None:
                     st.session_state.template_spam_score[selected_journal] = score
                     st.session_state.template_spam_report[selected_journal] = clean_spam_report(report)
@@ -1221,6 +1230,12 @@ def email_campaign_section():
                 st.markdown("_Spam score under 5 is generally considered good (0 is best)._", unsafe_allow_html=True)
                 if summary:
                     st.markdown(f"**{summary}**")
+                with st.expander("Detail Report"):
+                    st.text_area(
+                        "",
+                        st.session_state.template_spam_report[selected_journal],
+                        height=150,
+                    )
 
             st.info("""Available template variables:
             - $$Author_Name$$: Author's full name
@@ -1256,13 +1271,7 @@ def email_campaign_section():
 
             st.markdown(preview_html, unsafe_allow_html=True)
 
-    if selected_journal in st.session_state.template_spam_score:
-        with st.expander("Detailed Spam Report"):
-            st.text_area(
-                "",
-                st.session_state.template_spam_report[selected_journal],
-                height=150,
-            )
+
 
     # File Upload
     st.subheader("Recipient List")
