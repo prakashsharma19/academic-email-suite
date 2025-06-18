@@ -1111,9 +1111,13 @@ def email_campaign_section():
             on_change=lambda: st.session_state.update(show_journal_details=False),
             key="selected_journal",
         )
-        if st.button("Load Subjects & Template from Cloud"):
-            refresh_journal_data()
-            st.session_state.show_journal_details = True
+        button_label = "Hide Subjects & Templete" if st.session_state.show_journal_details else "Load Subjects & Templete"
+        if st.button(button_label):
+            if st.session_state.show_journal_details:
+                st.session_state.show_journal_details = False
+            else:
+                refresh_journal_data()
+                st.session_state.show_journal_details = True
             st.experimental_rerun()
     with col2:
         new_journal = st.text_input("Add New Journal", key="new_journal")
@@ -1311,56 +1315,55 @@ def email_campaign_section():
 
 
             st.markdown(preview_html, unsafe_allow_html=True)
-    else:
-        # Informational message removed per user request to keep the interface concise.
-        # File Upload
-        st.subheader("Recipient List")
-        file_source = st.radio("Select file source", ["Local Upload", "Cloud Storage"])
-        
-        if file_source == "Local Upload":
-            uploaded_file = st.file_uploader("Upload recipient list (CSV or TXT)", type=["csv", "txt"])
-            if uploaded_file:
+
+    # File Upload
+    st.subheader("Recipient List")
+    file_source = st.radio("Select file source", ["Local Upload", "Cloud Storage"])
+
+    if file_source == "Local Upload":
+        uploaded_file = st.file_uploader("Upload recipient list (CSV or TXT)", type=["csv", "txt"])
+        if uploaded_file:
+            if uploaded_file.name.endswith('.txt'):
+                # Process the text file with the specific format
+                file_content = uploaded_file.read().decode('utf-8')
+                entries = []
+                current_entry = {}
+
+                for line in file_content.split('\n'):
+                    line = line.strip()
+                    if line:
+                        if '@' in line and '.' in line and ' ' not in line:  # Likely email
+                            current_entry['email'] = line
+                            entries.append(current_entry)
+                            current_entry = {}
+                        elif not current_entry.get('name', ''):
+                            current_entry['name'] = line
+                        elif not current_entry.get('department', ''):
+                            current_entry['department'] = line
+                        elif not current_entry.get('university', ''):
+                            current_entry['university'] = line
+                        elif not current_entry.get('country', ''):
+                            current_entry['country'] = line
+
+                df = pd.DataFrame(entries)
+            else:
+                df = pd.read_csv(uploaded_file)
+
+            st.session_state.current_recipient_list = df
+            st.dataframe(df.head())
+            st.info(f"Total emails loaded: {len(df)}")
+
+            if st.button("Save to Firebase"):
                 if uploaded_file.name.endswith('.txt'):
-                    # Process the text file with the specific format
-                    file_content = uploaded_file.read().decode('utf-8')
-                    entries = []
-                    current_entry = {}
-                    
-                    for line in file_content.split('\n'):
-                        line = line.strip()
-                        if line:
-                            if '@' in line and '.' in line and ' ' not in line:  # Likely email
-                                current_entry['email'] = line
-                                entries.append(current_entry)
-                                current_entry = {}
-                            elif not current_entry.get('name', ''):
-                                current_entry['name'] = line
-                            elif not current_entry.get('department', ''):
-                                current_entry['department'] = line
-                            elif not current_entry.get('university', ''):
-                                current_entry['university'] = line
-                            elif not current_entry.get('country', ''):
-                                current_entry['country'] = line
-                    
-                    df = pd.DataFrame(entries)
+                    if upload_to_firebase(file_content, uploaded_file.name):
+                        st.success("File uploaded to Firebase successfully!")
                 else:
-                    df = pd.read_csv(uploaded_file)
-                
-                st.session_state.current_recipient_list = df
-                st.dataframe(df.head())
-                st.info(f"Total emails loaded: {len(df)}")
-                
-                if st.button("Save to Firebase"):
-                    if uploaded_file.name.endswith('.txt'):
-                        if upload_to_firebase(file_content, uploaded_file.name):
-                            st.success("File uploaded to Firebase successfully!")
-                    else:
-                        csv_content = df.to_csv(index=False)
-                        if upload_to_firebase(csv_content, uploaded_file.name):
-                            st.success("File uploaded to Firebase successfully!")
-        else:
-            if st.button("Refresh File List"):
-                st.session_state.firebase_files = list_firebase_files()
+                    csv_content = df.to_csv(index=False)
+                    if upload_to_firebase(csv_content, uploaded_file.name):
+                        st.success("File uploaded to Firebase successfully!")
+    else:
+        if st.button("Refresh File List"):
+            st.session_state.firebase_files = list_firebase_files()
             
             if 'firebase_files' in st.session_state and st.session_state.firebase_files:
                 selected_file = st.selectbox("Select file from Firebase", st.session_state.firebase_files)
