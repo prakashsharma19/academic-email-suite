@@ -1279,9 +1279,10 @@ def email_campaign_section():
             preview_html = preview_html.replace("$$University$$", "Harvard University")
             preview_html = preview_html.replace("$$Country$$", "United States")
             preview_html = preview_html.replace("$$Author_Email$$", "john.doe@harvard.edu")
+            journal_name = st.session_state.get("selected_journal") or ""
             preview_html = preview_html.replace(
                 "$$Journal_Name$$",
-                st.session_state.selected_journal
+                journal_name
             )
             preview_html = preview_html.replace(
                 "$$Unsubscribe_Link$$",
@@ -1484,7 +1485,8 @@ def email_campaign_section():
                 email_content = email_content.replace("$$University$$", str(row.get('university', '')))
                 email_content = email_content.replace("$$Country$$", str(row.get('country', '')))
                 email_content = email_content.replace("$$Author_Email$$", str(row.get('email', '')))
-                email_content = email_content.replace("$$Journal_Name$$", st.session_state.selected_journal)
+                journal_name = st.session_state.get("selected_journal") or ""
+                email_content = email_content.replace("$$Journal_Name$$", journal_name)
                 
                 unsubscribe_link = f"{unsubscribe_base_url}{row.get('email', '')}"
                 email_content = email_content.replace("$$Unsubscribe_Link$$", unsubscribe_link)
