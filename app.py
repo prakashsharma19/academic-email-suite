@@ -1091,13 +1091,11 @@ def email_campaign_section():
         if new_journal and st.button("Add Journal"):
             if add_journal_to_firebase(new_journal):
                 st.session_state.selected_journal = new_journal
-                st.session_state.journal_select = new_journal
                 if new_journal not in st.session_state.journal_reply_addresses:
                     st.session_state.journal_reply_addresses[new_journal] = ""
                 st.rerun()
     
     st.session_state.selected_journal = selected_journal
-    st.session_state.journal_select = selected_journal
     
     # Load template from Firebase if available
     if selected_journal not in st.session_state.template_content:
