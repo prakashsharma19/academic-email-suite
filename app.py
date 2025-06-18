@@ -1315,7 +1315,7 @@ def email_campaign_section():
         # Informational message removed per user request to keep the interface concise.
     # File Upload
     st.subheader("Recipient List")
-    file_source = st.radio("Select file source", ["Local Upload", "Cloud Storage"])
+        file_source = st.radio("Select file source", ["Local Upload", "Cloud Storage"])
     
     if file_source == "Local Upload":
         uploaded_file = st.file_uploader("Upload recipient list (CSV or TXT)", type=["csv", "txt"])
