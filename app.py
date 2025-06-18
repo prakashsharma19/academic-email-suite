@@ -187,6 +187,8 @@ def init_session_state():
         st.session_state.template_spam_score = {}
     if 'template_spam_report' not in st.session_state:
         st.session_state.template_spam_report = {}
+    if 'template_spam_summary' not in st.session_state:
+        st.session_state.template_spam_summary = {}
 
 # Journal Data
 JOURNALS = [
@@ -925,6 +927,35 @@ def check_postmark_spam(template_html, subject="Test"):
         st.error(f"Spamcheck request failed: {str(e)}")
         return None, None
 
+def clean_spam_report(report: str) -> str:
+    """Remove irrelevant lines from the SpamAssassin report."""
+    if not report:
+        return ""
+    skip_keywords = [
+        "URIBL_BLOCKED",
+        "URIBL_DBL_BLOCKED",
+        "URIBL_ZEN_BLOCKED",
+        "NO_RELAYS",
+        "NO_RECEIVED",
+    ]
+    lines = [
+        line
+        for line in report.splitlines()
+        if not any(k in line for k in skip_keywords)
+    ]
+    return "\n".join(lines).strip()
+
+
+def spam_score_summary(score: float | None) -> str:
+    """Return a short human-readable summary for the spam score."""
+    if score is None:
+        return "Unable to evaluate spam score."
+    if score == 0:
+        return "Your template is spam free."
+    if score < 5:
+        return "Your template has some spam elements, check before sending."
+    return "Your template may be flagged as spam. Review the content."
+
 def save_campaign_state(campaign_data):
     try:
         db = get_firestore_db()
@@ -1171,10 +1202,12 @@ def email_campaign_section():
                 score, report = check_postmark_spam(email_body, email_subject)
                 if score is not None:
                     st.session_state.template_spam_score[selected_journal] = score
-                    st.session_state.template_spam_report[selected_journal] = report
+                    st.session_state.template_spam_report[selected_journal] = clean_spam_report(report)
+                    st.session_state.template_spam_summary[selected_journal] = spam_score_summary(score)
 
             if selected_journal in st.session_state.template_spam_score:
                 score = st.session_state.template_spam_score[selected_journal]
+                summary = st.session_state.template_spam_summary.get(selected_journal, "")
                 if score < 4:
                     color = "green"
                 elif score < 6:
@@ -1185,11 +1218,15 @@ def email_campaign_section():
                     f"**Spam Score:** <span style='color:{color}'>{score}</span>",
                     unsafe_allow_html=True,
                 )
-                st.text_area(
-                    "Spam Report",
-                    st.session_state.template_spam_report[selected_journal],
-                    height=150,
-                )
+                st.markdown("_Spam score under 5 is generally considered good (0 is best)._", unsafe_allow_html=True)
+                if summary:
+                    st.markdown(f"**{summary}**")
+                with st.expander("Detailed Spam Report"):
+                    st.text_area(
+                        "",
+                        st.session_state.template_spam_report[selected_journal],
+                        height=150,
+                    )
 
             st.info("""Available template variables:
             - $$Author_Name$$: Author's full name
