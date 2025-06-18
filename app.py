@@ -208,6 +208,8 @@ def init_session_state():
         st.session_state.spam_check_cache = {}
     if 'last_refreshed_journal' not in st.session_state:
         st.session_state.last_refreshed_journal = None
+    if 'show_journal_details' not in st.session_state:
+        st.session_state.show_journal_details = False
 
 # Journal Data
 JOURNALS = [
@@ -1072,9 +1074,6 @@ def refresh_journal_data():
     if not journal:
         return
 
-    if st.session_state.get("last_refreshed_journal") == journal:
-        return
-
     template = load_template_from_firebase(journal)
     if template is not None:
         st.session_state.template_content[journal] = template
@@ -1084,7 +1083,6 @@ def refresh_journal_data():
         st.session_state.journal_subjects[journal] = subjects
 
     st.session_state.last_refreshed_journal = journal
-    st.experimental_rerun()
 
 # Email Campaign Section
 def email_campaign_section():
@@ -1100,7 +1098,7 @@ def email_campaign_section():
 
     if st.session_state.selected_journal is None:
         st.session_state.selected_journal = JOURNALS[0]
-        refresh_journal_data()
+        st.session_state.show_journal_details = False
 
     # Journal Selection
     col1, col2 = st.columns([3, 1])
@@ -1110,11 +1108,13 @@ def email_campaign_section():
             JOURNALS,
             index=JOURNALS.index(st.session_state.selected_journal)
             if st.session_state.selected_journal in JOURNALS else 0,
-            on_change=refresh_journal_data,
+            on_change=lambda: st.session_state.update(show_journal_details=False),
             key="selected_journal",
         )
         if st.button("Load Subjects & Template from Cloud"):
             refresh_journal_data()
+            st.session_state.show_journal_details = True
+            st.experimental_rerun()
     with col2:
         new_journal = st.text_input("Add New Journal", key="new_journal")
         if new_journal and st.button("Add Journal"):
@@ -1124,14 +1124,6 @@ def email_campaign_section():
                     st.session_state.journal_reply_addresses[new_journal] = ""
                 st.rerun()
     
-    # Always attempt to load the latest template and subjects
-    loaded_template = load_template_from_firebase(selected_journal)
-    if loaded_template is not None:
-        st.session_state.template_content[selected_journal] = loaded_template
-
-    subjects = load_subjects_from_firebase(selected_journal)
-    if subjects is not None:
-        st.session_state.journal_subjects[selected_journal] = subjects
     
     # Campaign settings in the sidebar
     with st.sidebar.expander("Campaign Settings", expanded=False):
@@ -1173,150 +1165,154 @@ def email_campaign_section():
             if save_block_settings():
                 st.success("Block settings saved!")
 
-    # Journal Subject Management
-    st.subheader("Journal Subjects")
-    subjects = st.session_state.journal_subjects.get(selected_journal, [])
-    if subjects:
-        for idx, subj in enumerate(subjects):
-            col1, col2, col3 = st.columns([3, 1, 1])
-            edited = col1.text_input(
-                f"Subject {idx+1}",
-                subj,
-                key=f"edit_subj_{selected_journal}_{idx}"
-            )
-            if edited:
-                spam_words, highlighted_edit = highlight_spam_words(edited)
-                if spam_words:
-                    col1.warning("Your email may get spammed with this subject:")
-                    col1.markdown(highlighted_edit, unsafe_allow_html=True)
-            if col2.button("Update", key=f"update_subj_{selected_journal}_{idx}"):
-                if edited and edited != subj:
-                    if update_subject_in_firebase(selected_journal, subj, edited):
-                        st.success("Subject updated!")
+    if st.session_state.show_journal_details:
+        # Journal Subject Management
+        st.subheader("Journal Subjects")
+        subjects = st.session_state.journal_subjects.get(selected_journal, [])
+        if subjects:
+            for idx, subj in enumerate(subjects):
+                col1, col2, col3 = st.columns([3, 1, 1])
+                edited = col1.text_input(
+                    f"Subject {idx+1}",
+                    subj,
+                    key=f"edit_subj_{selected_journal}_{idx}"
+                )
+                if edited:
+                    spam_words, highlighted_edit = highlight_spam_words(edited)
+                    if spam_words:
+                        col1.warning("Your email may get spammed with this subject:")
+                        col1.markdown(highlighted_edit, unsafe_allow_html=True)
+                if col2.button("Update", key=f"update_subj_{selected_journal}_{idx}"):
+                    if edited and edited != subj:
+                        if update_subject_in_firebase(selected_journal, subj, edited):
+                            st.success("Subject updated!")
+                            st.experimental_rerun()
+                if col3.button("Delete", key=f"delete_subj_{selected_journal}_{idx}"):
+                    if delete_subject_from_firebase(selected_journal, subj):
+                        st.success("Subject deleted!")
                         st.experimental_rerun()
-            if col3.button("Delete", key=f"delete_subj_{selected_journal}_{idx}"):
-                if delete_subject_from_firebase(selected_journal, subj):
-                    st.success("Subject deleted!")
-                    st.experimental_rerun()
-    else:
-        st.write("No subjects added yet")
+        else:
+            st.write("No subjects added yet")
 
-    new_subject = st.text_input("Add Subject", key=f"subject_{selected_journal}")
-    if new_subject:
-        spam_words, highlighted_new = highlight_spam_words(new_subject)
-        if spam_words:
-            st.warning("Your email may get spammed with this subject:")
-            st.markdown(highlighted_new, unsafe_allow_html=True)
-    if st.button("Save Subject", key=f"save_subj_{selected_journal}"):
+        new_subject = st.text_input("Add Subject", key=f"subject_{selected_journal}")
         if new_subject:
-            if add_subject_to_firebase(selected_journal, new_subject):
-                st.success("Subject saved!")
-    
-    # Email Template Editor with ACE Editor
-    st.subheader("Email Template Editor")
-    template = get_journal_template(st.session_state.selected_journal)
-
-    col1, col2 = st.columns(2)
-    with col1:
-        email_subject = st.text_input(
-            "Email Subject",
-            f"Call for Papers - {st.session_state.selected_journal}"
-        )
-        if email_subject:
-            spam_words, highlighted = highlight_spam_words(email_subject)
+            spam_words, highlighted_new = highlight_spam_words(new_subject)
             if spam_words:
                 st.warning("Your email may get spammed with this subject:")
-                st.markdown(highlighted, unsafe_allow_html=True)
+                st.markdown(highlighted_new, unsafe_allow_html=True)
+        if st.button("Save Subject", key=f"save_subj_{selected_journal}"):
+            if new_subject:
+                if add_subject_to_firebase(selected_journal, new_subject):
+                    st.success("Subject saved!")
 
-    editor_col, preview_col = st.columns(2)
+        # Email Template Editor with ACE Editor
+        st.subheader("Email Template Editor")
+        template = get_journal_template(st.session_state.selected_journal)
 
-    with editor_col:
-        st.markdown("**Template Editor**")
-        email_body = st_ace(
-            value=template,
-            language="html",
-            theme="chrome",
-            font_size=14,
-            tab_size=2,
-            wrap=True,
-            show_gutter=True,
-            key=f"editor_{selected_journal}",
-            height=400
-        )
+        col1, col2 = st.columns(2)
+        with col1:
+            email_subject = st.text_input(
+                "Email Subject",
+                f"Call for Papers - {st.session_state.selected_journal}"
+            )
+            if email_subject:
+                spam_words, highlighted = highlight_spam_words(email_subject)
+                if spam_words:
+                    st.warning("Your email may get spammed with this subject:")
+                    st.markdown(highlighted, unsafe_allow_html=True)
 
-        if st.button("Save Template"):
-            if save_template_to_firebase(selected_journal, email_body):
-                st.success("Template saved to cloud!")
+        editor_col, preview_col = st.columns(2)
 
-        if st.button("Check Spam Score"):
-            cache_key = hashlib.md5((email_subject + email_body).encode("utf-8")).hexdigest()
-            if cache_key in st.session_state.spam_check_cache:
-                score, report = st.session_state.spam_check_cache[cache_key]
-            else:
-                score, report = check_postmark_spam(email_body, email_subject)
+        with editor_col:
+            st.markdown("**Template Editor**")
+            email_body = st_ace(
+                value=template,
+                language="html",
+                theme="chrome",
+                font_size=14,
+                tab_size=2,
+                wrap=True,
+                show_gutter=True,
+                key=f"editor_{selected_journal}",
+                height=400
+            )
+
+            if st.button("Save Template"):
+                if save_template_to_firebase(selected_journal, email_body):
+                    st.success("Template saved to cloud!")
+
+            if st.button("Check Spam Score"):
+                cache_key = hashlib.md5((email_subject + email_body).encode("utf-8")).hexdigest()
+                if cache_key in st.session_state.spam_check_cache:
+                    score, report = st.session_state.spam_check_cache[cache_key]
+                else:
+                    score, report = check_postmark_spam(email_body, email_subject)
+                    if score is not None:
+                        st.session_state.spam_check_cache[cache_key] = (score, report)
                 if score is not None:
-                    st.session_state.spam_check_cache[cache_key] = (score, report)
-            if score is not None:
-                st.session_state.template_spam_score[selected_journal] = score
-                st.session_state.template_spam_report[selected_journal] = clean_spam_report(report)
-                st.session_state.template_spam_summary[selected_journal] = spam_score_summary(score)
+                    st.session_state.template_spam_score[selected_journal] = score
+                    st.session_state.template_spam_report[selected_journal] = clean_spam_report(report)
+                    st.session_state.template_spam_summary[selected_journal] = spam_score_summary(score)
 
-        if selected_journal in st.session_state.template_spam_score:
-            score = st.session_state.template_spam_score[selected_journal]
-            summary = st.session_state.template_spam_summary.get(selected_journal, "")
-            if score < 4:
-                color = "green"
-            elif score < 6:
-                color = "orange"
-            else:
-                color = "red"
-            st.markdown(
-                f"**Spam Score:** <span style='color:{color}'>{score}</span>",
-                unsafe_allow_html=True,
+            if selected_journal in st.session_state.template_spam_score:
+                score = st.session_state.template_spam_score[selected_journal]
+                summary = st.session_state.template_spam_summary.get(selected_journal, "")
+                if score < 4:
+                    color = "green"
+                elif score < 6:
+                    color = "orange"
+                else:
+                    color = "red"
+                st.markdown(
+                    f"**Spam Score:** <span style='color:{color}'>{score}</span>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown("_Spam score under 5 is generally considered good (0 is best)._", unsafe_allow_html=True)
+                if summary:
+                    st.markdown(f"**{summary}**")
+                st.text_area(
+                    "Detail Report",
+                    st.session_state.template_spam_report[selected_journal],
+                    height=150,
+                )
+
+            st.info("""Available template variables:
+            - $$Author_Name$$: Author's full name
+            - $$Author_Address$$: All address lines before email
+            - $$AuthorLastname$$: Author's last name
+            - $$Department$$: Author's department
+            - $$University$$: Author's university
+            - $$Country$$: Author's country
+            - $$Author_Email$$: Author's email
+            - $$Journal_Name$$: Selected journal name
+            - $$Unsubscribe_Link$$: Unsubscribe link""")
+
+        with preview_col:
+            st.markdown("**Preview**")
+            preview_html = email_body.replace("$$Author_Name$$", "Professor John Doe")
+            preview_html = preview_html.replace(
+                "$$Author_Address$$",
+                "Department of Computer Science<br>Harvard University<br>United States"
             )
-            st.markdown("_Spam score under 5 is generally considered good (0 is best)._", unsafe_allow_html=True)
-            if summary:
-                st.markdown(f"**{summary}**")
-            st.text_area(
-                "Detail Report",
-                st.session_state.template_spam_report[selected_journal],
-                height=150,
+            preview_html = preview_html.replace("$$AuthorLastname$$", "Doe")
+            preview_html = preview_html.replace("$$Department$$", "Computer Science")
+            preview_html = preview_html.replace("$$University$$", "Harvard University")
+            preview_html = preview_html.replace("$$Country$$", "United States")
+            preview_html = preview_html.replace("$$Author_Email$$", "john.doe@harvard.edu")
+            journal_name = st.session_state.get("selected_journal") or ""
+            preview_html = preview_html.replace(
+                "$$Journal_Name$$",
+                journal_name
+            )
+            preview_html = preview_html.replace(
+                "$$Unsubscribe_Link$$",
+                "https://pphmjopenaccess.com/unsubscribe?email=john.doe@harvard.edu"
             )
 
-        st.info("""Available template variables:
-        - $$Author_Name$$: Author's full name
-        - $$Author_Address$$: All address lines before email
-        - $$AuthorLastname$$: Author's last name
-        - $$Department$$: Author's department
-        - $$University$$: Author's university
-        - $$Country$$: Author's country
-        - $$Author_Email$$: Author's email
-        - $$Journal_Name$$: Selected journal name
-        - $$Unsubscribe_Link$$: Unsubscribe link""")
 
-    with preview_col:
-        st.markdown("**Preview**")
-        preview_html = email_body.replace("$$Author_Name$$", "Professor John Doe")
-        preview_html = preview_html.replace(
-            "$$Author_Address$$",
-            "Department of Computer Science<br>Harvard University<br>United States"
-        )
-        preview_html = preview_html.replace("$$AuthorLastname$$", "Doe")
-        preview_html = preview_html.replace("$$Department$$", "Computer Science")
-        preview_html = preview_html.replace("$$University$$", "Harvard University")
-        preview_html = preview_html.replace("$$Country$$", "United States")
-        preview_html = preview_html.replace("$$Author_Email$$", "john.doe@harvard.edu")
-        journal_name = st.session_state.get("selected_journal") or ""
-        preview_html = preview_html.replace(
-            "$$Journal_Name$$",
-            journal_name
-        )
-        preview_html = preview_html.replace(
-            "$$Unsubscribe_Link$$",
-            "https://pphmjopenaccess.com/unsubscribe?email=john.doe@harvard.edu"
-        )
-
-        st.markdown(preview_html, unsafe_allow_html=True)
+            st.markdown(preview_html, unsafe_allow_html=True)
+    else:
+        st.info("Click 'Load Subjects & Template from Cloud' to manage subjects and templates.")
 
 
 
