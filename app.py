@@ -183,6 +183,10 @@ def init_session_state():
         st.session_state.block_settings_loaded = False
     if 'journals_loaded' not in st.session_state:
         st.session_state.journals_loaded = False
+    if 'template_spam_score' not in st.session_state:
+        st.session_state.template_spam_score = {}
+    if 'template_spam_report' not in st.session_state:
+        st.session_state.template_spam_report = {}
 
 # Journal Data
 JOURNALS = [
@@ -888,6 +892,25 @@ def highlight_spam_words(text):
             highlighted = pattern.sub(lambda m: f"<span style='color:red'>{m.group(0)}</span>", highlighted)
     return words_found, highlighted
 
+# Check template spam score using Postmark Spamcheck API
+def check_postmark_spam(template_html, subject="Test"):
+    try:
+        message = f"From: test@example.com\nTo: test@example.com\nSubject: {subject}\n\n{template_html}"
+        response = requests.post(
+            "https://spamcheck.postmarkapp.com/filter",
+            json={"email": message, "options": "long"},
+            timeout=10,
+        )
+        if response.status_code == 200:
+            data = response.json()
+            return data.get("score"), data.get("report")
+        else:
+            st.error(f"Spamcheck failed with status code {response.status_code}")
+            return None, None
+    except Exception as e:
+        st.error(f"Spamcheck request failed: {str(e)}")
+        return None, None
+
 def save_campaign_state(campaign_data):
     try:
         db = get_firestore_db()
@@ -1129,6 +1152,30 @@ def email_campaign_section():
             if st.button("Save Template"):
                 if save_template_to_firebase(selected_journal, email_body):
                     st.success("Template saved to cloud!")
+
+            if st.button("Check Spam Score"):
+                score, report = check_postmark_spam(email_body, email_subject)
+                if score is not None:
+                    st.session_state.template_spam_score[selected_journal] = score
+                    st.session_state.template_spam_report[selected_journal] = report
+
+            if selected_journal in st.session_state.template_spam_score:
+                score = st.session_state.template_spam_score[selected_journal]
+                if score < 4:
+                    color = "green"
+                elif score < 6:
+                    color = "orange"
+                else:
+                    color = "red"
+                st.markdown(
+                    f"**Spam Score:** <span style='color:{color}'>{score}</span>",
+                    unsafe_allow_html=True,
+                )
+                st.text_area(
+                    "Spam Report",
+                    st.session_state.template_spam_report[selected_journal],
+                    height=150,
+                )
 
             st.info("""Available template variables:
             - $$Author_Name$$: Author's full name
