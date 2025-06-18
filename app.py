@@ -97,6 +97,20 @@ def set_light_theme():
     .risky-email-btn button:hover {
         background-color: #7B1FA2 !important;
     }
+    /* Send Ads button */
+    .send-ads-btn button {
+        background-color: #4CAF50 !important;
+        color: white !important;
+        border-color: #4CAF50 !important;
+        transition: background-color 0.3s ease;
+    }
+    .send-ads-btn button:hover {
+        background-color: #45a049 !important;
+    }
+    /* Multiselect tags wrap text */
+    div[data-baseweb="tag"] span {
+        white-space: normal !important;
+    }
     </style>
     <div class="footer">
         This app is made by <a href="https://www.cpsharma.com" target="_blank">Prakash</a>. 
@@ -1065,17 +1079,25 @@ def email_campaign_section():
     # Journal Selection
     col1, col2 = st.columns([3, 1])
     with col1:
-        selected_journal = st.selectbox("Select Journal", JOURNALS, key="journal_select")
+        selected_journal = st.selectbox(
+            "Select Journal",
+            JOURNALS,
+            index=JOURNALS.index(st.session_state.selected_journal)
+            if st.session_state.selected_journal in JOURNALS else 0,
+            key="journal_select",
+        )
     with col2:
         new_journal = st.text_input("Add New Journal", key="new_journal")
         if new_journal and st.button("Add Journal"):
             if add_journal_to_firebase(new_journal):
                 st.session_state.selected_journal = new_journal
+                st.session_state.journal_select = new_journal
                 if new_journal not in st.session_state.journal_reply_addresses:
                     st.session_state.journal_reply_addresses[new_journal] = ""
                 st.rerun()
     
     st.session_state.selected_journal = selected_journal
+    st.session_state.journal_select = selected_journal
     
     # Load template from Firebase if available
     if selected_journal not in st.session_state.template_content:
@@ -1230,12 +1252,11 @@ def email_campaign_section():
                 st.markdown("_Spam score under 5 is generally considered good (0 is best)._", unsafe_allow_html=True)
                 if summary:
                     st.markdown(f"**{summary}**")
-                with st.expander("Detail Report"):
-                    st.text_area(
-                        "",
-                        st.session_state.template_spam_report[selected_journal],
-                        height=150,
-                    )
+                st.text_area(
+                    "Detail Report",
+                    st.session_state.template_spam_report[selected_journal],
+                    height=150,
+                )
 
             st.info("""Available template variables:
             - $$Author_Name$$: Author's full name
@@ -1363,6 +1384,7 @@ def email_campaign_section():
     # Send Options
     if 'current_recipient_list' in st.session_state and not st.session_state.campaign_paused:
         st.subheader("Campaign Options")
+        st.markdown(f"**Journal:** {selected_journal}")
         
         unsubscribe_base_url = DEFAULT_UNSUBSCRIBE_BASE_URL
 
@@ -1374,17 +1396,10 @@ def email_campaign_section():
             key=f"subject_select_{selected_journal}"
         )
         
-        send_option = st.radio("Send Option", ["Send Now", "Schedule"])
-        
-        if send_option == "Schedule":
-            col1, col2 = st.columns(2)
-            with col1:
-                schedule_date = st.date_input("Schedule Date", datetime.now() + timedelta(days=1))
-            with col2:
-                schedule_time = st.time_input("Schedule Time", datetime.now().time())
-            schedule_time = datetime.combine(schedule_date, schedule_time)
-        
-        if st.button("Start Campaign"):
+        st.markdown("<div class='send-ads-btn'>", unsafe_allow_html=True)
+        send_ads_clicked = st.button("Send Ads", key="send_ads")
+        st.markdown("</div>", unsafe_allow_html=True)
+        if send_ads_clicked:
             if st.session_state.email_service == "SMTP2GO" and not config['smtp2go']['api_key']:
                 st.error("SMTP2GO API key not configured")
                 return
