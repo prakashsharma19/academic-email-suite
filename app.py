@@ -1221,12 +1221,6 @@ def email_campaign_section():
                 st.markdown("_Spam score under 5 is generally considered good (0 is best)._", unsafe_allow_html=True)
                 if summary:
                     st.markdown(f"**{summary}**")
-                with st.expander("Detailed Spam Report"):
-                    st.text_area(
-                        "",
-                        st.session_state.template_spam_report[selected_journal],
-                        height=150,
-                    )
 
             st.info("""Available template variables:
             - $$Author_Name$$: Author's full name
@@ -1261,7 +1255,15 @@ def email_campaign_section():
             )
 
             st.markdown(preview_html, unsafe_allow_html=True)
-    
+
+    if selected_journal in st.session_state.template_spam_score:
+        with st.expander("Detailed Spam Report"):
+            st.text_area(
+                "",
+                st.session_state.template_spam_report[selected_journal],
+                height=150,
+            )
+
     # File Upload
     st.subheader("Recipient List")
     file_source = st.radio("Select file source", ["Local Upload", "Cloud Storage"])
