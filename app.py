@@ -893,9 +893,18 @@ def highlight_spam_words(text):
     return words_found, highlighted
 
 # Check template spam score using Postmark Spamcheck API
+from email.utils import formatdate, make_msgid
+
 def check_postmark_spam(template_html, subject="Test"):
     try:
-        message = f"From: test@example.com\nTo: test@example.com\nSubject: {subject}\n\n{template_html}"
+        headers = [
+            "From: test@example.com",
+            "To: test@example.com",
+            f"Subject: {subject}",
+            f"Date: {formatdate(localtime=True)}",
+            f"Message-ID: {make_msgid()}",
+        ]
+        message = "\n".join(headers) + "\n\n" + template_html
         response = requests.post(
             "https://spamcheck.postmarkapp.com/filter",
             json={"email": message, "options": "long"},
