@@ -1063,6 +1063,18 @@ def load_campaign_history():
         return []
 
 
+# Helper to refresh template and subjects when journal changes
+def refresh_journal_data():
+    journal = st.session_state.get("selected_journal")
+    if not journal:
+        return
+    template = load_template_from_firebase(journal)
+    if template is not None:
+        st.session_state.template_content[journal] = template
+    subjects = load_subjects_from_firebase(journal)
+    if subjects is not None:
+        st.session_state.journal_subjects[journal] = subjects
+
 # Email Campaign Section
 def email_campaign_section():
     st.header("Email Campaign Management")
@@ -1077,6 +1089,7 @@ def email_campaign_section():
 
     if st.session_state.selected_journal is None:
         st.session_state.selected_journal = JOURNALS[0]
+        refresh_journal_data()
 
     # Journal Selection
     col1, col2 = st.columns([3, 1])
@@ -1086,8 +1099,9 @@ def email_campaign_section():
             JOURNALS,
             index=JOURNALS.index(st.session_state.selected_journal)
             if st.session_state.selected_journal in JOURNALS else 0,
-            key="selected_journal",
+            on_change=refresh_journal_data, key="selected_journal",
         )
+        refresh_journal_data()
     with col2:
         new_journal = st.text_input("Add New Journal", key="new_journal")
         if new_journal and st.button("Add Journal"):
