@@ -206,6 +206,8 @@ def init_session_state():
         st.session_state.template_spam_summary = {}
     if 'spam_check_cache' not in st.session_state:
         st.session_state.spam_check_cache = {}
+    if 'last_refreshed_journal' not in st.session_state:
+        st.session_state.last_refreshed_journal = None
 
 # Journal Data
 JOURNALS = [
@@ -1070,6 +1072,9 @@ def refresh_journal_data():
     if not journal:
         return
 
+    if st.session_state.get("last_refreshed_journal") == journal:
+        return
+
     template = load_template_from_firebase(journal)
     if template is not None:
         st.session_state.template_content[journal] = template
@@ -1077,6 +1082,9 @@ def refresh_journal_data():
     subjects = load_subjects_from_firebase(journal)
     if subjects is not None:
         st.session_state.journal_subjects[journal] = subjects
+
+    st.session_state.last_refreshed_journal = journal
+    st.experimental_rerun()
 
 # Email Campaign Section
 def email_campaign_section():
