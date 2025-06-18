@@ -1097,14 +1097,14 @@ def email_campaign_section():
                     st.session_state.journal_reply_addresses[new_journal] = ""
                 st.rerun()
     
-    # Load template from Firebase if available
-    if selected_journal not in st.session_state.template_content:
-        loaded_template = load_template_from_firebase(selected_journal)
-        if loaded_template:
-            st.session_state.template_content[selected_journal] = loaded_template
+    # Always attempt to load the latest template and subjects
+    loaded_template = load_template_from_firebase(selected_journal)
+    if loaded_template is not None:
+        st.session_state.template_content[selected_journal] = loaded_template
 
-    if selected_journal not in st.session_state.journal_subjects:
-        load_subjects_from_firebase(selected_journal)
+    subjects = load_subjects_from_firebase(selected_journal)
+    if subjects is not None:
+        st.session_state.journal_subjects[selected_journal] = subjects
     
     # Campaign settings in the sidebar
     with st.sidebar.expander("Campaign Settings", expanded=False):
