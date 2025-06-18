@@ -1312,10 +1312,7 @@ def email_campaign_section():
 
             st.markdown(preview_html, unsafe_allow_html=True)
     else:
-        st.info("Click 'Load Subjects & Template from Cloud' to manage subjects and templates.")
-
-
-
+        # Informational message removed per user request to keep the interface concise.
     # File Upload
     st.subheader("Recipient List")
     file_source = st.radio("Select file source", ["Local Upload", "Cloud Storage"])
