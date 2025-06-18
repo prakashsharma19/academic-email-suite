@@ -1075,6 +1075,8 @@ def email_campaign_section():
         load_journals_from_firebase()
         st.session_state.journals_loaded = True
 
+    if st.session_state.selected_journal is None:
+        st.session_state.selected_journal = JOURNALS[0]
 
     # Journal Selection
     col1, col2 = st.columns([3, 1])
@@ -1084,7 +1086,7 @@ def email_campaign_section():
             JOURNALS,
             index=JOURNALS.index(st.session_state.selected_journal)
             if st.session_state.selected_journal in JOURNALS else 0,
-            key="journal_select",
+            key="selected_journal",
         )
     with col2:
         new_journal = st.text_input("Add New Journal", key="new_journal")
@@ -1094,8 +1096,6 @@ def email_campaign_section():
                 if new_journal not in st.session_state.journal_reply_addresses:
                     st.session_state.journal_reply_addresses[new_journal] = ""
                 st.rerun()
-    
-    st.session_state.selected_journal = selected_journal
     
     # Load template from Firebase if available
     if selected_journal not in st.session_state.template_content:
