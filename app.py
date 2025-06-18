@@ -1313,282 +1313,282 @@ def email_campaign_section():
             st.markdown(preview_html, unsafe_allow_html=True)
     else:
         # Informational message removed per user request to keep the interface concise.
-    # File Upload
-    st.subheader("Recipient List")
-    file_source = st.radio("Select file source", ["Local Upload", "Cloud Storage"])
-    
-    if file_source == "Local Upload":
-        uploaded_file = st.file_uploader("Upload recipient list (CSV or TXT)", type=["csv", "txt"])
-        if uploaded_file:
-            if uploaded_file.name.endswith('.txt'):
-                # Process the text file with the specific format
-                file_content = uploaded_file.read().decode('utf-8')
-                entries = []
-                current_entry = {}
-                
-                for line in file_content.split('\n'):
-                    line = line.strip()
-                    if line:
-                        if '@' in line and '.' in line and ' ' not in line:  # Likely email
-                            current_entry['email'] = line
-                            entries.append(current_entry)
-                            current_entry = {}
-                        elif not current_entry.get('name', ''):
-                            current_entry['name'] = line
-                        elif not current_entry.get('department', ''):
-                            current_entry['department'] = line
-                        elif not current_entry.get('university', ''):
-                            current_entry['university'] = line
-                        elif not current_entry.get('country', ''):
-                            current_entry['country'] = line
-                
-                df = pd.DataFrame(entries)
-            else:
-                df = pd.read_csv(uploaded_file)
-            
-            st.session_state.current_recipient_list = df
-            st.dataframe(df.head())
-            st.info(f"Total emails loaded: {len(df)}")
-            
-            if st.button("Save to Firebase"):
+        # File Upload
+        st.subheader("Recipient List")
+        file_source = st.radio("Select file source", ["Local Upload", "Cloud Storage"])
+        
+        if file_source == "Local Upload":
+            uploaded_file = st.file_uploader("Upload recipient list (CSV or TXT)", type=["csv", "txt"])
+            if uploaded_file:
                 if uploaded_file.name.endswith('.txt'):
-                    if upload_to_firebase(file_content, uploaded_file.name):
-                        st.success("File uploaded to Firebase successfully!")
-                else:
-                    csv_content = df.to_csv(index=False)
-                    if upload_to_firebase(csv_content, uploaded_file.name):
-                        st.success("File uploaded to Firebase successfully!")
-    else:
-        if st.button("Refresh File List"):
-            st.session_state.firebase_files = list_firebase_files()
-        
-        if 'firebase_files' in st.session_state and st.session_state.firebase_files:
-            selected_file = st.selectbox("Select file from Firebase", st.session_state.firebase_files)
-            
-            if st.button("Load File"):
-                file_content = download_from_firebase(selected_file)
-                if file_content:
-                    if selected_file.endswith('.txt'):
-                        # Process the text file with the specific format
-                        entries = []
-                        current_entry = {}
-                        
-                        for line in file_content.split('\n'):
-                            line = line.strip()
-                            if line:
-                                if '@' in line and '.' in line and ' ' not in line:  # Likely email
-                                    current_entry['email'] = line
-                                    entries.append(current_entry)
-                                    current_entry = {}
-                                elif not current_entry.get('name', ''):
-                                    current_entry['name'] = line
-                                elif not current_entry.get('department', ''):
-                                    current_entry['department'] = line
-                                elif not current_entry.get('university', ''):
-                                    current_entry['university'] = line
-                                elif not current_entry.get('country', ''):
-                                    current_entry['country'] = line
-                        
-                        df = pd.DataFrame(entries)
-                    else:
-                        df = pd.read_csv(StringIO(file_content))
+                    # Process the text file with the specific format
+                    file_content = uploaded_file.read().decode('utf-8')
+                    entries = []
+                    current_entry = {}
                     
-                    st.session_state.current_recipient_list = df
-                    st.dataframe(df.head())
-                    st.info(f"Total emails loaded: {len(df)}")
+                    for line in file_content.split('\n'):
+                        line = line.strip()
+                        if line:
+                            if '@' in line and '.' in line and ' ' not in line:  # Likely email
+                                current_entry['email'] = line
+                                entries.append(current_entry)
+                                current_entry = {}
+                            elif not current_entry.get('name', ''):
+                                current_entry['name'] = line
+                            elif not current_entry.get('department', ''):
+                                current_entry['department'] = line
+                            elif not current_entry.get('university', ''):
+                                current_entry['university'] = line
+                            elif not current_entry.get('country', ''):
+                                current_entry['country'] = line
+                    
+                    df = pd.DataFrame(entries)
+                else:
+                    df = pd.read_csv(uploaded_file)
+                
+                st.session_state.current_recipient_list = df
+                st.dataframe(df.head())
+                st.info(f"Total emails loaded: {len(df)}")
+                
+                if st.button("Save to Firebase"):
+                    if uploaded_file.name.endswith('.txt'):
+                        if upload_to_firebase(file_content, uploaded_file.name):
+                            st.success("File uploaded to Firebase successfully!")
+                    else:
+                        csv_content = df.to_csv(index=False)
+                        if upload_to_firebase(csv_content, uploaded_file.name):
+                            st.success("File uploaded to Firebase successfully!")
         else:
-            st.info("No files found in Cloud Storage")
-    
-    
-    # Send Options
-    if 'current_recipient_list' in st.session_state and not st.session_state.campaign_paused:
-        st.subheader("Campaign Options")
-        st.markdown(f"**Journal:** {selected_journal}")
+            if st.button("Refresh File List"):
+                st.session_state.firebase_files = list_firebase_files()
+            
+            if 'firebase_files' in st.session_state and st.session_state.firebase_files:
+                selected_file = st.selectbox("Select file from Firebase", st.session_state.firebase_files)
+                
+                if st.button("Load File"):
+                    file_content = download_from_firebase(selected_file)
+                    if file_content:
+                        if selected_file.endswith('.txt'):
+                            # Process the text file with the specific format
+                            entries = []
+                            current_entry = {}
+                            
+                            for line in file_content.split('\n'):
+                                line = line.strip()
+                                if line:
+                                    if '@' in line and '.' in line and ' ' not in line:  # Likely email
+                                        current_entry['email'] = line
+                                        entries.append(current_entry)
+                                        current_entry = {}
+                                    elif not current_entry.get('name', ''):
+                                        current_entry['name'] = line
+                                    elif not current_entry.get('department', ''):
+                                        current_entry['department'] = line
+                                    elif not current_entry.get('university', ''):
+                                        current_entry['university'] = line
+                                    elif not current_entry.get('country', ''):
+                                        current_entry['country'] = line
+                            
+                            df = pd.DataFrame(entries)
+                        else:
+                            df = pd.read_csv(StringIO(file_content))
+                        
+                        st.session_state.current_recipient_list = df
+                        st.dataframe(df.head())
+                        st.info(f"Total emails loaded: {len(df)}")
+            else:
+                st.info("No files found in Cloud Storage")
         
-        unsubscribe_base_url = DEFAULT_UNSUBSCRIBE_BASE_URL
-
-        subjects_for_journal = st.session_state.journal_subjects.get(selected_journal, [])
-        selected_subjects = st.multiselect(
-            "Select Subjects",
-            subjects_for_journal,
-            default=subjects_for_journal,
-            key=f"subject_select_{selected_journal}"
-        )
         
-        st.markdown("<div class='send-ads-btn'>", unsafe_allow_html=True)
-        send_ads_clicked = st.button("Send Ads", key="send_ads")
-        st.markdown("</div>", unsafe_allow_html=True)
-        if send_ads_clicked:
-            if st.session_state.email_service == "SMTP2GO" and not config['smtp2go']['api_key']:
-                st.error("SMTP2GO API key not configured")
-                return
-            elif st.session_state.email_service == "Amazon SES":
-                if not st.session_state.ses_client:
-                    initialize_ses()
-                if not st.session_state.ses_client:
-                    st.error("SES client not initialized. Please configure SES first.")
+        # Send Options
+        if 'current_recipient_list' in st.session_state and not st.session_state.campaign_paused:
+            st.subheader("Campaign Options")
+            st.markdown(f"**Journal:** {selected_journal}")
+            
+            unsubscribe_base_url = DEFAULT_UNSUBSCRIBE_BASE_URL
+    
+            subjects_for_journal = st.session_state.journal_subjects.get(selected_journal, [])
+            selected_subjects = st.multiselect(
+                "Select Subjects",
+                subjects_for_journal,
+                default=subjects_for_journal,
+                key=f"subject_select_{selected_journal}"
+            )
+            
+            st.markdown("<div class='send-ads-btn'>", unsafe_allow_html=True)
+            send_ads_clicked = st.button("Send Ads", key="send_ads")
+            st.markdown("</div>", unsafe_allow_html=True)
+            if send_ads_clicked:
+                if st.session_state.email_service == "SMTP2GO" and not config['smtp2go']['api_key']:
+                    st.error("SMTP2GO API key not configured")
                     return
-            
-            df = st.session_state.current_recipient_list
-            total_emails = len(df)
-            
-            # Create campaign record in Firestore
-            campaign_id = int(time.time())
-            campaign_data = {
-                'campaign_id': campaign_id,
-                'journal_name': selected_journal,
-                'email_subjects': selected_subjects,
-                'email_body': email_body,
-                'email_service': st.session_state.email_service,
-                'sender_email': st.session_state.sender_email,
-                'reply_to': st.session_state.journal_reply_addresses.get(selected_journal, None),
-                'recipient_list': df.to_dict('records'),
-                'total_emails': total_emails,
-                'current_index': 0,
-                'emails_sent': 0,
-                'status': 'active',
-                'created_at': datetime.now(),
-                'last_updated': datetime.now()
-            }
-            
-            if not save_campaign_state(campaign_data):
-                st.error("Failed to save campaign state")
-                return
-            
-            st.session_state.active_campaign = campaign_data
-            st.session_state.campaign_paused = False
-            st.session_state.campaign_cancelled = False
-            
-            # Show progress UI
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            cancel_button = st.button("Cancel Campaign")
-            
-            success_count = 0
-            email_ids = []
-            
-            reply_to = st.session_state.journal_reply_addresses.get(selected_journal, None)
-            
-            for i, row in df.iterrows():
-                if st.session_state.campaign_cancelled:
-                    break
-
-                recipient_email = row.get('email', '')
-                if is_email_blocked(recipient_email):
+                elif st.session_state.email_service == "Amazon SES":
+                    if not st.session_state.ses_client:
+                        initialize_ses()
+                    if not st.session_state.ses_client:
+                        st.error("SES client not initialized. Please configure SES first.")
+                        return
+                
+                df = st.session_state.current_recipient_list
+                total_emails = len(df)
+                
+                # Create campaign record in Firestore
+                campaign_id = int(time.time())
+                campaign_data = {
+                    'campaign_id': campaign_id,
+                    'journal_name': selected_journal,
+                    'email_subjects': selected_subjects,
+                    'email_body': email_body,
+                    'email_service': st.session_state.email_service,
+                    'sender_email': st.session_state.sender_email,
+                    'reply_to': st.session_state.journal_reply_addresses.get(selected_journal, None),
+                    'recipient_list': df.to_dict('records'),
+                    'total_emails': total_emails,
+                    'current_index': 0,
+                    'emails_sent': 0,
+                    'status': 'active',
+                    'created_at': datetime.now(),
+                    'last_updated': datetime.now()
+                }
+                
+                if not save_campaign_state(campaign_data):
+                    st.error("Failed to save campaign state")
+                    return
+                
+                st.session_state.active_campaign = campaign_data
+                st.session_state.campaign_paused = False
+                st.session_state.campaign_cancelled = False
+                
+                # Show progress UI
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                cancel_button = st.button("Cancel Campaign")
+                
+                success_count = 0
+                email_ids = []
+                
+                reply_to = st.session_state.journal_reply_addresses.get(selected_journal, None)
+                
+                for i, row in df.iterrows():
+                    if st.session_state.campaign_cancelled:
+                        break
+    
+                    recipient_email = row.get('email', '')
+                    if is_email_blocked(recipient_email):
+                        progress = (i + 1) / total_emails
+                        progress_bar.progress(progress)
+                        status_text.text(f"Skipping {i+1} of {total_emails}: {recipient_email} (blocked)")
+                        update_campaign_progress(campaign_id, i+1, success_count)
+                        continue
+    
+                    # Build author address from all fields except email
+                    author_address = ""
+                    if row.get('department', ''):
+                        author_address += f"{row['department']}<br>"
+                    if row.get('university', ''):
+                        author_address += f"{row['university']}<br>"
+                    if row.get('country', ''):
+                        author_address += f"{row['country']}<br>"
+                    
+                    email_content = email_body
+                    email_content = email_content.replace("$$Author_Name$$", str(row.get('name', '')))
+                    email_content = email_content.replace("$$Author_Address$$", author_address)
+                    
+                    # Extract last name if available
+                    if 'name' in row and isinstance(row['name'], str) and ' ' in row['name']:
+                        last_name = row['name'].split()[-1]
+                    else:
+                        last_name = ''
+                    email_content = email_content.replace("$$AuthorLastname$$", last_name)
+                    
+                    email_content = email_content.replace("$$Department$$", str(row.get('department', '')))
+                    email_content = email_content.replace("$$University$$", str(row.get('university', '')))
+                    email_content = email_content.replace("$$Country$$", str(row.get('country', '')))
+                    email_content = email_content.replace("$$Author_Email$$", str(row.get('email', '')))
+                    journal_name = st.session_state.get("selected_journal") or ""
+                    email_content = email_content.replace("$$Journal_Name$$", journal_name)
+                    
+                    unsubscribe_link = f"{unsubscribe_base_url}{row.get('email', '')}"
+                    email_content = email_content.replace("$$Unsubscribe_Link$$", unsubscribe_link)
+                    
+                    plain_text = email_content.replace("<br>", "\n").replace("</p>", "\n\n").replace("<p>", "")
+                    
+                    subject_cycle = selected_subjects if selected_subjects else [email_subject]
+                    subject = subject_cycle[i % len(subject_cycle)]
+    
+                    if st.session_state.email_service == "SMTP2GO":
+                        success, email_id = send_email_via_smtp2go(
+                            row.get('email', ''),
+                            subject,
+                            email_content,
+                            plain_text,
+                            unsubscribe_link,
+                            reply_to
+                        )
+                    else:
+                        response, email_id = send_ses_email(
+                            st.session_state.ses_client,
+                            st.session_state.sender_email,
+                            row.get('email', ''),
+                            subject,
+                            email_content,
+                            plain_text,
+                            unsubscribe_link,
+                            reply_to
+                        )
+                        success = response is not None
+                    
+                    if success:
+                        success_count += 1
+                        if email_id:
+                            email_ids.append(email_id)
+                    
                     progress = (i + 1) / total_emails
                     progress_bar.progress(progress)
-                    status_text.text(f"Skipping {i+1} of {total_emails}: {recipient_email} (blocked)")
+                    status_text.text(f"Processing {i+1} of {total_emails}: {row.get('email', '')}")
+                    
+                    # Update progress in Firestore
                     update_campaign_progress(campaign_id, i+1, success_count)
-                    continue
-
-                # Build author address from all fields except email
-                author_address = ""
-                if row.get('department', ''):
-                    author_address += f"{row['department']}<br>"
-                if row.get('university', ''):
-                    author_address += f"{row['university']}<br>"
-                if row.get('country', ''):
-                    author_address += f"{row['country']}<br>"
+                    
+                    # Check for cancel button
+                    if cancel_button:
+                        st.session_state.campaign_cancelled = True
+                        st.warning("Campaign cancellation requested...")
+                        break
+                    
+                    # Rate limiting
+                    time.sleep(0.1)
                 
-                email_content = email_body
-                email_content = email_content.replace("$$Author_Name$$", str(row.get('name', '')))
-                email_content = email_content.replace("$$Author_Address$$", author_address)
-                
-                # Extract last name if available
-                if 'name' in row and isinstance(row['name'], str) and ' ' in row['name']:
-                    last_name = row['name'].split()[-1]
+                # Mark campaign as completed if not cancelled
+                if not st.session_state.campaign_cancelled:
+                    campaign_data = {
+                        'status': 'completed',
+                        'completed_at': datetime.now(),
+                        'emails_sent': success_count
+                    }
+                    db = get_firestore_db()
+                    if db:
+                        doc_ref = db.collection("active_campaigns").document(str(campaign_id))
+                        doc_ref.update(campaign_data)
+                    
+                    # Record campaign details
+                    campaign_data = {
+                        'timestamp': datetime.now(),
+                        'journal': selected_journal,
+                        'emails_sent': success_count,
+                        'total_emails': total_emails,
+                        'subject': ','.join(selected_subjects) if selected_subjects else email_subject,
+                        'email_ids': ','.join(email_ids),
+                        'service': st.session_state.email_service
+                    }
+                    st.session_state.campaign_history.append(campaign_data)
+                    save_campaign_history(campaign_data)
+                    
+                    progress_bar.progress(1.0)
+                    status_text.text("Campaign completed")
+                    st.success(f"Campaign completed! {success_count} of {total_emails} emails sent successfully.")
                 else:
-                    last_name = ''
-                email_content = email_content.replace("$$AuthorLastname$$", last_name)
-                
-                email_content = email_content.replace("$$Department$$", str(row.get('department', '')))
-                email_content = email_content.replace("$$University$$", str(row.get('university', '')))
-                email_content = email_content.replace("$$Country$$", str(row.get('country', '')))
-                email_content = email_content.replace("$$Author_Email$$", str(row.get('email', '')))
-                journal_name = st.session_state.get("selected_journal") or ""
-                email_content = email_content.replace("$$Journal_Name$$", journal_name)
-                
-                unsubscribe_link = f"{unsubscribe_base_url}{row.get('email', '')}"
-                email_content = email_content.replace("$$Unsubscribe_Link$$", unsubscribe_link)
-                
-                plain_text = email_content.replace("<br>", "\n").replace("</p>", "\n\n").replace("<p>", "")
-                
-                subject_cycle = selected_subjects if selected_subjects else [email_subject]
-                subject = subject_cycle[i % len(subject_cycle)]
-
-                if st.session_state.email_service == "SMTP2GO":
-                    success, email_id = send_email_via_smtp2go(
-                        row.get('email', ''),
-                        subject,
-                        email_content,
-                        plain_text,
-                        unsubscribe_link,
-                        reply_to
-                    )
-                else:
-                    response, email_id = send_ses_email(
-                        st.session_state.ses_client,
-                        st.session_state.sender_email,
-                        row.get('email', ''),
-                        subject,
-                        email_content,
-                        plain_text,
-                        unsubscribe_link,
-                        reply_to
-                    )
-                    success = response is not None
-                
-                if success:
-                    success_count += 1
-                    if email_id:
-                        email_ids.append(email_id)
-                
-                progress = (i + 1) / total_emails
-                progress_bar.progress(progress)
-                status_text.text(f"Processing {i+1} of {total_emails}: {row.get('email', '')}")
-                
-                # Update progress in Firestore
-                update_campaign_progress(campaign_id, i+1, success_count)
-                
-                # Check for cancel button
-                if cancel_button:
-                    st.session_state.campaign_cancelled = True
-                    st.warning("Campaign cancellation requested...")
-                    break
-                
-                # Rate limiting
-                time.sleep(0.1)
-            
-            # Mark campaign as completed if not cancelled
-            if not st.session_state.campaign_cancelled:
-                campaign_data = {
-                    'status': 'completed',
-                    'completed_at': datetime.now(),
-                    'emails_sent': success_count
-                }
-                db = get_firestore_db()
-                if db:
-                    doc_ref = db.collection("active_campaigns").document(str(campaign_id))
-                    doc_ref.update(campaign_data)
-                
-                # Record campaign details
-                campaign_data = {
-                    'timestamp': datetime.now(),
-                    'journal': selected_journal,
-                    'emails_sent': success_count,
-                    'total_emails': total_emails,
-                    'subject': ','.join(selected_subjects) if selected_subjects else email_subject,
-                    'email_ids': ','.join(email_ids),
-                    'service': st.session_state.email_service
-                }
-                st.session_state.campaign_history.append(campaign_data)
-                save_campaign_history(campaign_data)
-                
-                progress_bar.progress(1.0)
-                status_text.text("Campaign completed")
-                st.success(f"Campaign completed! {success_count} of {total_emails} emails sent successfully.")
-            else:
-                st.warning(f"Campaign cancelled. {success_count} of {total_emails} emails were sent.")
+                    st.warning(f"Campaign cancelled. {success_count} of {total_emails} emails were sent.")
 
 # Email Verification Section
 def email_verification_section():
