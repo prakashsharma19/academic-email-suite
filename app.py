@@ -903,7 +903,12 @@ def check_postmark_spam(template_html, subject="Test"):
         )
         if response.status_code == 200:
             data = response.json()
-            return data.get("score"), data.get("report")
+            score = data.get("score")
+            try:
+                score = float(score)
+            except (TypeError, ValueError):
+                score = None
+            return score, data.get("report")
         else:
             st.error(f"Spamcheck failed with status code {response.status_code}")
             return None, None
