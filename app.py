@@ -1064,16 +1064,22 @@ def load_campaign_history():
 
 
 # Helper to refresh template and subjects when journal changes
-def refresh_journal_data():
+def refresh_journal_data(rerun: bool = False):
+    """Reload template and subjects for the currently selected journal."""
     journal = st.session_state.get("selected_journal")
     if not journal:
         return
+
     template = load_template_from_firebase(journal)
     if template is not None:
         st.session_state.template_content[journal] = template
+
     subjects = load_subjects_from_firebase(journal)
     if subjects is not None:
         st.session_state.journal_subjects[journal] = subjects
+
+    if rerun:
+        st.experimental_rerun()
 
 # Email Campaign Section
 def email_campaign_section():
@@ -1099,7 +1105,8 @@ def email_campaign_section():
             JOURNALS,
             index=JOURNALS.index(st.session_state.selected_journal)
             if st.session_state.selected_journal in JOURNALS else 0,
-            on_change=refresh_journal_data, key="selected_journal",
+            on_change=lambda: refresh_journal_data(True),
+            key="selected_journal",
         )
         refresh_journal_data()
     with col2:
