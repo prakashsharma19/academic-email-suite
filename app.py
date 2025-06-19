@@ -1283,7 +1283,7 @@ def email_campaign_section():
             st.info("""Available template variables:
             - $$Author_Name$$: Author's full name
             - $$Author_Address$$: All address lines before email
-            - $$AuthorLastname$$: Author's last name
+            - $$AuthorLastname$$: Author's last name (can be used in the subject)
             - $$Department$$: Author's department
             - $$University$$: Author's university
             - $$Country$$: Author's country
@@ -1518,6 +1518,7 @@ def email_campaign_section():
                     
                     subject_cycle = selected_subjects if selected_subjects else [email_subject]
                     subject = subject_cycle[i % len(subject_cycle)]
+                    subject = subject.replace("$$AuthorLastname$$", last_name)
     
                     if st.session_state.email_service == "SMTP2GO":
                         success, email_id = send_email_via_smtp2go(
