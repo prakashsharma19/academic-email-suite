@@ -211,6 +211,24 @@ def init_session_state():
     if 'show_journal_details' not in st.session_state:
         st.session_state.show_journal_details = False
 
+
+def read_uploaded_text(uploaded_file):
+    """Decode uploaded file content using a variety of encodings."""
+    data = uploaded_file.read()
+    for enc in (
+        "utf-8",
+        "utf-8-sig",
+        "utf-16",
+        "utf-16le",
+        "utf-16be",
+        "latin-1",
+    ):
+        try:
+            return data.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return data.decode("utf-8", errors="ignore")
+
 # Journal Data
 JOURNALS = [
     "Advances and Applications in Fluid Mechanics",
@@ -1325,7 +1343,7 @@ def email_campaign_section():
         if uploaded_file:
             if uploaded_file.name.endswith('.txt'):
                 # Process the text file with the specific format
-                file_content = uploaded_file.read().decode('utf-8')
+                file_content = read_uploaded_text(uploaded_file)
                 entries = []
                 current_entry = {}
 
@@ -1613,7 +1631,7 @@ def email_verification_section():
     if file_source == "Local Upload":
         uploaded_file = st.file_uploader("Upload email list for verification (TXT format)", type=["txt"])
         if uploaded_file:
-            file_content = uploaded_file.read().decode('utf-8')
+            file_content = read_uploaded_text(uploaded_file)
             st.text_area("File Content Preview", file_content, height=150)
             
             if st.button("Verify Emails"):
