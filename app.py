@@ -1235,7 +1235,8 @@ def email_campaign_section():
         with col1:
             email_subject = st.text_input(
                 "Email Subject",
-                f"Call for Papers - {st.session_state.selected_journal}"
+                f"Call for Papers - {st.session_state.selected_journal}",
+                key=f"email_subject_{selected_journal}"
             )
             if email_subject:
                 spam_words, highlighted = highlight_spam_words(email_subject)
@@ -1370,6 +1371,7 @@ def email_campaign_section():
             st.session_state.current_recipient_list = df
             st.dataframe(df.head())
             st.info(f"Total emails loaded: {len(df)}")
+            refresh_journal_data()
 
             if st.button("Save to Firebase"):
                 if uploaded_file.name.endswith('.txt'):
@@ -1417,6 +1419,7 @@ def email_campaign_section():
                         st.session_state.current_recipient_list = df
                         st.dataframe(df.head())
                         st.info(f"Total emails loaded: {len(df)}")
+                        refresh_journal_data()
             else:
                 st.info("No files found in Cloud Storage")
         
@@ -1449,6 +1452,13 @@ def email_campaign_section():
                 if not st.session_state.ses_client:
                     st.error("SES client not initialized. Please configure SES first.")
                     return
+
+            email_body = st.session_state.get(
+                f"editor_{selected_journal}", get_journal_template(selected_journal)
+            )
+            email_subject = st.session_state.get(
+                f"email_subject_{selected_journal}", f"Call for Papers - {selected_journal}"
+            )
 
             df = st.session_state.current_recipient_list
             total_emails = len(df)
