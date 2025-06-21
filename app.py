@@ -198,6 +198,8 @@ def init_session_state():
         st.session_state.block_settings_loaded = False
     if 'journals_loaded' not in st.session_state:
         st.session_state.journals_loaded = False
+    if 'editor_journals_loaded' not in st.session_state:
+        st.session_state.editor_journals_loaded = False
     if 'template_spam_score' not in st.session_state:
         st.session_state.template_spam_score = {}
     if 'template_spam_report' not in st.session_state:
@@ -210,6 +212,10 @@ def init_session_state():
         st.session_state.last_refreshed_journal = None
     if 'show_journal_details' not in st.session_state:
         st.session_state.show_journal_details = False
+    if 'selected_editor_journal' not in st.session_state:
+        st.session_state.selected_editor_journal = None
+    if 'editor_show_journal_details' not in st.session_state:
+        st.session_state.editor_show_journal_details = False
 
 
 def read_uploaded_text(uploaded_file):
@@ -250,6 +256,14 @@ JOURNALS = [
     "JP Journal of Fixed Point Theory and Applications",
     "JP Journal of Heat and Mass Transfer",
     "Universal Journal of Mathematics and Mathematical Sciences"
+]
+
+# Editor Invitation journal list
+EDITOR_JOURNALS = [
+    "Mechanical Engineering and Physics",
+    "Biological Sciences and Biotechnology",
+    "Food & Dairy Sciences and their Emerging Technologies",
+    "Oceanography, Marine Science and their Resources",
 ]
 
 # Default email template
@@ -755,6 +769,62 @@ def add_journal_to_firebase(journal_name):
         st.error(f"Failed to save journal: {str(e)}")
         return False
 
+# Editor Invitation journal management
+def load_editor_journals_from_firebase():
+    """Load Editor Invitation journals from Firestore."""
+    try:
+        db = get_firestore_db()
+        if not db:
+            return False
+
+        doc_ref = db.collection("editor_journals").document("journal_list")
+        doc = doc_ref.get()
+
+        global EDITOR_JOURNALS
+        if doc.exists:
+            data = doc.to_dict()
+            journals = data.get("journals", [])
+            EDITOR_JOURNALS = sorted(set(EDITOR_JOURNALS + journals))
+        else:
+            doc_ref.set({
+                "journals": EDITOR_JOURNALS,
+                "last_updated": datetime.now(),
+                "updated_by": "admin",
+            })
+        return True
+    except Exception as e:
+        st.error(f"Failed to load editor journals: {str(e)}")
+        return False
+
+
+def add_editor_journal_to_firebase(journal_name):
+    """Add a journal to the Editor Invitation list in Firestore."""
+    try:
+        db = get_firestore_db()
+        if not db:
+            return False
+
+        doc_ref = db.collection("editor_journals").document("journal_list")
+        doc = doc_ref.get()
+
+        global EDITOR_JOURNALS
+        journals = doc.to_dict().get("journals", EDITOR_JOURNALS.copy()) if doc.exists else EDITOR_JOURNALS.copy()
+
+        if journal_name not in journals:
+            journals.append(journal_name)
+            doc_ref.set({
+                "journals": sorted(set(journals)),
+                "last_updated": datetime.now(),
+                "updated_by": "admin",
+            })
+
+        if journal_name not in EDITOR_JOURNALS:
+            EDITOR_JOURNALS.append(journal_name)
+        return True
+    except Exception as e:
+        st.error(f"Failed to save editor journal: {str(e)}")
+        return False
+
 # Firebase Cloud Functions for campaign management
 def save_template_to_firebase(journal_name, template_content):
     try:
@@ -1089,6 +1159,23 @@ def load_campaign_history():
 def refresh_journal_data():
     """Reload template and subjects for the currently selected journal."""
     journal = st.session_state.get("selected_journal")
+    if not journal:
+        return
+
+    template = load_template_from_firebase(journal)
+    if template is not None:
+        st.session_state.template_content[journal] = template
+
+    subjects = load_subjects_from_firebase(journal)
+    if subjects is not None:
+        st.session_state.journal_subjects[journal] = subjects
+
+    st.session_state.last_refreshed_journal = journal
+
+# Refresh data for Editor Invitation journals
+def refresh_editor_journal_data():
+    """Reload template and subjects for the currently selected editor journal."""
+    journal = st.session_state.get("selected_editor_journal")
     if not journal:
         return
 
@@ -1607,6 +1694,507 @@ def email_campaign_section():
                 campaign_data = {
                     'timestamp': datetime.now(),
                     'journal': selected_journal,
+                    'emails_sent': success_count,
+                    'total_emails': total_emails,
+                    'subject': ','.join(selected_subjects) if selected_subjects else email_subject,
+                    'email_ids': ','.join(email_ids),
+                    'service': st.session_state.email_service
+                }
+                st.session_state.campaign_history.append(campaign_data)
+                save_campaign_history(campaign_data)
+
+                progress_bar.progress(1.0)
+                status_text.text("Campaign completed")
+                st.success(f"Campaign completed! {success_count} of {total_emails} emails sent successfully.")
+
+            else:
+                st.warning(f"Campaign cancelled. {success_count} of {total_emails} emails were sent.")
+
+
+def editor_invitation_section():
+    st.header("Editor Invitation")
+
+    if not st.session_state.block_settings_loaded:
+        load_block_settings()
+        st.session_state.block_settings_loaded = True
+
+    if not st.session_state.editor_journals_loaded:
+        load_editor_journals_from_firebase()
+        st.session_state.editor_journals_loaded = True
+
+    if st.session_state.selected_editor_journal is None:
+        st.session_state.selected_editor_journal = EDITOR_JOURNALS[0]
+        st.session_state.editor_show_journal_details = False
+
+    # Journal Selection
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        selected_editor_journal = st.selectbox(
+            "Select Journal",
+            EDITOR_JOURNALS,
+            index=EDITOR_JOURNALS.index(st.session_state.selected_editor_journal)
+            if st.session_state.selected_editor_journal in EDITOR_JOURNALS else 0,
+            on_change=lambda: st.session_state.update(editor_show_journal_details=False),
+            key="selected_editor_journal",
+        )
+        button_label = "Hide Subjects & Templete" if st.session_state.editor_show_journal_details else "Load Subjects & Templete"
+        if st.button(button_label):
+            if st.session_state.editor_show_journal_details:
+                st.session_state.editor_show_journal_details = False
+            else:
+                refresh_editor_journal_data()
+                st.session_state.editor_show_journal_details = True
+            st.experimental_rerun()
+    with col2:
+        new_journal = st.text_input("Add New Journal", key="new_editor_journal")
+        if new_journal and st.button("Add Journal"):
+            if add_editor_journal_to_firebase(new_journal):
+                st.session_state.selected_editor_journal = new_journal
+                if new_journal not in st.session_state.journal_reply_addresses:
+                    st.session_state.journal_reply_addresses[new_journal] = ""
+                st.rerun()
+
+    # Campaign settings in the sidebar
+    with st.sidebar.expander("Campaign Settings", expanded=False):
+        st.session_state.email_service = st.radio(
+            "Select Email Service",
+            ["SMTP2GO", "Amazon SES"],
+            index=0 if st.session_state.email_service == "SMTP2GO" else 1,
+            key="email_service_select_editor",
+        )
+
+        reply_address = st.text_input(
+            f"Reply-to Address for {selected_editor_journal}",
+            value=st.session_state.journal_reply_addresses.get(selected_editor_journal, ""),
+            key=f"reply_editor_{selected_editor_journal}"
+        )
+        if st.button("Save Reply Address", key="save_reply_address_editor"):
+            st.session_state.journal_reply_addresses[selected_editor_journal] = reply_address
+            st.success("Reply address saved!")
+
+        st.text_input(
+            "Sender Email",
+            value=st.session_state.sender_email,
+            key="sender_email_editor"
+        )
+
+        blocked_domains_text = st.text_area(
+            "Blocked Domains (one per line)",
+            "\n".join(st.session_state.blocked_domains),
+            key="blocked_domains_text_editor"
+        )
+        blocked_emails_text = st.text_area(
+            "Blocked Emails (one per line)",
+            "\n".join(st.session_state.blocked_emails),
+            key="blocked_emails_text_editor"
+        )
+        if st.button("Save Block Settings", key="save_block_settings_editor"):
+            st.session_state.blocked_domains = [d.strip() for d in blocked_domains_text.splitlines() if d.strip()]
+            st.session_state.blocked_emails = [e.strip() for e in blocked_emails_text.splitlines() if e.strip()]
+            if save_block_settings():
+                st.success("Block settings saved!")
+
+    if st.session_state.editor_show_journal_details:
+        st.subheader("Journal Subjects")
+        subjects = st.session_state.journal_subjects.get(selected_editor_journal, [])
+        if subjects:
+            for idx, subj in enumerate(subjects):
+                col1, col2, col3 = st.columns([3, 1, 1])
+                edited = col1.text_input(
+                    f"Subject {idx+1}",
+                    subj,
+                    key=f"edit_subj_editor_{selected_editor_journal}_{idx}"
+                )
+                if edited:
+                    spam_words, highlighted_edit = highlight_spam_words(edited)
+                    if spam_words:
+                        col1.warning("Your email may get spammed with this subject:")
+                        col1.markdown(highlighted_edit, unsafe_allow_html=True)
+                if col2.button("Update", key=f"update_subj_editor_{selected_editor_journal}_{idx}"):
+                    if edited and edited != subj:
+                        if update_subject_in_firebase(selected_editor_journal, subj, edited):
+                            st.success("Subject updated!")
+                            st.experimental_rerun()
+                if col3.button("Delete", key=f"delete_subj_editor_{selected_editor_journal}_{idx}"):
+                    if delete_subject_from_firebase(selected_editor_journal, subj):
+                        st.success("Subject deleted!")
+                        st.experimental_rerun()
+        else:
+            st.write("No subjects added yet")
+
+        new_subject = st.text_input("Add Subject", key=f"subject_editor_{selected_editor_journal}")
+        if new_subject:
+            spam_words, highlighted_new = highlight_spam_words(new_subject)
+            if spam_words:
+                st.warning("Your email may get spammed with this subject:")
+                st.markdown(highlighted_new, unsafe_allow_html=True)
+        if st.button("Save Subject", key=f"save_subj_editor_{selected_editor_journal}"):
+            if new_subject:
+                if add_subject_to_firebase(selected_editor_journal, new_subject):
+                    st.success("Subject saved!")
+
+        st.subheader("Email Template Editor")
+        template = get_journal_template(st.session_state.selected_editor_journal)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            email_subject = st.text_input(
+                "Email Subject",
+                f"Call for Papers - {st.session_state.selected_editor_journal}",
+                key=f"email_subject_editor_{selected_editor_journal}"
+            )
+            if email_subject:
+                spam_words, highlighted = highlight_spam_words(email_subject)
+                if spam_words:
+                    st.warning("Your email may get spammed with this subject:")
+                    st.markdown(highlighted, unsafe_allow_html=True)
+
+        editor_col, preview_col = st.columns(2)
+
+        with editor_col:
+            st.markdown("**Template Editor**")
+            email_body = st_ace(
+                value=template,
+                language="html",
+                theme="chrome",
+                font_size=14,
+                tab_size=2,
+                wrap=True,
+                show_gutter=True,
+                key=f"editor_editor_{selected_editor_journal}",
+                height=400
+            )
+
+            if st.button("Save Template", key="save_template_editor"):
+                if save_template_to_firebase(selected_editor_journal, email_body):
+                    st.success("Template saved to cloud!")
+
+            if st.button("Check Spam Score", key="check_spam_editor"):
+                cache_key = hashlib.md5((email_subject + email_body).encode("utf-8")).hexdigest()
+                if cache_key in st.session_state.spam_check_cache:
+                    score, report = st.session_state.spam_check_cache[cache_key]
+                else:
+                    score, report = check_postmark_spam(email_body, email_subject)
+                    if score is not None:
+                        st.session_state.spam_check_cache[cache_key] = (score, report)
+                if score is not None:
+                    st.session_state.template_spam_score[selected_editor_journal] = score
+                    st.session_state.template_spam_report[selected_editor_journal] = clean_spam_report(report)
+                    st.session_state.template_spam_summary[selected_editor_journal] = spam_score_summary(score)
+
+            if selected_editor_journal in st.session_state.template_spam_score:
+                score = st.session_state.template_spam_score[selected_editor_journal]
+                summary = st.session_state.template_spam_summary.get(selected_editor_journal, "")
+                if score < 4:
+                    color = "green"
+                elif score < 6:
+                    color = "orange"
+                else:
+                    color = "red"
+                st.markdown(
+                    f"**Spam Score:** <span style='color:{color}'>{score}</span>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown("_Spam score under 5 is generally considered good (0 is best)._", unsafe_allow_html=True)
+                if summary:
+                    st.markdown(f"**{summary}**")
+                st.text_area(
+                    "Detail Report",
+                    st.session_state.template_spam_report[selected_editor_journal],
+                    height=150,
+                )
+
+            st.info("""Available template variables:
+            - $$Author_Name$$: Author's full name
+            - $$Author_Address$$: All address lines before email
+            - $$AuthorLastname$$: Author's last name (can be used in the subject)
+            - $$Department$$: Author's department
+            - $$University$$: Author's university
+            - $$Country$$: Author's country
+            - $$Author_Email$$: Author's email
+            - $$Journal_Name$$: Selected journal name
+            - $$Unsubscribe_Link$$: Unsubscribe link""")
+
+        with preview_col:
+            st.markdown("**Preview**")
+            preview_html = email_body.replace("$$Author_Name$$", "Professor John Doe")
+            preview_html = preview_html.replace(
+                "$$Author_Address$$",
+                "Department of Computer Science<br>Harvard University<br>United States"
+            )
+            preview_html = preview_html.replace("$$AuthorLastname$$", "Doe")
+            preview_html = preview_html.replace("$$Department$$", "Computer Science")
+            preview_html = preview_html.replace("$$University$$", "Harvard University")
+            preview_html = preview_html.replace("$$Country$$", "United States")
+            preview_html = preview_html.replace("$$Author_Email$$", "john.doe@harvard.edu")
+            journal_name = st.session_state.get("selected_editor_journal") or ""
+            preview_html = preview_html.replace(
+                "$$Journal_Name$$",
+                journal_name
+            )
+            preview_html = preview_html.replace(
+                "$$Unsubscribe_Link$$",
+                "https://pphmjopenaccess.com/unsubscribe?email=john.doe@harvard.edu"
+            )
+
+            st.markdown(preview_html, unsafe_allow_html=True)
+
+    st.subheader("Recipient List")
+    file_source = st.radio("Select file source", ["Local Upload", "Cloud Storage"], key="recipient_source_editor")
+
+    if file_source == "Local Upload":
+        uploaded_file = st.file_uploader("Upload recipient list (CSV or TXT)", type=["csv", "txt"], key="recipient_upload_editor")
+        if uploaded_file:
+            if uploaded_file.name.endswith('.txt'):
+                file_content = read_uploaded_text(uploaded_file)
+                entries = []
+                current_entry = {}
+                for line in file_content.split('\n'):
+                    line = line.strip()
+                    if line:
+                        if '@' in line and '.' in line and ' ' not in line:
+                            current_entry['email'] = line
+                            entries.append(current_entry)
+                            current_entry = {}
+                        elif not current_entry.get('name', ''):
+                            current_entry['name'] = line
+                        elif not current_entry.get('department', ''):
+                            current_entry['department'] = line
+                        elif not current_entry.get('university', ''):
+                            current_entry['university'] = line
+                        elif not current_entry.get('country', ''):
+                            current_entry['country'] = line
+
+                df = pd.DataFrame(entries)
+            else:
+                df = pd.read_csv(uploaded_file)
+
+            st.session_state.current_recipient_list = df
+            st.dataframe(df.head())
+            st.info(f"Total emails loaded: {len(df)}")
+            refresh_editor_journal_data()
+
+            if st.button("Save to Firebase", key="save_recipient_editor"):
+                if uploaded_file.name.endswith('.txt'):
+                    if upload_to_firebase(file_content, uploaded_file.name):
+                        st.success("File uploaded to Firebase successfully!")
+                else:
+                    csv_content = df.to_csv(index=False)
+                    if upload_to_firebase(csv_content, uploaded_file.name):
+                        st.success("File uploaded to Firebase successfully!")
+    else:
+        if st.button("Refresh File List", key="refresh_file_list_editor"):
+            st.session_state.firebase_files = list_firebase_files()
+
+        if 'firebase_files' in st.session_state and st.session_state.firebase_files:
+            selected_file = st.selectbox("Select file from Firebase", st.session_state.firebase_files, key="select_file_editor")
+
+            if st.button("Load File", key="load_file_editor"):
+                file_content = download_from_firebase(selected_file)
+                if file_content:
+                    if selected_file.endswith('.txt'):
+                        entries = []
+                        current_entry = {}
+                        for line in file_content.split('\n'):
+                            line = line.strip()
+                            if line:
+                                if '@' in line and '.' in line and ' ' not in line:
+                                    current_entry['email'] = line
+                                    entries.append(current_entry)
+                                    current_entry = {}
+                                elif not current_entry.get('name', ''):
+                                    current_entry['name'] = line
+                                elif not current_entry.get('department', ''):
+                                    current_entry['department'] = line
+                                elif not current_entry.get('university', ''):
+                                    current_entry['university'] = line
+                                elif not current_entry.get('country', ''):
+                                    current_entry['country'] = line
+
+                        df = pd.DataFrame(entries)
+                    else:
+                        df = pd.read_csv(StringIO(file_content))
+
+                    st.session_state.current_recipient_list = df
+                    st.dataframe(df.head())
+                    st.info(f"Total emails loaded: {len(df)}")
+                    refresh_editor_journal_data()
+        else:
+            st.info("No files found in Cloud Storage")
+
+    if 'current_recipient_list' in st.session_state and not st.session_state.campaign_paused:
+        st.subheader("Campaign Options")
+        st.markdown(f"**Journal:** {selected_editor_journal}")
+
+        unsubscribe_base_url = DEFAULT_UNSUBSCRIBE_BASE_URL
+
+        subjects_for_journal = st.session_state.journal_subjects.get(selected_editor_journal, [])
+        selected_subjects = st.multiselect(
+            "Select Subjects",
+            subjects_for_journal,
+            default=subjects_for_journal,
+            key=f"subject_select_editor_{selected_editor_journal}"
+        )
+
+        st.markdown("<div class='send-ads-btn'>", unsafe_allow_html=True)
+        send_invitation_clicked = st.button("Send Invitation", key="send_invitation")
+        st.markdown("</div>", unsafe_allow_html=True)
+        if send_invitation_clicked:
+            if st.session_state.email_service == "SMTP2GO" and not config['smtp2go']['api_key']:
+                st.error("SMTP2GO API key not configured")
+                return
+            elif st.session_state.email_service == "Amazon SES":
+                if not st.session_state.ses_client:
+                    initialize_ses()
+                if not st.session_state.ses_client:
+                    st.error("SES client not initialized. Please configure SES first.")
+                    return
+
+            email_body = st.session_state.get(
+                f"editor_{selected_editor_journal}", get_journal_template(selected_editor_journal)
+            )
+            email_subject = st.session_state.get(
+                f"email_subject_{selected_editor_journal}", f"Call for Papers - {selected_editor_journal}"
+            )
+
+            df = st.session_state.current_recipient_list
+            total_emails = len(df)
+
+            campaign_id = int(time.time())
+            campaign_data = {
+                'campaign_id': campaign_id,
+                'journal_name': selected_editor_journal,
+                'email_subjects': selected_subjects,
+                'email_body': email_body,
+                'email_service': st.session_state.email_service,
+                'sender_email': st.session_state.sender_email,
+                'reply_to': st.session_state.journal_reply_addresses.get(selected_editor_journal, None),
+                'recipient_list': df.to_dict('records'),
+                'total_emails': total_emails,
+                'current_index': 0,
+                'emails_sent': 0,
+                'status': 'active',
+                'created_at': datetime.now(),
+                'last_updated': datetime.now()
+            }
+
+            if not save_campaign_state(campaign_data):
+                st.error("Failed to save campaign state")
+                return
+
+            st.session_state.active_campaign = campaign_data
+            st.session_state.campaign_paused = False
+            st.session_state.campaign_cancelled = False
+
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            cancel_button = st.button("Cancel Campaign", key="cancel_campaign_editor")
+
+            success_count = 0
+            email_ids = []
+
+            reply_to = st.session_state.journal_reply_addresses.get(selected_editor_journal, None)
+
+            for i, row in df.iterrows():
+                if st.session_state.campaign_cancelled:
+                    break
+
+                recipient_email = row.get('email', '')
+                if is_email_blocked(recipient_email):
+                    progress = (i + 1) / total_emails
+                    progress_bar.progress(progress)
+                    status_text.text(f"Skipping {i+1} of {total_emails}: {recipient_email} (blocked)")
+                    update_campaign_progress(campaign_id, i+1, success_count)
+                    continue
+
+                author_address = ""
+                if row.get('department', ''):
+                    author_address += f"{row['department']}<br>"
+                if row.get('university', ''):
+                    author_address += f"{row['university']}<br>"
+                if row.get('country', ''):
+                    author_address += f"{row['country']}<br>"
+
+                email_content = email_body
+                email_content = email_content.replace("$$Author_Name$$", str(row.get('name', '')))
+                email_content = email_content.replace("$$Author_Address$$", author_address)
+
+                if 'name' in row and isinstance(row['name'], str) and ' ' in row['name']:
+                    last_name = row['name'].split()[-1]
+                else:
+                    last_name = ''
+                email_content = email_content.replace("$$AuthorLastname$$", last_name)
+
+                email_content = email_content.replace("$$Department$$", str(row.get('department', '')))
+                email_content = email_content.replace("$$University$$", str(row.get('university', '')))
+                email_content = email_content.replace("$$Country$$", str(row.get('country', '')))
+                email_content = email_content.replace("$$Author_Email$$", str(row.get('email', '')))
+                journal_name = st.session_state.get("selected_editor_journal") or ""
+                email_content = email_content.replace("$$Journal_Name$$", journal_name)
+
+                unsubscribe_link = f"{unsubscribe_base_url}{row.get('email', '')}"
+                email_content = email_content.replace("$$Unsubscribe_Link$$", unsubscribe_link)
+
+                plain_text = email_content.replace("<br>", "\n").replace("</p>", "\n\n").replace("<p>", "")
+
+                subject_cycle = selected_subjects if selected_subjects else [email_subject]
+                subject = subject_cycle[i % len(subject_cycle)]
+                subject = subject.replace("$$AuthorLastname$$", last_name)
+
+                if st.session_state.email_service == "SMTP2GO":
+                    success, email_id = send_email_via_smtp2go(
+                        row.get('email', ''),
+                        subject,
+                        email_content,
+                        plain_text,
+                        unsubscribe_link,
+                        reply_to
+                    )
+                else:
+                    response, email_id = send_ses_email(
+                        st.session_state.ses_client,
+                        st.session_state.sender_email,
+                        row.get('email', ''),
+                        subject,
+                        email_content,
+                        plain_text,
+                        unsubscribe_link,
+                        reply_to
+                    )
+                    success = response is not None
+
+                if success:
+                    success_count += 1
+                    if email_id:
+                        email_ids.append(email_id)
+
+                progress = (i + 1) / total_emails
+                progress_bar.progress(progress)
+                status_text.text(f"Processing {i+1} of {total_emails}: {row.get('email', '')}")
+
+                update_campaign_progress(campaign_id, i+1, success_count)
+
+                if cancel_button:
+                    st.session_state.campaign_cancelled = True
+                    st.warning("Campaign cancellation requested...")
+                    break
+
+                time.sleep(0.1)
+
+            if not st.session_state.campaign_cancelled:
+                campaign_data = {
+                    'status': 'completed',
+                    'completed_at': datetime.now(),
+                    'emails_sent': success_count
+                }
+                db = get_firestore_db()
+                if db:
+                    doc_ref = db.collection("active_campaigns").document(str(campaign_id))
+                    doc_ref.update(campaign_data)
+
+                campaign_data = {
+                    'timestamp': datetime.now(),
+                    'journal': selected_editor_journal,
                     'emails_sent': success_count,
                     'total_emails': total_emails,
                     'subject': ','.join(selected_subjects) if selected_subjects else email_subject,
@@ -2206,7 +2794,7 @@ def main():
     
     # Navigation with additional links
     with st.sidebar:
-        app_mode = st.selectbox("Select Mode", ["Email Campaign", "Verify Emails", "Analytics"])
+        app_mode = st.selectbox("Select Mode", ["Email Campaign", "Editor Invitation", "Verify Emails", "Analytics"])
         st.markdown("---")
         st.markdown("### Quick Links")
         st.markdown("[📊 Email Reports](https://app-us.smtp2go.com/reports/activity/)", unsafe_allow_html=True)
@@ -2218,6 +2806,8 @@ def main():
     
     if app_mode == "Email Campaign":
         email_campaign_section()
+    elif app_mode == "Editor Invitation":
+        editor_invitation_section()
     elif app_mode == "Verify Emails":
         email_verification_section()
     else:
