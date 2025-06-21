@@ -1840,7 +1840,7 @@ def editor_invitation_section():
         with col1:
             email_subject = st.text_input(
                 "Email Subject",
-                f"Call for Papers - {st.session_state.selected_editor_journal}",
+                f"Invitation to Join the Editorial Board of {st.session_state.selected_editor_journal}",
                 key=f"email_subject_editor_{selected_editor_journal}"
             )
             if email_subject:
@@ -2054,7 +2054,8 @@ def editor_invitation_section():
                 f"editor_{selected_editor_journal}", get_journal_template(selected_editor_journal)
             )
             email_subject = st.session_state.get(
-                f"email_subject_{selected_editor_journal}", f"Call for Papers - {selected_editor_journal}"
+                f"email_subject_{selected_editor_journal}",
+                f"Invitation to Join the Editorial Board of {selected_editor_journal}"
             )
 
             df = st.session_state.current_recipient_list
