@@ -235,6 +235,14 @@ def read_uploaded_text(uploaded_file):
             continue
     return data.decode("utf-8", errors="ignore")
 
+# Utility
+def sanitize_author_name(name: str) -> str:
+    """Remove a leading 'Professor' from the provided name."""
+    if isinstance(name, str):
+        sanitized = re.sub(r"(?i)^professor\s+", "", name).strip()
+        return sanitized
+    return ""
+
 # Journal Data
 JOURNALS = [
     "Advances and Applications in Fluid Mechanics",
@@ -1611,12 +1619,13 @@ def email_campaign_section():
                     author_address += f"{row['country']}<br>"
 
                 email_content = email_body or ""
-                email_content = email_content.replace("$$Author_Name$$", str(row.get('name', '')))
+                sanitized_name = sanitize_author_name(str(row.get('name', '')))
+                email_content = email_content.replace("$$Author_Name$$", sanitized_name)
                 email_content = email_content.replace("$$Author_Address$$", author_address)
 
                 # Extract last name if available
-                if 'name' in row and isinstance(row['name'], str) and ' ' in row['name']:
-                    last_name = row['name'].split()[-1]
+                if sanitized_name and ' ' in sanitized_name:
+                    last_name = sanitized_name.split()[-1]
                 else:
                     last_name = ''
                 email_content = email_content.replace("$$AuthorLastname$$", last_name)
@@ -2121,11 +2130,12 @@ def editor_invitation_section():
                     author_address += f"{row['country']}<br>"
 
                 email_content = email_body or ""
-                email_content = email_content.replace("$$Author_Name$$", str(row.get('name', '')))
+                sanitized_name = sanitize_author_name(str(row.get('name', '')))
+                email_content = email_content.replace("$$Author_Name$$", sanitized_name)
                 email_content = email_content.replace("$$Author_Address$$", author_address)
 
-                if 'name' in row and isinstance(row['name'], str) and ' ' in row['name']:
-                    last_name = row['name'].split()[-1]
+                if sanitized_name and ' ' in sanitized_name:
+                    last_name = sanitized_name.split()[-1]
                 else:
                     last_name = ''
                 email_content = email_content.replace("$$AuthorLastname$$", last_name)
