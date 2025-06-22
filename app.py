@@ -1543,6 +1543,8 @@ def email_campaign_section():
             email_body = st.session_state.get(
                 f"editor_{selected_journal}", get_journal_template(selected_journal)
             )
+            if email_body is None:
+                email_body = get_journal_template(selected_journal)
             email_subject = st.session_state.get(
                 f"email_subject_{selected_journal}", f"Call for Papers - {selected_journal}"
             )
@@ -1608,7 +1610,7 @@ def email_campaign_section():
                 if row.get('country', ''):
                     author_address += f"{row['country']}<br>"
 
-                email_content = email_body
+                email_content = email_body or ""
                 email_content = email_content.replace("$$Author_Name$$", str(row.get('name', '')))
                 email_content = email_content.replace("$$Author_Address$$", author_address)
 
@@ -2053,6 +2055,8 @@ def editor_invitation_section():
             email_body = st.session_state.get(
                 f"editor_{selected_editor_journal}", get_journal_template(selected_editor_journal)
             )
+            if email_body is None:
+                email_body = get_journal_template(selected_editor_journal)
             email_subject = st.session_state.get(
                 f"email_subject_{selected_editor_journal}",
                 f"Invitation to Join the Editorial Board of {selected_editor_journal}"
@@ -2116,7 +2120,7 @@ def editor_invitation_section():
                 if row.get('country', ''):
                     author_address += f"{row['country']}<br>"
 
-                email_content = email_body
+                email_content = email_body or ""
                 email_content = email_content.replace("$$Author_Name$$", str(row.get('name', '')))
                 email_content = email_content.replace("$$Author_Address$$", author_address)
 
