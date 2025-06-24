@@ -128,6 +128,23 @@ def set_light_theme():
 
 set_light_theme()
 
+# Google Analytics tracking
+def inject_ga_tracking(measurement_id: str):
+    """Embed Google Analytics script for page view tracking."""
+    if not measurement_id:
+        return
+    ga_snippet = f"""
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id={measurement_id}"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){{dataLayer.push(arguments);}}
+      gtag('js', new Date());
+      gtag('config', '{measurement_id}');
+    </script>
+    """
+    st.markdown(ga_snippet, unsafe_allow_html=True)
+
 # Authentication System
 def check_auth():
     if 'authenticated' not in st.session_state:
@@ -353,7 +370,8 @@ def load_config():
         },
         'google_analytics': {
             'property_id': os.getenv("GA_PROPERTY_ID", ""),
-            'credentials_json': os.getenv("GA_CREDENTIALS_JSON", "")
+            'credentials_json': os.getenv("GA_CREDENTIALS_JSON", ""),
+            'measurement_id': os.getenv("GA_MEASUREMENT_ID", "")
         },
         'webhook': {
             'url': os.getenv("WEBHOOK_URL", "")
@@ -2858,6 +2876,9 @@ def show_email_analytics():
 def main():
     # Check authentication
     check_auth()
+
+    # Inject Google Analytics tracking snippet if configured
+    inject_ga_tracking(config['google_analytics'].get('measurement_id'))
     
     # Main app for authenticated users
     st.title(f"PPH Email Manager - Welcome admin")
