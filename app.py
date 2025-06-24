@@ -2651,7 +2651,8 @@ def fetch_smtp2go_analytics():
         payload = {
             "api_key": api_key,
             "date_start": (datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d"),
-            "date_end": datetime.utcnow().strftime("%Y-%m-%d")
+            "date_end": datetime.utcnow().strftime("%Y-%m-%d"),
+            "group_by": "day"
         }
 
         # Email history
