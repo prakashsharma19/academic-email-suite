@@ -2459,10 +2459,19 @@ def analytics_section():
             rename_map = {
                 'opens': 'opens_unique',
                 'open_unique': 'opens_unique',
+                'unique_opens': 'opens_unique',
                 'clicks': 'clicks_unique',
                 'click_unique': 'clicks_unique',
+                'unique_clicks': 'clicks_unique',
                 'hard_bounce': 'hard_bounces',
-                'soft_bounce': 'soft_bounces'
+                'soft_bounce': 'soft_bounces',
+                'requests': 'sent',
+                'emails_sent': 'sent',
+                'processed': 'sent',
+                'sent_total': 'sent',
+                'delivered_total': 'delivered',
+                'emails_delivered': 'delivered',
+                'bounces': 'hard_bounces'
             }
 
             # Calculate totals (API may not always provide a 'totals' key)
@@ -2481,7 +2490,8 @@ def analytics_section():
                     'opens_unique': df_totals['opens_unique'].sum() if 'opens_unique' in df_totals else 0,
                     'clicks_unique': df_totals['clicks_unique'].sum() if 'clicks_unique' in df_totals else 0,
                     'hard_bounces': df_totals['hard_bounces'].sum() if 'hard_bounces' in df_totals else 0,
-                    'soft_bounces': df_totals['soft_bounces'].sum() if 'soft_bounces' in df_totals else 0
+                    'soft_bounces': df_totals['soft_bounces'].sum() if 'soft_bounces' in df_totals else 0,
+                    'bounces': df_totals['bounces'].sum() if 'bounces' in df_totals else 0
                 }
 
             # Overall metrics
@@ -2499,9 +2509,12 @@ def analytics_section():
                 click_rate = (totals['clicks_unique'] / totals['opens_unique'] * 100) if totals['opens_unique'] else 0
                 st.metric("Clicked", totals['clicks_unique'], f"{click_rate:.1f}%")
             with col5:
-                st.metric("Bounced", totals['hard_bounces'] + totals['soft_bounces'])
+                bounce_total = totals.get('hard_bounces', 0) + totals.get('soft_bounces', 0)
+                if bounce_total == 0:
+                    bounce_total = totals.get('bounces', 0)
+                st.metric("Bounced", bounce_total)
             with col6:
-                bounce_rate = ((totals['hard_bounces'] + totals['soft_bounces']) / totals['sent'] * 100) if totals['sent'] else 0
+                bounce_rate = (bounce_total / totals['sent'] * 100) if totals['sent'] else 0
                 if bounce_rate < 4:
                     status_color = "green"
                     status_text = "Healthy"
@@ -2569,25 +2582,38 @@ def analytics_section():
             st.subheader("Recent Campaigns")
             if st.session_state.campaign_history:
                 campaign_df = pd.DataFrame(st.session_state.campaign_history)
-                
-                # Add performance metrics to campaign history
-                campaign_df['delivery_rate'] = campaign_df.apply(lambda x: (x['emails_sent'] / x['total_emails']) * 100, axis=1)
-                
+
+                # Calculate delivery rate and convert timestamp to IST
+                campaign_df['delivery_rate'] = campaign_df.apply(
+                    lambda x: (x['emails_sent'] / x['total_emails']) * 100,
+                    axis=1
+                )
+                ist = pytz.timezone('Asia/Kolkata')
+                campaign_df['timestamp'] = pd.to_datetime(campaign_df['timestamp'], utc=True).dt.tz_convert(ist)
+                campaign_df['timestamp'] = campaign_df['timestamp'].dt.strftime('%Y-%m-%d %H:%M')
+
+                # Prepare display dataframe in desired order
+                display_df = campaign_df[
+                    ['journal', 'timestamp', 'total_emails', 'emails_sent', 'delivery_rate', 'subject']
+                ].copy()
+                display_df.rename(columns={
+                    'journal': 'Journal Name',
+                    'timestamp': 'Date',
+                    'total_emails': 'Total',
+                    'emails_sent': 'Sent',
+                    'delivery_rate': 'Delivery Rate',
+                    'subject': 'Subject'
+                }, inplace=True)
+
                 st.dataframe(
-                    campaign_df.sort_values('timestamp', ascending=False),
+                    display_df.sort_values('Date', ascending=False),
                     column_config={
-                        "timestamp": "Date",
-                        "journal": "Journal",
-                        "emails_sent": "Sent",
-                        "total_emails": "Total",
-                        "delivery_rate": st.column_config.ProgressColumn(
-                            "Delivery Rate",
-                            format="%.1f%%",
+                        'Delivery Rate': st.column_config.ProgressColumn(
+                            'Delivery Rate',
+                            format='%.1f%%',
                             min_value=0,
-                            max_value=100,
-                        ),
-                        "subject": "Subject",
-                        "service": "Service"
+                            max_value=100
+                        )
                     }
                 )
             else:
