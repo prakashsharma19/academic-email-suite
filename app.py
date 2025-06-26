@@ -2444,16 +2444,37 @@ def analytics_section():
         if analytics_data:
             stats_list = analytics_data.get('history')
             if isinstance(stats_list, dict):
-                stats_list = [stats_list]
+                if 'history' in stats_list:
+                    stats_list = stats_list['history']
+                elif 'stats' in stats_list:
+                    stats_list = stats_list['stats']
+                elif 'data' in stats_list:
+                    stats_list = stats_list['data']
+                else:
+                    stats_list = [stats_list]
             if not stats_list:
                 st.info("No statistics available yet.")
                 return
+
+            rename_map = {
+                'opens': 'opens_unique',
+                'open_unique': 'opens_unique',
+                'clicks': 'clicks_unique',
+                'click_unique': 'clicks_unique',
+                'hard_bounce': 'hard_bounces',
+                'soft_bounce': 'soft_bounces'
+            }
 
             # Calculate totals (API may not always provide a 'totals' key)
             if 'totals' in analytics_data:
                 totals = analytics_data['totals']
             else:
                 df_totals = pd.DataFrame(stats_list)
+
+                for old, new in rename_map.items():
+                    if old in df_totals.columns and new not in df_totals.columns:
+                        df_totals.rename(columns={old: new}, inplace=True)
+
                 totals = {
                     'sent': df_totals['sent'].sum() if 'sent' in df_totals else 0,
                     'delivered': df_totals['delivered'].sum() if 'delivered' in df_totals else 0,
@@ -2495,6 +2516,10 @@ def analytics_section():
             # Time series data
             st.subheader("Performance Over Time")
             df = pd.DataFrame(stats_list)
+
+            for old, new in rename_map.items():
+                if old in df.columns and new not in df.columns:
+                    df.rename(columns={old: new}, inplace=True)
 
             # Some API responses may not include a 'date' column (e.g. when only
             # totals are returned).  Gracefully handle these cases by checking
@@ -2654,12 +2679,18 @@ def fetch_smtp2go_analytics():
         # Email history
         hist_resp = requests.post(f"{base_url}/stats/email_history", json=payload)
         hist_resp.raise_for_status()
-        history_data = hist_resp.json().get("data", [])
+        hist_json = hist_resp.json()
+        history_data = hist_json.get("data", hist_json)
+        if isinstance(history_data, dict):
+            history_data = history_data.get("history", history_data.get("stats", history_data.get("data", [])))
 
         # Bounce statistics
         bounce_resp = requests.post(f"{base_url}/stats/email_bounces", json=payload)
         bounce_resp.raise_for_status()
-        bounces_data = bounce_resp.json().get("data", [])
+        bounce_json = bounce_resp.json()
+        bounces_data = bounce_json.get("data", bounce_json)
+        if isinstance(bounces_data, dict):
+            bounces_data = bounces_data.get("bounces", bounces_data.get("data", []))
 
         # Recent activity/search
         search_resp = requests.post(f"{base_url}/activity/search", json=payload)
