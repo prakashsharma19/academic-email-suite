@@ -13,13 +13,6 @@ from datetime import datetime, timedelta
 from io import StringIO
 from google.cloud import storage
 from google.oauth2 import service_account
-from google.analytics.data_v1beta import BetaAnalyticsDataClient
-from google.analytics.data_v1beta.types import (
-    DateRange,
-    Metric,
-    Dimension,
-    RunReportRequest,
-)
 from streamlit_ace import st_ace
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -127,23 +120,6 @@ def set_light_theme():
     st.markdown(light_theme, unsafe_allow_html=True)
 
 set_light_theme()
-
-# Google Analytics tracking
-def inject_ga_tracking(measurement_id: str):
-    """Embed Google Analytics script for page view tracking."""
-    if not measurement_id:
-        return
-    ga_snippet = f"""
-    <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id={measurement_id}"></script>
-    <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){{dataLayer.push(arguments);}}
-      gtag('js', new Date());
-      gtag('config', '{measurement_id}');
-    </script>
-    """
-    st.markdown(ga_snippet, unsafe_allow_html=True)
 
 # Authentication System
 def check_auth():
@@ -368,11 +344,6 @@ def load_config():
             'sender': os.getenv("SMTP2GO_SENDER_EMAIL", "noreply@cpsharma.com"),
             'template_id': os.getenv("SMTP2GO_TEMPLATE_ID", "")
         },
-        'google_analytics': {
-            'property_id': os.getenv("GA_PROPERTY_ID", ""),
-            'credentials_json': os.getenv("GA_CREDENTIALS_JSON", ""),
-            'measurement_id': os.getenv("GA_MEASUREMENT_ID", "")
-        },
         'webhook': {
             'url': os.getenv("WEBHOOK_URL", "")
         }
@@ -458,7 +429,6 @@ def send_email_via_smtp2go(recipient, subject, body_html, body_text, unsubscribe
         data = {
             "api_key": config['smtp2go']['api_key'],
             "sender": config['smtp2go']['sender'],
-            "sender_name": "Pushpa Publishing House",
             "to": [recipient],
             "subject": subject,
             "text_body": body_text,
@@ -2626,19 +2596,9 @@ def analytics_section():
                 st.subheader("Bounce Details")
                 bounce_df = pd.DataFrame(bounce_response['Bounces'])
                 st.dataframe(bounce_df)
-
+            
         except Exception as e:
             st.error(f"Failed to fetch analytics: {str(e)}")
-
-    # Google Analytics section
-    st.markdown("---")
-    st.subheader("Website Traffic (Google Analytics)")
-    ga_df = fetch_google_analytics_data()
-    if not ga_df.empty:
-        st.metric("Total Page Views (30 days)", int(ga_df['page_views'].sum()))
-        st.line_chart(ga_df.set_index('date')['page_views'])
-    else:
-        st.info("Google Analytics data not available")
 
 def fetch_smtp2go_analytics():
     """Retrieve analytics details from SMTP2GO using POST requests."""
@@ -2652,8 +2612,7 @@ def fetch_smtp2go_analytics():
         payload = {
             "api_key": api_key,
             "date_start": (datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d"),
-            "date_end": datetime.utcnow().strftime("%Y-%m-%d"),
-            "group_by": "day"
+            "date_end": datetime.utcnow().strftime("%Y-%m-%d")
         }
 
         # Email history
@@ -2679,40 +2638,6 @@ def fetch_smtp2go_analytics():
     except Exception as e:
         st.error(f"Error fetching SMTP analytics: {str(e)}")
         return None
-
-def fetch_google_analytics_data():
-    """Retrieve page view metrics from Google Analytics."""
-    try:
-        creds_json = config['google_analytics'].get('credentials_json')
-        property_id = config['google_analytics'].get('property_id')
-        if not creds_json or not property_id:
-            return pd.DataFrame()
-
-        creds_info = json.loads(creds_json)
-        credentials = service_account.Credentials.from_service_account_info(creds_info)
-        client = BetaAnalyticsDataClient(credentials=credentials)
-        request = RunReportRequest(
-            property=f"properties/{property_id}",
-            dimensions=[Dimension(name="date")],
-            metrics=[Metric(name="screenPageViews")],
-            date_ranges=[DateRange(start_date="30daysAgo", end_date="today")],
-        )
-        response = client.run_report(request)
-
-        rows = [
-            {
-                "date": r.dimension_values[0].value,
-                "page_views": int(r.metric_values[0].value),
-            }
-            for r in response.rows
-        ]
-
-        df = pd.DataFrame(rows)
-        df["date"] = pd.to_datetime(df["date"])
-        return df
-    except Exception as e:
-        st.error(f"Failed to fetch Google Analytics data: {str(e)}")
-        return pd.DataFrame()
 
 def show_email_analytics():
     st.subheader("Email Campaign Analytics Dashboard")
@@ -2878,9 +2803,6 @@ def show_email_analytics():
 def main():
     # Check authentication
     check_auth()
-
-    # Inject Google Analytics tracking snippet if configured
-    inject_ga_tracking(config['google_analytics'].get('measurement_id'))
     
     # Main app for authenticated users
     st.title(f"PPH Email Manager - Welcome admin")
