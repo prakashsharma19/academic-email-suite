@@ -429,6 +429,7 @@ def send_email_via_smtp2go(recipient, subject, body_html, body_text, unsubscribe
         data = {
             "api_key": config['smtp2go']['api_key'],
             "sender": config['smtp2go']['sender'],
+            "sender_name": "Pushpa Publishing House",
             "to": [recipient],
             "subject": subject,
             "text_body": body_text,
