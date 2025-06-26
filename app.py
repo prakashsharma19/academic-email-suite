@@ -2484,14 +2484,22 @@ def analytics_section():
                     if old in df_totals.columns and new not in df_totals.columns:
                         df_totals.rename(columns={old: new}, inplace=True)
 
+                numeric_cols = [
+                    'sent', 'delivered', 'opens_unique', 'clicks_unique',
+                    'hard_bounces', 'soft_bounces', 'bounces'
+                ]
+                for col in numeric_cols:
+                    if col in df_totals.columns:
+                        df_totals[col] = pd.to_numeric(df_totals[col], errors='coerce').fillna(0)
+
                 totals = {
-                    'sent': df_totals['sent'].sum() if 'sent' in df_totals else 0,
-                    'delivered': df_totals['delivered'].sum() if 'delivered' in df_totals else 0,
-                    'opens_unique': df_totals['opens_unique'].sum() if 'opens_unique' in df_totals else 0,
-                    'clicks_unique': df_totals['clicks_unique'].sum() if 'clicks_unique' in df_totals else 0,
-                    'hard_bounces': df_totals['hard_bounces'].sum() if 'hard_bounces' in df_totals else 0,
-                    'soft_bounces': df_totals['soft_bounces'].sum() if 'soft_bounces' in df_totals else 0,
-                    'bounces': df_totals['bounces'].sum() if 'bounces' in df_totals else 0
+                    'sent': int(df_totals['sent'].sum()) if 'sent' in df_totals else 0,
+                    'delivered': int(df_totals['delivered'].sum()) if 'delivered' in df_totals else 0,
+                    'opens_unique': int(df_totals['opens_unique'].sum()) if 'opens_unique' in df_totals else 0,
+                    'clicks_unique': int(df_totals['clicks_unique'].sum()) if 'clicks_unique' in df_totals else 0,
+                    'hard_bounces': int(df_totals['hard_bounces'].sum()) if 'hard_bounces' in df_totals else 0,
+                    'soft_bounces': int(df_totals['soft_bounces'].sum()) if 'soft_bounces' in df_totals else 0,
+                    'bounces': int(df_totals['bounces'].sum()) if 'bounces' in df_totals else 0
                 }
 
             # Overall metrics
@@ -2526,57 +2534,6 @@ def analytics_section():
                     status_text = "Unhealthy"
                 st.markdown(f"**Status:** <span style='color:{status_color}'>{status_text}</span>", unsafe_allow_html=True)
             
-            # Time series data
-            st.subheader("Performance Over Time")
-            df = pd.DataFrame(stats_list)
-
-            for old, new in rename_map.items():
-                if old in df.columns and new not in df.columns:
-                    df.rename(columns={old: new}, inplace=True)
-
-            # Some API responses may not include a 'date' column (e.g. when only
-            # totals are returned).  Gracefully handle these cases by checking
-            # for alternate timestamp fields before attempting to convert to a
-            # datetime index.
-            if 'date' in df.columns:
-                df['date'] = pd.to_datetime(df['date'])
-                df.set_index('date', inplace=True)
-            elif 'timestamp' in df.columns:
-                df['timestamp'] = pd.to_datetime(df['timestamp'])
-                df.set_index('timestamp', inplace=True)
-            else:
-                st.info("Date information not available in analytics data.")
-            
-            # Calculate rates
-            if 'sent' in df and 'delivered' in df:
-                df['delivery_rate'] = (df['delivered'] / df['sent']) * 100
-            else:
-                df['delivery_rate'] = 0
-            if 'opens_unique' in df and 'delivered' in df:
-                df['open_rate'] = (df['opens_unique'] / df['delivered']) * 100
-            else:
-                df['open_rate'] = 0
-            if 'clicks_unique' in df and 'opens_unique' in df:
-                df['click_rate'] = (df['clicks_unique'] / df['opens_unique']) * 100
-            else:
-                df['click_rate'] = 0
-            
-            tab1, tab2, tab3 = st.tabs(["Volume Metrics", "Engagement Rates", "Bounce & Complaints"])
-
-            with tab1:
-                cols = [c for c in ['sent', 'delivered', 'opens_unique', 'clicks_unique'] if c in df]
-                if cols:
-                    st.line_chart(df[cols])
-
-            with tab2:
-                cols = [c for c in ['delivery_rate', 'open_rate', 'click_rate'] if c in df]
-                if cols:
-                    st.line_chart(df[cols])
-
-            with tab3:
-                cols = [c for c in ['hard_bounces', 'soft_bounces', 'spam_complaints'] if c in df]
-                if cols:
-                    st.line_chart(df[cols])
 
             # Campaign details
             st.subheader("Recent Campaigns")
@@ -2630,6 +2587,26 @@ def analytics_section():
                 else:
                     bounce_df = pd.DataFrame(bounce_data)
                 st.dataframe(bounce_df)
+
+            # Show open and click tracking details if available
+            if analytics_data.get('activity'):
+                tracking_df = pd.DataFrame(analytics_data['activity'])
+                if not tracking_df.empty:
+                    # Filter to open and click events if the column exists
+                    event_col = None
+                    for c in ['event', 'activity', 'action']:
+                        if c in tracking_df.columns:
+                            event_col = c
+                            break
+                    if event_col:
+                        tracking_df = tracking_df[tracking_df[event_col].str.contains('open|click', case=False, na=False)]
+                    cols = [c for c in ['timestamp', 'email', event_col, 'subject'] if c in tracking_df.columns]
+                    st.subheader("Open & Click Tracking")
+                    if cols:
+                        display_tracking = tracking_df[cols]
+                    else:
+                        display_tracking = tracking_df
+                    st.dataframe(display_tracking)
 
             st.markdown("---")
             st.subheader("Subject-wise CSV Analysis")
@@ -2817,24 +2794,6 @@ def show_email_analytics():
                     status_text = "Unhealthy"
                 st.markdown(f"**Status:** <span style='color:{status_color}'>{status_text}</span>", unsafe_allow_html=True)
             
-            # Time series charts
-            st.subheader("Performance Over Time")
-            tab1, tab2, tab3 = st.tabs(["Volume Metrics", "Engagement Rates", "Bounce & Complaints"])
-
-            with tab1:
-                cols = [c for c in ['sent', 'delivered', 'opens_unique', 'clicks_unique'] if c in df]
-                if cols:
-                    st.line_chart(df[cols])
-
-            with tab2:
-                cols = [c for c in ['delivery_rate', 'open_rate', 'click_rate'] if c in df]
-                if cols:
-                    st.line_chart(df[cols])
-
-            with tab3:
-                cols = [c for c in ['hard_bounces', 'soft_bounces', 'spam_complaints'] if c in df]
-                if cols:
-                    st.line_chart(df[cols])
             
             # Campaign details
             st.subheader("Recent Campaigns")
