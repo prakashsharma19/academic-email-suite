@@ -429,10 +429,12 @@ def send_email_via_smtp2go(recipient, subject, body_html, body_text, unsubscribe
             "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"
         }
         
+        sender_email = config['smtp2go']['sender']
+        sender_name = st.session_state.sender_name
         data = {
             "api_key": config['smtp2go']['api_key'],
-            "sender": config['smtp2go']['sender'],
-            "sender_name": st.session_state.sender_name,
+            "sender": f"{sender_name} <{sender_email}>",
+            "sender_name": sender_name,
             "to": [recipient],
             "subject": subject,
             "text_body": body_text,
@@ -1795,12 +1797,12 @@ def editor_invitation_section():
         st.text_input(
             "Sender Email",
             value=st.session_state.sender_email,
-            key="sender_email_editor"
+            key="sender_email"
         )
         st.text_input(
             "Sender Name",
             value=st.session_state.sender_name,
-            key="sender_name_editor"
+            key="sender_name"
         )
 
         blocked_domains_text = st.text_area(
