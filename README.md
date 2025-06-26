@@ -13,3 +13,8 @@ GA_MEASUREMENT_ID=<measurement id>
 
 The measurement ID enables page view tracking via the gtag script. The property
 ID and credentials are required to fetch aggregated statistics.
+
+### Email Settings
+
+Set `SENDER_NAME` to control the display name used in the **From** header of all
+outgoing emails. If not provided, it defaults to `Pushpa Publishing House`.

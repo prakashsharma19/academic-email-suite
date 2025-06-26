@@ -190,6 +190,8 @@ def init_session_state():
         st.session_state.journal_subjects = {}
     if 'sender_email' not in st.session_state:
         st.session_state.sender_email = config['smtp2go']['sender']
+    if 'sender_name' not in st.session_state:
+        st.session_state.sender_name = config['sender_name']
     if 'blocked_domains' not in st.session_state:
         st.session_state.blocked_domains = []
     if 'blocked_emails' not in st.session_state:
@@ -344,6 +346,7 @@ def load_config():
             'sender': os.getenv("SMTP2GO_SENDER_EMAIL", "noreply@cpsharma.com"),
             'template_id': os.getenv("SMTP2GO_TEMPLATE_ID", "")
         },
+        'sender_name': os.getenv("SENDER_NAME", "Pushpa Publishing House"),
         'webhook': {
             'url': os.getenv("WEBHOOK_URL", "")
         }
@@ -429,7 +432,7 @@ def send_email_via_smtp2go(recipient, subject, body_html, body_text, unsubscribe
         data = {
             "api_key": config['smtp2go']['api_key'],
             "sender": config['smtp2go']['sender'],
-            "sender_name": "Pushpa Publishing House",
+            "sender_name": st.session_state.sender_name,
             "to": [recipient],
             "subject": subject,
             "text_body": body_text,
@@ -1266,6 +1269,11 @@ def email_campaign_section():
             value=st.session_state.sender_email,
             key="sender_email"
         )
+        st.text_input(
+            "Sender Name",
+            value=st.session_state.sender_name,
+            key="sender_name"
+        )
 
         blocked_domains_text = st.text_area(
             "Blocked Domains (one per line)",
@@ -1659,7 +1667,7 @@ def email_campaign_section():
                 else:
                     response, email_id = send_ses_email(
                         st.session_state.ses_client,
-                        st.session_state.sender_email,
+                        f"{st.session_state.sender_name} <{st.session_state.sender_email}>",
                         row.get('email', ''),
                         subject,
                         email_content,
@@ -1788,6 +1796,11 @@ def editor_invitation_section():
             "Sender Email",
             value=st.session_state.sender_email,
             key="sender_email_editor"
+        )
+        st.text_input(
+            "Sender Name",
+            value=st.session_state.sender_name,
+            key="sender_name_editor"
         )
 
         blocked_domains_text = st.text_area(
@@ -2169,7 +2182,7 @@ def editor_invitation_section():
                 else:
                     response, email_id = send_ses_email(
                         st.session_state.ses_client,
-                        st.session_state.sender_email,
+                        f"{st.session_state.sender_name} <{st.session_state.sender_email}>",
                         row.get('email', ''),
                         subject,
                         email_content,
