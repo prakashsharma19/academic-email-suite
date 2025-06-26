@@ -220,6 +220,22 @@ def init_session_state():
         st.session_state.editor_show_journal_details = False
 
 
+def update_sender_name():
+    """Update sender name with the currently selected journal."""
+    journal = st.session_state.get("selected_journal")
+    if journal:
+        st.session_state.sender_name = f"{journal} – {config['sender_name']}"
+    st.session_state.show_journal_details = False
+
+
+def update_editor_sender_name():
+    """Update sender name for editor invitation based on selected journal."""
+    journal = st.session_state.get("selected_editor_journal")
+    if journal:
+        st.session_state.sender_name = f"{journal} – {config['sender_name']}"
+    st.session_state.editor_show_journal_details = False
+
+
 def read_uploaded_text(uploaded_file):
     """Decode uploaded file content using a variety of encodings."""
     data = uploaded_file.read()
@@ -1218,6 +1234,7 @@ def email_campaign_section():
     if st.session_state.selected_journal is None:
         st.session_state.selected_journal = JOURNALS[0]
         st.session_state.show_journal_details = False
+        update_sender_name()
 
     # Journal Selection
     col1, col2 = st.columns([3, 1])
@@ -1227,7 +1244,7 @@ def email_campaign_section():
             JOURNALS,
             index=JOURNALS.index(st.session_state.selected_journal)
             if st.session_state.selected_journal in JOURNALS else 0,
-            on_change=lambda: st.session_state.update(show_journal_details=False),
+            on_change=update_sender_name,
             key="selected_journal",
         )
         button_label = "Hide Subjects & Templete" if st.session_state.show_journal_details else "Load Subjects & Templete"
@@ -1243,6 +1260,7 @@ def email_campaign_section():
         if new_journal and st.button("Add Journal"):
             if add_journal_to_firebase(new_journal):
                 st.session_state.selected_journal = new_journal
+                update_sender_name()
                 if new_journal not in st.session_state.journal_reply_addresses:
                     st.session_state.journal_reply_addresses[new_journal] = ""
                 st.rerun()
@@ -1747,6 +1765,7 @@ def editor_invitation_section():
     if st.session_state.selected_editor_journal is None:
         st.session_state.selected_editor_journal = EDITOR_JOURNALS[0]
         st.session_state.editor_show_journal_details = False
+        update_editor_sender_name()
 
     # Journal Selection
     col1, col2 = st.columns([3, 1])
@@ -1756,7 +1775,7 @@ def editor_invitation_section():
             EDITOR_JOURNALS,
             index=EDITOR_JOURNALS.index(st.session_state.selected_editor_journal)
             if st.session_state.selected_editor_journal in EDITOR_JOURNALS else 0,
-            on_change=lambda: st.session_state.update(editor_show_journal_details=False),
+            on_change=update_editor_sender_name,
             key="selected_editor_journal",
         )
         button_label = "Hide Subjects & Templete" if st.session_state.editor_show_journal_details else "Load Subjects & Templete"
@@ -1772,6 +1791,7 @@ def editor_invitation_section():
         if new_journal and st.button("Add Journal"):
             if add_editor_journal_to_firebase(new_journal):
                 st.session_state.selected_editor_journal = new_journal
+                update_editor_sender_name()
                 if new_journal not in st.session_state.journal_reply_addresses:
                     st.session_state.journal_reply_addresses[new_journal] = ""
                 st.rerun()

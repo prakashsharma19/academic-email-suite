@@ -16,5 +16,13 @@ ID and credentials are required to fetch aggregated statistics.
 
 ### Email Settings
 
-Set `SENDER_NAME` to control the display name used in the **From** header of all
-outgoing emails. If not provided, it defaults to `Pushpa Publishing House`.
+Set `SENDER_NAME` to control the publisher portion of the **From** header. The
+sender name is automatically formatted as `<Journal Name> – <SENDER_NAME>`.
+If not provided, `SENDER_NAME` defaults to `Pushpa Publishing House`.
+
+Example:
+
+```
+SENDER_NAME="Pushpa Publishing House"
+```
+results in a sender like `Far East Journal of Mathematical Sciences (FJMS) – Pushpa Publishing House`.
