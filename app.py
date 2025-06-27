@@ -202,12 +202,6 @@ def init_session_state():
         st.session_state.journals_loaded = False
     if 'editor_journals_loaded' not in st.session_state:
         st.session_state.editor_journals_loaded = False
-    if 'schedule_date' not in st.session_state:
-        st.session_state.schedule_date = datetime.now(pytz.timezone('Asia/Kolkata')).date()
-    if 'schedule_time' not in st.session_state:
-        st.session_state.schedule_time = (
-            datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(hours=1)
-        ).time()
     if 'template_spam_score' not in st.session_state:
         st.session_state.template_spam_score = {}
     if 'template_spam_report' not in st.session_state:
@@ -1569,22 +1563,9 @@ def email_campaign_section():
             key=f"subject_select_{selected_journal}"
         )
 
-        col_send, col_schedule, col_time = st.columns([1,1,2])
-        with col_send:
-            send_ads_clicked = st.button("Send Ads", key="send_ads")
-        with col_schedule:
-            schedule_ads_clicked = st.button("Schedule Send Ads", key="schedule_ads")
-        with col_time:
-            schedule_date = st.date_input(
-                "Date (IST)",
-                value=st.session_state.schedule_date,
-                key="schedule_date",
-            )
-            schedule_time = st.time_input(
-                "Time (IST)",
-                value=st.session_state.schedule_time,
-                key="schedule_time",
-            )
+        st.markdown("<div class='send-ads-btn'>", unsafe_allow_html=True)
+        send_ads_clicked = st.button("Send Ads", key="send_ads")
+        st.markdown("</div>", unsafe_allow_html=True)
         if send_ads_clicked:
             if st.session_state.email_service == "SMTP2GO" and not config['smtp2go']['api_key']:
                 st.error("SMTP2GO API key not configured")
@@ -1766,54 +1747,8 @@ def email_campaign_section():
                 status_text.text("Campaign completed")
                 st.success(f"Campaign completed! {success_count} of {total_emails} emails sent successfully.")
 
-
             else:
                 st.warning(f"Campaign cancelled. {success_count} of {total_emails} emails were sent.")
-
-        elif schedule_ads_clicked:
-            email_body = st.session_state.get(
-                f"editor_{selected_journal}", get_journal_template(selected_journal)
-            )
-            if email_body is None:
-                email_body = get_journal_template(selected_journal)
-            email_subject = st.session_state.get(
-                f"email_subject_{selected_journal}", f"Call for Papers - {selected_journal}"
-            )
-            df = st.session_state.current_recipient_list
-            total_emails = len(df)
-
-            campaign_id = int(time.time())
-            filename = f"scheduled_{campaign_id}.csv"
-            upload_to_firebase(df.to_csv(index=False), filename)
-
-            scheduled_dt_local = datetime.combine(schedule_date, schedule_time)
-            scheduled_dt = pytz.timezone('Asia/Kolkata').localize(scheduled_dt_local).astimezone(pytz.utc)
-
-            campaign_data = {
-                'campaign_id': campaign_id,
-                'journal_name': selected_journal,
-                'email_subjects': selected_subjects,
-                'email_body': email_body,
-                'email_service': st.session_state.email_service,
-                'sender_email': st.session_state.sender_email,
-                'reply_to': st.session_state.journal_reply_addresses.get(selected_journal, None),
-                'recipient_file': filename,
-                'total_emails': total_emails,
-                'emails_sent': 0,
-                'status': 'scheduled',
-                'scheduled_time': scheduled_dt,
-                'created_at': datetime.utcnow(),
-            }
-
-            try:
-                db = get_firestore_db()
-                if db:
-                    db.collection('scheduled_campaigns').document(str(campaign_id)).set(campaign_data)
-                st.success(
-                    f"Campaign scheduled for {scheduled_dt.astimezone(pytz.timezone('Asia/Kolkata')).strftime('%Y-%m-%d %I:%M %p IST')}"
-                )
-            except Exception as e:
-                st.error(f"Failed to schedule campaign: {str(e)}")
 
 
 def editor_invitation_section():
@@ -2549,22 +2484,14 @@ def analytics_section():
                     if old in df_totals.columns and new not in df_totals.columns:
                         df_totals.rename(columns={old: new}, inplace=True)
 
-                numeric_cols = [
-                    'sent', 'delivered', 'opens_unique', 'clicks_unique',
-                    'hard_bounces', 'soft_bounces', 'bounces'
-                ]
-                for col in numeric_cols:
-                    if col in df_totals.columns:
-                        df_totals[col] = pd.to_numeric(df_totals[col], errors='coerce').fillna(0)
-
                 totals = {
-                    'sent': int(df_totals['sent'].sum()) if 'sent' in df_totals else 0,
-                    'delivered': int(df_totals['delivered'].sum()) if 'delivered' in df_totals else 0,
-                    'opens_unique': int(df_totals['opens_unique'].sum()) if 'opens_unique' in df_totals else 0,
-                    'clicks_unique': int(df_totals['clicks_unique'].sum()) if 'clicks_unique' in df_totals else 0,
-                    'hard_bounces': int(df_totals['hard_bounces'].sum()) if 'hard_bounces' in df_totals else 0,
-                    'soft_bounces': int(df_totals['soft_bounces'].sum()) if 'soft_bounces' in df_totals else 0,
-                    'bounces': int(df_totals['bounces'].sum()) if 'bounces' in df_totals else 0
+                    'sent': df_totals['sent'].sum() if 'sent' in df_totals else 0,
+                    'delivered': df_totals['delivered'].sum() if 'delivered' in df_totals else 0,
+                    'opens_unique': df_totals['opens_unique'].sum() if 'opens_unique' in df_totals else 0,
+                    'clicks_unique': df_totals['clicks_unique'].sum() if 'clicks_unique' in df_totals else 0,
+                    'hard_bounces': df_totals['hard_bounces'].sum() if 'hard_bounces' in df_totals else 0,
+                    'soft_bounces': df_totals['soft_bounces'].sum() if 'soft_bounces' in df_totals else 0,
+                    'bounces': df_totals['bounces'].sum() if 'bounces' in df_totals else 0
                 }
 
             # Overall metrics
@@ -2599,6 +2526,57 @@ def analytics_section():
                     status_text = "Unhealthy"
                 st.markdown(f"**Status:** <span style='color:{status_color}'>{status_text}</span>", unsafe_allow_html=True)
             
+            # Time series data
+            st.subheader("Performance Over Time")
+            df = pd.DataFrame(stats_list)
+
+            for old, new in rename_map.items():
+                if old in df.columns and new not in df.columns:
+                    df.rename(columns={old: new}, inplace=True)
+
+            # Some API responses may not include a 'date' column (e.g. when only
+            # totals are returned).  Gracefully handle these cases by checking
+            # for alternate timestamp fields before attempting to convert to a
+            # datetime index.
+            if 'date' in df.columns:
+                df['date'] = pd.to_datetime(df['date'])
+                df.set_index('date', inplace=True)
+            elif 'timestamp' in df.columns:
+                df['timestamp'] = pd.to_datetime(df['timestamp'])
+                df.set_index('timestamp', inplace=True)
+            else:
+                st.info("Date information not available in analytics data.")
+            
+            # Calculate rates
+            if 'sent' in df and 'delivered' in df:
+                df['delivery_rate'] = (df['delivered'] / df['sent']) * 100
+            else:
+                df['delivery_rate'] = 0
+            if 'opens_unique' in df and 'delivered' in df:
+                df['open_rate'] = (df['opens_unique'] / df['delivered']) * 100
+            else:
+                df['open_rate'] = 0
+            if 'clicks_unique' in df and 'opens_unique' in df:
+                df['click_rate'] = (df['clicks_unique'] / df['opens_unique']) * 100
+            else:
+                df['click_rate'] = 0
+            
+            tab1, tab2, tab3 = st.tabs(["Volume Metrics", "Engagement Rates", "Bounce & Complaints"])
+
+            with tab1:
+                cols = [c for c in ['sent', 'delivered', 'opens_unique', 'clicks_unique'] if c in df]
+                if cols:
+                    st.line_chart(df[cols])
+
+            with tab2:
+                cols = [c for c in ['delivery_rate', 'open_rate', 'click_rate'] if c in df]
+                if cols:
+                    st.line_chart(df[cols])
+
+            with tab3:
+                cols = [c for c in ['hard_bounces', 'soft_bounces', 'spam_complaints'] if c in df]
+                if cols:
+                    st.line_chart(df[cols])
 
             # Campaign details
             st.subheader("Recent Campaigns")
@@ -2652,26 +2630,6 @@ def analytics_section():
                 else:
                     bounce_df = pd.DataFrame(bounce_data)
                 st.dataframe(bounce_df)
-
-            # Show open and click tracking details if available
-            if analytics_data.get('activity'):
-                tracking_df = pd.DataFrame(analytics_data['activity'])
-                if not tracking_df.empty:
-                    # Filter to open and click events if the column exists
-                    event_col = None
-                    for c in ['event', 'activity', 'action']:
-                        if c in tracking_df.columns:
-                            event_col = c
-                            break
-                    if event_col:
-                        tracking_df = tracking_df[tracking_df[event_col].str.contains('open|click', case=False, na=False)]
-                    cols = [c for c in ['timestamp', 'email', event_col, 'subject'] if c in tracking_df.columns]
-                    st.subheader("Open & Click Tracking")
-                    if cols:
-                        display_tracking = tracking_df[cols]
-                    else:
-                        display_tracking = tracking_df
-                    st.dataframe(display_tracking)
 
             st.markdown("---")
             st.subheader("Subject-wise CSV Analysis")
@@ -2859,6 +2817,24 @@ def show_email_analytics():
                     status_text = "Unhealthy"
                 st.markdown(f"**Status:** <span style='color:{status_color}'>{status_text}</span>", unsafe_allow_html=True)
             
+            # Time series charts
+            st.subheader("Performance Over Time")
+            tab1, tab2, tab3 = st.tabs(["Volume Metrics", "Engagement Rates", "Bounce & Complaints"])
+
+            with tab1:
+                cols = [c for c in ['sent', 'delivered', 'opens_unique', 'clicks_unique'] if c in df]
+                if cols:
+                    st.line_chart(df[cols])
+
+            with tab2:
+                cols = [c for c in ['delivery_rate', 'open_rate', 'click_rate'] if c in df]
+                if cols:
+                    st.line_chart(df[cols])
+
+            with tab3:
+                cols = [c for c in ['hard_bounces', 'soft_bounces', 'spam_complaints'] if c in df]
+                if cols:
+                    st.line_chart(df[cols])
             
             # Campaign details
             st.subheader("Recent Campaigns")
@@ -2930,7 +2906,7 @@ def main():
         st.markdown("---")
         st.markdown("### Quick Links")
         st.markdown("[📊 Email Reports](https://app-us.smtp2go.com/reports/activity/)", unsafe_allow_html=True)
-        st.markdown("[📝 Entry Manager](https://pphmjcrm.streamlit.app)", unsafe_allow_html=True)
+        st.markdown("[📝 Entry Manager](https://pphentry.onrender.com)", unsafe_allow_html=True)
     
     # Initialize services
     if not st.session_state.firebase_initialized:
