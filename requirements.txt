@@ -7,4 +7,3 @@ firebase-admin==6.2.0
 matplotlib==3.8.2
 streamlit-ace==0.1.1
 firebase-functions
-schedule==1.2.0
