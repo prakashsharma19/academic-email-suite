@@ -1585,8 +1585,6 @@ def email_campaign_section():
                 value=st.session_state.schedule_time,
                 key="schedule_time",
             )
-            st.session_state.schedule_date = schedule_date
-            st.session_state.schedule_time = schedule_time
         if send_ads_clicked:
             if st.session_state.email_service == "SMTP2GO" and not config['smtp2go']['api_key']:
                 st.error("SMTP2GO API key not configured")
