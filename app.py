@@ -202,6 +202,12 @@ def init_session_state():
         st.session_state.journals_loaded = False
     if 'editor_journals_loaded' not in st.session_state:
         st.session_state.editor_journals_loaded = False
+    if 'schedule_date' not in st.session_state:
+        st.session_state.schedule_date = datetime.now(pytz.timezone('Asia/Kolkata')).date()
+    if 'schedule_time' not in st.session_state:
+        st.session_state.schedule_time = (
+            datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(hours=1)
+        ).time()
     if 'template_spam_score' not in st.session_state:
         st.session_state.template_spam_score = {}
     if 'template_spam_report' not in st.session_state:
@@ -1571,14 +1577,16 @@ def email_campaign_section():
         with col_time:
             schedule_date = st.date_input(
                 "Date (IST)",
-                datetime.now(pytz.timezone('Asia/Kolkata')).date(),
+                value=st.session_state.schedule_date,
                 key="schedule_date",
             )
             schedule_time = st.time_input(
                 "Time (IST)",
-                (datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(hours=1)).time(),
+                value=st.session_state.schedule_time,
                 key="schedule_time",
             )
+            st.session_state.schedule_date = schedule_date
+            st.session_state.schedule_time = schedule_time
         if send_ads_clicked:
             if st.session_state.email_service == "SMTP2GO" and not config['smtp2go']['api_key']:
                 st.error("SMTP2GO API key not configured")
