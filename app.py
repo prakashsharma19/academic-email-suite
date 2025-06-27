@@ -1563,9 +1563,22 @@ def email_campaign_section():
             key=f"subject_select_{selected_journal}"
         )
 
-        st.markdown("<div class='send-ads-btn'>", unsafe_allow_html=True)
-        send_ads_clicked = st.button("Send Ads", key="send_ads")
-        st.markdown("</div>", unsafe_allow_html=True)
+        col_send, col_schedule, col_time = st.columns([1,1,2])
+        with col_send:
+            send_ads_clicked = st.button("Send Ads", key="send_ads")
+        with col_schedule:
+            schedule_ads_clicked = st.button("Schedule Send Ads", key="schedule_ads")
+        with col_time:
+            schedule_date = st.date_input(
+                "Date (IST)",
+                datetime.now(pytz.timezone('Asia/Kolkata')).date(),
+                key="schedule_date",
+            )
+            schedule_time = st.time_input(
+                "Time (IST)",
+                (datetime.now(pytz.timezone('Asia/Kolkata')) + timedelta(hours=1)).time(),
+                key="schedule_time",
+            )
         if send_ads_clicked:
             if st.session_state.email_service == "SMTP2GO" and not config['smtp2go']['api_key']:
                 st.error("SMTP2GO API key not configured")
@@ -1747,8 +1760,54 @@ def email_campaign_section():
                 status_text.text("Campaign completed")
                 st.success(f"Campaign completed! {success_count} of {total_emails} emails sent successfully.")
 
+
             else:
                 st.warning(f"Campaign cancelled. {success_count} of {total_emails} emails were sent.")
+
+        elif schedule_ads_clicked:
+            email_body = st.session_state.get(
+                f"editor_{selected_journal}", get_journal_template(selected_journal)
+            )
+            if email_body is None:
+                email_body = get_journal_template(selected_journal)
+            email_subject = st.session_state.get(
+                f"email_subject_{selected_journal}", f"Call for Papers - {selected_journal}"
+            )
+            df = st.session_state.current_recipient_list
+            total_emails = len(df)
+
+            campaign_id = int(time.time())
+            filename = f"scheduled_{campaign_id}.csv"
+            upload_to_firebase(df.to_csv(index=False), filename)
+
+            scheduled_dt_local = datetime.combine(schedule_date, schedule_time)
+            scheduled_dt = pytz.timezone('Asia/Kolkata').localize(scheduled_dt_local).astimezone(pytz.utc)
+
+            campaign_data = {
+                'campaign_id': campaign_id,
+                'journal_name': selected_journal,
+                'email_subjects': selected_subjects,
+                'email_body': email_body,
+                'email_service': st.session_state.email_service,
+                'sender_email': st.session_state.sender_email,
+                'reply_to': st.session_state.journal_reply_addresses.get(selected_journal, None),
+                'recipient_file': filename,
+                'total_emails': total_emails,
+                'emails_sent': 0,
+                'status': 'scheduled',
+                'scheduled_time': scheduled_dt,
+                'created_at': datetime.utcnow(),
+            }
+
+            try:
+                db = get_firestore_db()
+                if db:
+                    db.collection('scheduled_campaigns').document(str(campaign_id)).set(campaign_data)
+                st.success(
+                    f"Campaign scheduled for {scheduled_dt.astimezone(pytz.timezone('Asia/Kolkata')).strftime('%Y-%m-%d %I:%M %p IST')}"
+                )
+            except Exception as e:
+                st.error(f"Failed to schedule campaign: {str(e)}")
 
 
 def editor_invitation_section():
