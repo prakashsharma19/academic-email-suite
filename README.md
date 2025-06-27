@@ -26,3 +26,15 @@ Example:
 SENDER_NAME="Pushpa Publishing House"
 ```
 results in a sender like `Far East Journal of Mathematical Sciences (FJMS) – Pushpa Publishing House`.
+
+### Scheduled Ads
+
+Ads can be scheduled for future delivery. Use the **Schedule Send Ads** button next to **Send Ads** and choose the desired date and time in IST. Scheduled campaigns are stored in Firestore and processed by the `scheduled_sender.py` script.
+
+Run the scheduler periodically (for example via cron) to dispatch pending campaigns:
+
+```bash
+python scheduled_sender.py
+```
+
+After a scheduled campaign completes, a summary email is sent to `contact@cpsharma.com` with the subject `Scheduling Email Report`.
