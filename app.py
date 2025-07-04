@@ -106,12 +106,12 @@ def set_light_theme():
     .risky-email-btn button:active {
         transform: scale(0.97);
     }
-    /* Replace sidebar toggle arrow with menu icon */
+    /* Replace sidebar toggle arrow with a simple > icon */
     div[data-testid="collapsedControl"] svg {
         display: none;
     }
     div[data-testid="collapsedControl"]::after {
-        content: "\2630"; /* hamburger icon */
+        content: ">";
         font-size: 20px;
         color: var(--primary-color);
     }
@@ -292,7 +292,7 @@ def sanitize_author_name(name: str) -> str:
 def generate_clock_image(tz: str) -> str:
     """Return base64 encoded analog clock image for the given timezone."""
     now = datetime.now(pytz.timezone(tz))
-    fig, ax = plt.subplots(figsize=(1.6, 1.6))
+    fig, ax = plt.subplots(figsize=(1.2, 1.2))
     ax.axis("off")
     circle = plt.Circle((0, 0), 1, fill=False, linewidth=2, color="black")
     ax.add_artist(circle)
@@ -319,23 +319,29 @@ def generate_clock_image(tz: str) -> str:
 def display_world_clocks():
     """Show analog and digital clocks for common time zones."""
     zones = [
-        ("USA", "America/New_York"),
-        ("United Kingdom", "Europe/London"),
-        ("Germany", "Europe/Berlin"),
-        ("India", "Asia/Kolkata"),
-        ("China", "Asia/Shanghai"),
-        ("Australia", "Australia/Sydney"),
+        ("New York", "America/New_York"),
+        ("Los Angeles", "America/Los_Angeles"),
+        ("London", "Europe/London"),
+        ("Berlin", "Europe/Berlin"),
+        ("Dubai", "Asia/Dubai"),
+        ("Shanghai", "Asia/Shanghai"),
+        ("Tokyo", "Asia/Tokyo"),
+        ("Sydney", "Australia/Sydney"),
+        ("Sao Paulo", "America/Sao_Paulo"),
+        ("Johannesburg", "Africa/Johannesburg"),
     ]
     html = "<div style='display:flex;gap:10px;flex-wrap:wrap;'>"
     for label, tz in zones:
         img = generate_clock_image(tz)
         now = datetime.now(pytz.timezone(tz))
         digital = now.strftime("%I:%M %p")
+        color = "green" if 7 <= now.hour < 20 else "black"
         html += (
             f"<div style='text-align:center;'>"
-            f"<img src='data:image/png;base64,{img}' width='80'/><div style='font-size:12px'>{label}</div><div style='font-size:12px'>{digital}</div></div>"
+            f"<img src='data:image/png;base64,{img}' width='60'/><div style='font-size:12px'>{label}</div>"
+            f"<div style='font-size:12px;color:{color}'>{digital}</div></div>"
         )
-    html += "</div><div style='font-size:12px;margin-top:4px;color:red;'>Note: Sending emails in working hours impacts open rate/read rate.</div>"
+    html += "</div><div style='font-size:12px;margin-top:4px;color:red;'>Note: Sending emails in working hours improves read rate.</div>"
     st.markdown(html, unsafe_allow_html=True)
 
 # Journal Data
@@ -2965,10 +2971,10 @@ def main():
     check_auth()
     
     # Main app for authenticated users
-    st.markdown("<h1 class='app-title'>PPH Email Manager</h1>", unsafe_allow_html=True)
-    
-    # Navigation with additional links
+
+    # Navigation with additional links and heading in the sidebar
     with st.sidebar:
+        st.markdown("## PPH Email Manager")
         app_mode = st.selectbox("Select Mode", ["Email Campaign", "Editor Invitation", "Verify Emails", "Analytics"])
         st.markdown("---")
         st.markdown("### Quick Links")
