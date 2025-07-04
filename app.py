@@ -106,15 +106,6 @@ def set_light_theme():
     .risky-email-btn button:active {
         transform: scale(0.97);
     }
-    /* Replace sidebar toggle arrow with a simple > icon */
-    div[data-testid="collapsedControl"] svg {
-        display: none;
-    }
-    div[data-testid="collapsedControl"]::after {
-        content: ">";
-        font-size: 20px;
-        color: var(--primary-color);
-    }
     /* Sidebar appearance */
     section[data-testid="stSidebar"] {
         background-color: #e6f0ff;
