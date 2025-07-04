@@ -24,9 +24,10 @@ import threading
 
 # App Configuration
 st.set_page_config(
-    page_title="PPH Email Manager", 
+    page_title="PPH Email Manager",
     layout="wide",
     page_icon="📧",
+    initial_sidebar_state="collapsed",
     menu_items={
         'About': "### Academic Email Management Suite\n\nDeveloped by Prakash (contact@cpsharma.com)"
     }
@@ -96,6 +97,15 @@ def set_light_theme():
     }
     .send-ads-btn button:hover {
         background-color: #45a049 !important;
+    }
+    /* Replace sidebar toggle arrow with menu icon */
+    div[data-testid="collapsedControl"] svg {
+        display: none;
+    }
+    div[data-testid="collapsedControl"]::after {
+        content: "\2630"; /* hamburger icon */
+        font-size: 20px;
+        color: var(--primary-color);
     }
     /* Multiselect tags wrap text */
     div[data-baseweb="tag"] span {
@@ -280,21 +290,23 @@ def generate_clock_image(tz: str) -> str:
 
 
 def display_world_clocks():
-    """Show analog clocks for common time zones."""
+    """Show analog and digital clocks for common time zones."""
     zones = [
-        ("New York", "America/New_York"),
-        ("London", "Europe/London"),
-        ("Berlin", "Europe/Berlin"),
-        ("New Delhi", "Asia/Kolkata"),
-        ("Beijing", "Asia/Shanghai"),
-        ("Sydney", "Australia/Sydney"),
+        ("USA", "America/New_York"),
+        ("United Kingdom", "Europe/London"),
+        ("Germany", "Europe/Berlin"),
+        ("India", "Asia/Kolkata"),
+        ("China", "Asia/Shanghai"),
+        ("Australia", "Australia/Sydney"),
     ]
     html = "<div style='display:flex;gap:10px;flex-wrap:wrap;'>"
     for label, tz in zones:
         img = generate_clock_image(tz)
+        now = datetime.now(pytz.timezone(tz))
+        digital = now.strftime("%I:%M %p")
         html += (
             f"<div style='text-align:center;'>"
-            f"<img src='data:image/png;base64,{img}' width='80'/><div style='font-size:12px'>{label}</div></div>"
+            f"<img src='data:image/png;base64,{img}' width='80'/><div style='font-size:12px'>{label}</div><div style='font-size:12px'>{digital}</div></div>"
         )
     html += "</div><div style='font-size:12px;margin-top:4px;'>Sending emails in working hours impacts open rate/read rate.</div>"
     st.markdown(html, unsafe_allow_html=True)
@@ -1355,7 +1367,7 @@ def email_campaign_section():
         subjects = st.session_state.journal_subjects.get(selected_journal, [])
         if subjects:
             for idx, subj in enumerate(subjects):
-                col1, col2, col3 = st.columns([3, 1, 1])
+                col1, col2, col3 = st.columns([5, 1, 1])
                 edited = col1.text_input(
                     f"Subject {idx+1}",
                     subj,
@@ -1888,7 +1900,7 @@ def editor_invitation_section():
         subjects = st.session_state.journal_subjects.get(selected_editor_journal, [])
         if subjects:
             for idx, subj in enumerate(subjects):
-                col1, col2, col3 = st.columns([3, 1, 1])
+                col1, col2, col3 = st.columns([5, 1, 1])
                 edited = col1.text_input(
                     f"Subject {idx+1}",
                     subj,
@@ -2321,11 +2333,7 @@ def email_verification_section():
     
     # File Upload for Verification
     st.subheader("Email List Verification")
-    col_src, col_clock = st.columns([1, 2])
-    with col_src:
-        file_source = st.radio("Select file source for verification", ["Local Upload", "Cloud Storage"])
-    with col_clock:
-        display_world_clocks()
+    file_source = st.radio("Select file source for verification", ["Local Upload", "Cloud Storage"])
     
     if file_source == "Local Upload":
         uploaded_file = st.file_uploader("Upload email list for verification (TXT format)", type=["txt"])
