@@ -79,6 +79,7 @@ def set_light_theme():
         background-color: #007bff !important;
         border-color: #007bff !important;
         color: white !important;
+        transition: transform 0.05s ease;
     }
     .stButton button:hover,
     .stDownloadButton button:hover,
@@ -98,6 +99,13 @@ def set_light_theme():
     .send-ads-btn button:hover {
         background-color: #45a049 !important;
     }
+    .stButton button:active,
+    .stDownloadButton button:active,
+    .bad-email-btn button:active,
+    .good-email-btn button:active,
+    .risky-email-btn button:active {
+        transform: scale(0.97);
+    }
     /* Replace sidebar toggle arrow with menu icon */
     div[data-testid="collapsedControl"] svg {
         display: none;
@@ -106,6 +114,19 @@ def set_light_theme():
         content: "\2630"; /* hamburger icon */
         font-size: 20px;
         color: var(--primary-color);
+    }
+    /* Sidebar appearance */
+    section[data-testid="stSidebar"] {
+        background-color: #e6f0ff;
+        width: 200px !important;
+    }
+    /* App title positioning */
+    .app-title {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        font-size: 1.5rem !important;
+        margin: 0;
     }
     /* Multiselect tags wrap text */
     div[data-baseweb="tag"] span {
@@ -136,14 +157,20 @@ def check_auth():
             if st.form_submit_button("Login"):
                 if username == "admin" and password == "prakash123@":
                     st.session_state.authenticated = True
+                    st.session_state.username = username
                     st.rerun()
                 else:
                     st.error("Invalid credentials")
         
         st.stop()
     
-    if st.sidebar.button("Logout"):
+    logout_label = "Logout"
+    if 'username' in st.session_state:
+        logout_label += f" ({st.session_state.username})"
+    if st.sidebar.button(logout_label):
         st.session_state.authenticated = False
+        if 'username' in st.session_state:
+            del st.session_state.username
         st.rerun()
 
 # Initialize session state
@@ -265,7 +292,7 @@ def sanitize_author_name(name: str) -> str:
 def generate_clock_image(tz: str) -> str:
     """Return base64 encoded analog clock image for the given timezone."""
     now = datetime.now(pytz.timezone(tz))
-    fig, ax = plt.subplots(figsize=(1.2, 1.2))
+    fig, ax = plt.subplots(figsize=(1.6, 1.6))
     ax.axis("off")
     circle = plt.Circle((0, 0), 1, fill=False, linewidth=2, color="black")
     ax.add_artist(circle)
@@ -283,8 +310,8 @@ def generate_clock_image(tz: str) -> str:
     ax.set_ylim(-1, 1)
     ax.set_aspect("equal")
     buf = BytesIO()
-    plt.tight_layout(pad=0)
-    fig.savefig(buf, format="png", transparent=True)
+    plt.tight_layout(pad=0.1)
+    fig.savefig(buf, format="png", transparent=True, bbox_inches='tight', pad_inches=0.05)
     plt.close(fig)
     return base64.b64encode(buf.getvalue()).decode("utf-8")
 
@@ -308,7 +335,7 @@ def display_world_clocks():
             f"<div style='text-align:center;'>"
             f"<img src='data:image/png;base64,{img}' width='80'/><div style='font-size:12px'>{label}</div><div style='font-size:12px'>{digital}</div></div>"
         )
-    html += "</div><div style='font-size:12px;margin-top:4px;'>Sending emails in working hours impacts open rate/read rate.</div>"
+    html += "</div><div style='font-size:12px;margin-top:4px;color:red;'>Note: Sending emails in working hours impacts open rate/read rate.</div>"
     st.markdown(html, unsafe_allow_html=True)
 
 # Journal Data
@@ -1287,7 +1314,7 @@ def email_campaign_section():
         update_sender_name()
 
     # Journal Selection
-    col1, col2 = st.columns([3, 1])
+    col1 = st.columns(1)[0]
     with col1:
         selected_journal = st.selectbox(
             "Select Journal",
@@ -1305,15 +1332,7 @@ def email_campaign_section():
                 refresh_journal_data()
                 st.session_state.show_journal_details = True
             st.experimental_rerun()
-    with col2:
-        new_journal = st.text_input("Add New Journal", key="new_journal")
-        if new_journal and st.button("Add Journal"):
-            if add_journal_to_firebase(new_journal):
-                st.session_state.selected_journal = new_journal
-                update_sender_name()
-                if new_journal not in st.session_state.journal_reply_addresses:
-                    st.session_state.journal_reply_addresses[new_journal] = ""
-                st.rerun()
+
     
     
     # Campaign settings in the sidebar
@@ -1551,7 +1570,7 @@ def email_campaign_section():
             st.info(f"Total emails loaded: {len(df)}")
             refresh_journal_data()
 
-            if st.button("Save to Firebase"):
+            if st.button("Save to Cloud"):
                 if uploaded_file.name.endswith('.txt'):
                     if upload_to_firebase(file_content, uploaded_file.name):
                         st.success("File uploaded to Firebase successfully!")
@@ -1822,7 +1841,7 @@ def editor_invitation_section():
         update_editor_sender_name()
 
     # Journal Selection
-    col1, col2 = st.columns([3, 1])
+    col1 = st.columns(1)[0]
     with col1:
         selected_editor_journal = st.selectbox(
             "Select Journal",
@@ -1840,15 +1859,7 @@ def editor_invitation_section():
                 refresh_editor_journal_data()
                 st.session_state.editor_show_journal_details = True
             st.experimental_rerun()
-    with col2:
-        new_journal = st.text_input("Add New Journal", key="new_editor_journal")
-        if new_journal and st.button("Add Journal"):
-            if add_editor_journal_to_firebase(new_journal):
-                st.session_state.selected_editor_journal = new_journal
-                update_editor_sender_name()
-                if new_journal not in st.session_state.journal_reply_addresses:
-                    st.session_state.journal_reply_addresses[new_journal] = ""
-                st.rerun()
+
 
     # Campaign settings in the sidebar
     with st.sidebar.expander("Campaign Settings", expanded=False):
@@ -2079,7 +2090,7 @@ def editor_invitation_section():
             st.info(f"Total emails loaded: {len(df)}")
             refresh_editor_journal_data()
 
-            if st.button("Save to Firebase", key="save_recipient_editor"):
+            if st.button("Save to Cloud", key="save_recipient_editor"):
                 if uploaded_file.name.endswith('.txt'):
                     if upload_to_firebase(file_content, uploaded_file.name):
                         st.success("File uploaded to Firebase successfully!")
@@ -2954,7 +2965,7 @@ def main():
     check_auth()
     
     # Main app for authenticated users
-    st.title("PPH Email Manager Dashboard")
+    st.markdown("<h1 class='app-title'>PPH Email Manager</h1>", unsafe_allow_html=True)
     
     # Navigation with additional links
     with st.sidebar:
