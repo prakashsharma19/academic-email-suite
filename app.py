@@ -2342,7 +2342,7 @@ def email_verification_section():
                      help="Risky emails may exist or not. Use with caution.")
         
         # Bar chart instead of pie chart
-        plt.style.use("seaborn-whitegrid")
+        plt.style.use("seaborn-v0_8-whitegrid")
         fig, ax = plt.subplots(figsize=(6, 3))
         categories = ['Good', 'Bad', 'Risky']
         counts = [stats['good'], stats['bad'], stats['risky']]
