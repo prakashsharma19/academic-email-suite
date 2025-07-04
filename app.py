@@ -35,11 +35,11 @@ def set_light_theme():
     light_theme = """
     <style>
     :root {
-        --primary-color: #4a8af4;
+        --primary-color: #0d6efd;
         --background-color: #ffffff;
-        --secondary-background-color: #f0f2f6;
-        --text-color: #31333f;
-        --font: sans-serif;
+        --secondary-background-color: #f8f9fa;
+        --text-color: #212529;
+        --font: 'Roboto', sans-serif;
     }
     .stApp {
         background-color: var(--background-color);
@@ -55,15 +55,15 @@ def set_light_theme():
         left: 0;
         bottom: 0;
         width: 100%;
-        background-color: #f0f2f6;
-        color: #31333f;
+        background-color: var(--secondary-background-color);
+        color: var(--text-color);
         text-align: center;
         padding: 10px;
         font-size: 0.8em;
         border-top: 1px solid #ddd;
     }
     .footer a {
-        color: #4a8af4;
+        color: var(--primary-color);
         text-decoration: none;
         font-weight: bold;
     }
@@ -2342,21 +2342,19 @@ def email_verification_section():
                      help="Risky emails may exist or not. Use with caution.")
         
         # Bar chart instead of pie chart
-        fig, ax = plt.subplots(figsize=(8, 4))
+        plt.style.use("seaborn-whitegrid")
+        fig, ax = plt.subplots(figsize=(6, 3))
         categories = ['Good', 'Bad', 'Risky']
         counts = [stats['good'], stats['bad'], stats['risky']]
         colors = ['#4CAF50', '#F44336', '#9C27B0']
         
-        bars = ax.bar(categories, counts, color=colors)
+        bars = ax.bar(categories, counts, color=colors, edgecolor='black')
         ax.set_title('Email Verification Results')
         ax.set_ylabel('Count')
-        
+
         # Add value labels on top of bars
-        for bar in bars:
-            height = bar.get_height()
-            ax.text(bar.get_x() + bar.get_width()/2., height,
-                    f'{int(height)}',
-                    ha='center', va='bottom')
+        ax.bar_label(bars, padding=3)
+        plt.tight_layout()
         
         st.pyplot(fig)
         
@@ -2898,7 +2896,7 @@ def main():
     check_auth()
     
     # Main app for authenticated users
-    st.title(f"PPH Email Manager - Welcome admin")
+    st.title("PPH Email Manager Dashboard")
     
     # Navigation with additional links
     with st.sidebar:
