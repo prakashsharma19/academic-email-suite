@@ -10,7 +10,9 @@ import pytz
 import re
 import hashlib
 from datetime import datetime, timedelta
-from io import StringIO
+from io import StringIO, BytesIO
+import base64
+import math
 from google.cloud import storage
 from google.oauth2 import service_account
 from streamlit_ace import st_ace
@@ -68,34 +70,22 @@ def set_light_theme():
         font-weight: bold;
     }
     /* Button Colors */
-    .stDownloadButton button {
-        border-color: #4CAF50 !important;
-        color: white !important;
-        background-color: #4CAF50 !important;
-    }
-    .stDownloadButton button:hover {
-        background-color: #45a049 !important;
-    }
-    .bad-email-btn button {
-        background-color: #f44336 !important;
-        border-color: #f44336 !important;
-    }
-    .bad-email-btn button:hover {
-        background-color: #d32f2f !important;
-    }
-    .good-email-btn button {
-        background-color: #4CAF50 !important;
-        border-color: #4CAF50 !important;
-    }
-    .good-email-btn button:hover {
-        background-color: #388E3C !important;
-    }
+    .stButton button,
+    .stDownloadButton button,
+    .bad-email-btn button,
+    .good-email-btn button,
     .risky-email-btn button {
-        background-color: #9C27B0 !important;
-        border-color: #9C27B0 !important;
+        background-color: #007bff !important;
+        border-color: #007bff !important;
+        color: white !important;
     }
+    .stButton button:hover,
+    .stDownloadButton button:hover,
+    .bad-email-btn button:hover,
+    .good-email-btn button:hover,
     .risky-email-btn button:hover {
-        background-color: #7B1FA2 !important;
+        background-color: #0069d9 !important;
+        border-color: #0069d9 !important;
     }
     /* Send Ads button */
     .send-ads-btn button {
@@ -260,6 +250,54 @@ def sanitize_author_name(name: str) -> str:
         sanitized = re.sub(r"(?i)^professor\s+", "", name).strip()
         return sanitized
     return ""
+
+
+def generate_clock_image(tz: str) -> str:
+    """Return base64 encoded analog clock image for the given timezone."""
+    now = datetime.now(pytz.timezone(tz))
+    fig, ax = plt.subplots(figsize=(1.2, 1.2))
+    ax.axis("off")
+    circle = plt.Circle((0, 0), 1, fill=False, linewidth=2, color="black")
+    ax.add_artist(circle)
+    for i in range(12):
+        angle = math.radians(i * 30)
+        x_out, y_out = math.sin(angle), math.cos(angle)
+        ax.plot([0.9 * x_out, x_out], [0.9 * y_out, y_out], color="black", lw=1)
+    hour = (now.hour % 12) + now.minute / 60.0
+    minute = now.minute + now.second / 60.0
+    h_angle = math.radians(hour * 30)
+    m_angle = math.radians(minute * 6)
+    ax.plot([0, 0.5 * math.sin(h_angle)], [0, 0.5 * math.cos(h_angle)], color="black", lw=2)
+    ax.plot([0, 0.8 * math.sin(m_angle)], [0, 0.8 * math.cos(m_angle)], color="black", lw=1)
+    ax.set_xlim(-1, 1)
+    ax.set_ylim(-1, 1)
+    ax.set_aspect("equal")
+    buf = BytesIO()
+    plt.tight_layout(pad=0)
+    fig.savefig(buf, format="png", transparent=True)
+    plt.close(fig)
+    return base64.b64encode(buf.getvalue()).decode("utf-8")
+
+
+def display_world_clocks():
+    """Show analog clocks for common time zones."""
+    zones = [
+        ("New York", "America/New_York"),
+        ("London", "Europe/London"),
+        ("Berlin", "Europe/Berlin"),
+        ("New Delhi", "Asia/Kolkata"),
+        ("Beijing", "Asia/Shanghai"),
+        ("Sydney", "Australia/Sydney"),
+    ]
+    html = "<div style='display:flex;gap:10px;flex-wrap:wrap;'>"
+    for label, tz in zones:
+        img = generate_clock_image(tz)
+        html += (
+            f"<div style='text-align:center;'>"
+            f"<img src='data:image/png;base64,{img}' width='80'/><div style='font-size:12px'>{label}</div></div>"
+        )
+    html += "</div><div style='font-size:12px;margin-top:4px;'>Sending emails in working hours impacts open rate/read rate.</div>"
+    st.markdown(html, unsafe_allow_html=True)
 
 # Journal Data
 JOURNALS = [
@@ -1461,7 +1499,11 @@ def email_campaign_section():
 
     # File Upload
     st.subheader("Recipient List")
-    file_source = st.radio("Select file source", ["Local Upload", "Cloud Storage"])
+    col_src, col_clock = st.columns([1, 2])
+    with col_src:
+        file_source = st.radio("Select file source", ["Local Upload", "Cloud Storage"])
+    with col_clock:
+        display_world_clocks()
 
     if file_source == "Local Upload":
         uploaded_file = st.file_uploader("Upload recipient list (CSV or TXT)", type=["csv", "txt"])
@@ -1987,7 +2029,11 @@ def editor_invitation_section():
             st.markdown(preview_html, unsafe_allow_html=True)
 
     st.subheader("Recipient List")
-    file_source = st.radio("Select file source", ["Local Upload", "Cloud Storage"], key="recipient_source_editor")
+    col_src, col_clock = st.columns([1, 2])
+    with col_src:
+        file_source = st.radio("Select file source", ["Local Upload", "Cloud Storage"], key="recipient_source_editor")
+    with col_clock:
+        display_world_clocks()
 
     if file_source == "Local Upload":
         uploaded_file = st.file_uploader("Upload recipient list (CSV or TXT)", type=["csv", "txt"], key="recipient_upload_editor")
@@ -2275,7 +2321,11 @@ def email_verification_section():
     
     # File Upload for Verification
     st.subheader("Email List Verification")
-    file_source = st.radio("Select file source for verification", ["Local Upload", "Cloud Storage"])
+    col_src, col_clock = st.columns([1, 2])
+    with col_src:
+        file_source = st.radio("Select file source for verification", ["Local Upload", "Cloud Storage"])
+    with col_clock:
+        display_world_clocks()
     
     if file_source == "Local Upload":
         uploaded_file = st.file_uploader("Upload email list for verification (TXT format)", type=["txt"])
