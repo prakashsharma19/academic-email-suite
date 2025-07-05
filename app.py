@@ -242,7 +242,7 @@ def update_sender_name():
     """Update sender name with the currently selected journal."""
     journal = st.session_state.get("selected_journal")
     if journal:
-        st.session_state.sender_name = f"{journal} – {config['sender_name']}"
+        st.session_state.sender_name = f"{journal} - {config['sender_name']}"
     st.session_state.show_journal_details = False
 
 
@@ -250,7 +250,7 @@ def update_editor_sender_name():
     """Update sender name for editor invitation based on selected journal."""
     journal = st.session_state.get("selected_editor_journal")
     if journal:
-        st.session_state.sender_name = f"{journal} – {config['sender_name']}"
+        st.session_state.sender_name = f"{journal} - {config['sender_name']}"
     st.session_state.editor_show_journal_details = False
 
 
@@ -311,7 +311,7 @@ def display_world_clocks():
     """Show analog and digital clocks for common time zones using HTML/CSS."""
     zones = [
         ("USA", "America/New_York"),
-        ("USA", "America/Los_Angeles"),
+        ("Indonesia", "Asia/Jakarta"),
         ("United Kingdom", "Europe/London"),
         ("Germany", "Europe/Berlin"),
         ("UAE", "Asia/Dubai"),
@@ -336,8 +336,8 @@ def display_world_clocks():
         now = datetime.now(pytz.timezone(tz))
         digital = now.strftime("%I:%M %p")
         color = "green" if 7 <= now.hour < 20 else "black"
-        hour_angle = (now.hour % 12 + now.minute / 60) * 30
-        minute_angle = now.minute * 6
+        hour_angle = (now.hour % 12 + now.minute / 60) * 30 - 90
+        minute_angle = now.minute * 6 - 90
         html += (
             "<div style='text-align:center;'>"
             "<div class='aes-clock'>"
