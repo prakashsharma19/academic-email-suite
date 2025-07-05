@@ -74,6 +74,7 @@ def set_light_theme():
     .stButton button,
     .stDownloadButton button,
     .bad-email-btn button,
+    .good-email-btn button,
     .risky-email-btn button {
         background-color: #007bff !important;
         border-color: #007bff !important;
@@ -83,6 +84,7 @@ def set_light_theme():
     .stButton button:hover,
     .stDownloadButton button:hover,
     .bad-email-btn button:hover,
+    .good-email-btn button:hover,
     .risky-email-btn button:hover {
         background-color: #0069d9 !important;
         border-color: #0069d9 !important;
@@ -100,31 +102,9 @@ def set_light_theme():
     .stButton button:active,
     .stDownloadButton button:active,
     .bad-email-btn button:active,
+    .good-email-btn button:active,
     .risky-email-btn button:active {
         transform: scale(0.97);
-    }
-
-    /* Good emails download button */
-    #good_emails_btn button {
-        background-color: #4CAF50 !important;
-        border-color: #4CAF50 !important;
-    }
-    #good_emails_btn button:hover {
-        background-color: #45a049 !important;
-        border-color: #45a049 !important;
-    }
-
-    /* Verification quota metric */
-    .verification-quota {
-        position: fixed;
-        top: 10px;
-        right: 10px;
-        color: blue;
-        font-weight: bold;
-        background-color: #f0f8ff;
-        padding: 5px 10px;
-        border-radius: 5px;
-        z-index: 1000;
     }
     /* Sidebar appearance */
     section[data-testid="stSidebar"] {
@@ -216,10 +196,6 @@ def init_session_state():
         st.session_state.verification_start_time = None
     if 'verification_progress' not in st.session_state:
         st.session_state.verification_progress = 0
-    if 'verification_history' not in st.session_state:
-        st.session_state.verification_history = []
-    if 'verification_last_time' not in st.session_state:
-        st.session_state.verification_last_time = None
     if 'active_campaign' not in st.session_state:
         st.session_state.active_campaign = None
     if 'campaign_paused' not in st.session_state:
@@ -737,16 +713,7 @@ def process_email_list(file_content, api_key):
             'bad_percent': round((bad / total) * 100, 1) if total > 0 else 0,
             'risky_percent': round((risky / total) * 100, 1) if total > 0 else 0
         }
-
-        st.session_state.verification_last_time = datetime.now()
-        st.session_state.verification_history.append({
-            'timestamp': st.session_state.verification_last_time,
-            'valid': good,
-            'invalid': bad,
-            'disposable': risky,
-            'total': total
-        })
-
+        
         return df
     except Exception as e:
         st.error(f"Failed to process email list: {str(e)}")
@@ -2384,10 +2351,7 @@ def email_verification_section():
     if config['millionverifier']['api_key']:
         with st.spinner("Checking verification quota..."):
             remaining_quota = check_millionverifier_quota(config['millionverifier']['api_key'])
-            st.markdown(
-                f"<div class='verification-quota'>Remaining Verification Credits: {remaining_quota}</div>",
-                unsafe_allow_html=True,
-            )
+            st.metric("Remaining Verification Credits", remaining_quota)
     else:
         st.warning("MillionVerifier API key not configured")
     
@@ -2459,15 +2423,21 @@ def email_verification_section():
             st.metric("Risky Emails", f"{stats['risky']} ({stats['risky_percent']}%)", 
                      help="Risky emails may exist or not. Use with caution.")
         
-        # Pie chart of results
-        fig, ax = plt.subplots(figsize=(3, 3))
+        # Bar chart instead of pie chart
+        plt.style.use("seaborn-v0_8-whitegrid")
+        fig, ax = plt.subplots(figsize=(6, 3))
         categories = ['Good', 'Bad', 'Risky']
         counts = [stats['good'], stats['bad'], stats['risky']]
         colors = ['#4CAF50', '#F44336', '#9C27B0']
+        
+        bars = ax.bar(categories, counts, color=colors, edgecolor='black')
+        ax.set_title('Email Verification Results')
+        ax.set_ylabel('Count')
 
-        ax.pie(counts, labels=categories, colors=colors, autopct='%1.1f%%', startangle=90)
-        ax.axis('equal')
-
+        # Add value labels on top of bars
+        ax.bar_label(bars, padding=3)
+        plt.tight_layout()
+        
         st.pyplot(fig)
         
         # Download reports - side by side buttons
