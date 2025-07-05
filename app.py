@@ -196,6 +196,10 @@ def init_session_state():
         st.session_state.verification_start_time = None
     if 'verification_progress' not in st.session_state:
         st.session_state.verification_progress = 0
+    if 'verification_history' not in st.session_state:
+        st.session_state.verification_history = []
+    if 'verification_last_time' not in st.session_state:
+        st.session_state.verification_last_time = None
     if 'active_campaign' not in st.session_state:
         st.session_state.active_campaign = None
     if 'campaign_paused' not in st.session_state:
@@ -713,7 +717,16 @@ def process_email_list(file_content, api_key):
             'bad_percent': round((bad / total) * 100, 1) if total > 0 else 0,
             'risky_percent': round((risky / total) * 100, 1) if total > 0 else 0
         }
-        
+
+        st.session_state.verification_last_time = datetime.now()
+        st.session_state.verification_history.append({
+            'timestamp': st.session_state.verification_last_time,
+            'valid': good,
+            'invalid': bad,
+            'disposable': risky,
+            'total': total
+        })
+
         return df
     except Exception as e:
         st.error(f"Failed to process email list: {str(e)}")
@@ -2354,6 +2367,36 @@ def email_verification_section():
             st.metric("Remaining Verification Credits", remaining_quota)
     else:
         st.warning("MillionVerifier API key not configured")
+
+    if st.session_state.verification_stats:
+        st.subheader("Summary of Last Emails Checked")
+        stats = st.session_state.verification_stats
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Emails Verified", stats.get('total', 0))
+        with col2:
+            st.metric("% Valid", f"{stats.get('good_percent', 0)}%")
+        with col3:
+            st.metric("% Invalid", f"{stats.get('bad_percent', 0)}%")
+        with col4:
+            last_time = st.session_state.verification_last_time
+            if last_time:
+                st.metric("Last Sync Time", last_time.strftime("%Y-%m-%d %H:%M:%S"))
+            else:
+                st.metric("Last Sync Time", "N/A")
+
+        # Charts
+        pie_labels = ['Valid', 'Invalid', 'Disposable']
+        pie_counts = [stats.get('good', 0), stats.get('bad', 0), stats.get('risky', 0)]
+        pie_fig, pie_ax = plt.subplots(figsize=(3, 3))
+        pie_ax.pie(pie_counts, labels=pie_labels, autopct='%1.1f%%', startangle=90)
+        pie_ax.axis('equal')
+        st.pyplot(pie_fig, use_container_width=False)
+
+        if st.session_state.verification_history:
+            hist_df = pd.DataFrame(st.session_state.verification_history)
+            hist_df.set_index('timestamp', inplace=True)
+            st.bar_chart(hist_df[['valid', 'invalid', 'disposable']])
     
     # File Upload for Verification
     st.subheader("Email List Verification")
