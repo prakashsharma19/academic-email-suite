@@ -308,31 +308,47 @@ def generate_clock_image(tz: str) -> str:
 
 
 def display_world_clocks():
-    """Show analog and digital clocks for common time zones."""
+    """Show analog and digital clocks for common time zones using HTML/CSS."""
     zones = [
-        ("New York", "America/New_York"),
-        ("Los Angeles", "America/Los_Angeles"),
-        ("London", "Europe/London"),
-        ("Berlin", "Europe/Berlin"),
-        ("Dubai", "Asia/Dubai"),
-        ("Shanghai", "Asia/Shanghai"),
-        ("Tokyo", "Asia/Tokyo"),
-        ("Sydney", "Australia/Sydney"),
-        ("Sao Paulo", "America/Sao_Paulo"),
-        ("Johannesburg", "Africa/Johannesburg"),
+        ("USA", "America/New_York"),
+        ("USA", "America/Los_Angeles"),
+        ("United Kingdom", "Europe/London"),
+        ("Germany", "Europe/Berlin"),
+        ("UAE", "Asia/Dubai"),
+        ("China", "Asia/Shanghai"),
+        ("Japan", "Asia/Tokyo"),
+        ("Australia", "Australia/Sydney"),
+        ("Brazil", "America/Sao_Paulo"),
+        ("South Africa", "Africa/Johannesburg"),
     ]
-    html = "<div style='display:flex;gap:10px;flex-wrap:wrap;'>"
+
+    style = """
+    <style>
+    .aes-clock-container {display:flex;gap:10px;flex-wrap:wrap;}
+    .aes-clock {position:relative;width:60px;height:60px;border:2px solid #000;border-radius:50%;margin:auto;}
+    .aes-hour {position:absolute;top:50%;left:50%;width:20px;height:3px;background:#000;transform-origin:0% 50%;}
+    .aes-minute {position:absolute;top:50%;left:50%;width:28px;height:2px;background:#000;transform-origin:0% 50%;}
+    </style>
+    """
+
+    html = f"{style}<div class='aes-clock-container'>"
     for label, tz in zones:
-        img = generate_clock_image(tz)
         now = datetime.now(pytz.timezone(tz))
         digital = now.strftime("%I:%M %p")
         color = "green" if 7 <= now.hour < 20 else "black"
+        hour_angle = (now.hour % 12 + now.minute / 60) * 30
+        minute_angle = now.minute * 6
         html += (
-            f"<div style='text-align:center;'>"
-            f"<img src='data:image/png;base64,{img}' width='60'/><div style='font-size:12px'>{label}</div>"
-            f"<div style='font-size:12px;color:{color}'>{digital}</div></div>"
+            "<div style='text-align:center;'>"
+            "<div class='aes-clock'>"
+            f"<div class='aes-hour' style='transform:rotate({hour_angle}deg)'></div>"
+            f"<div class='aes-minute' style='transform:rotate({minute_angle}deg)'></div>"
+            "</div>"
+            f"<div style='font-size:12px'>{label}</div>"
+            f"<div style='font-size:12px;color:{color}'>{digital}</div>"
+            "</div>"
         )
-    html += "</div><div style='font-size:12px;margin-top:4px;color:red;'>Note: Sending emails in working hours improves read rate.</div>"
+    html += "</div><div style='font-size:14px;margin-top:4px;color:red;'>Note: Sending emails in working hours improves read rate.</div>"
     st.markdown(html, unsafe_allow_html=True)
 
 # Journal Data
@@ -1383,7 +1399,7 @@ def email_campaign_section():
         subjects = st.session_state.journal_subjects.get(selected_journal, [])
         if subjects:
             for idx, subj in enumerate(subjects):
-                col1, col2, col3 = st.columns([5, 1, 1])
+                col1, col2, col3 = st.columns([8, 1, 1])
                 edited = col1.text_input(
                     f"Subject {idx+1}",
                     subj,
@@ -1908,7 +1924,7 @@ def editor_invitation_section():
         subjects = st.session_state.journal_subjects.get(selected_editor_journal, [])
         if subjects:
             for idx, subj in enumerate(subjects):
-                col1, col2, col3 = st.columns([5, 1, 1])
+                col1, col2, col3 = st.columns([8, 1, 1])
                 edited = col1.text_input(
                     f"Subject {idx+1}",
                     subj,
