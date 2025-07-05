@@ -1313,6 +1313,52 @@ def refresh_editor_journal_data():
 def email_campaign_section():
     st.header("Email Campaign Management")
 
+    # Display website visit metrics based on analytics data
+    if st.session_state.email_service == "SMTP2GO":
+        analytics_data = fetch_smtp2go_analytics()
+        if analytics_data:
+            stats_list = analytics_data.get("history")
+            if isinstance(stats_list, dict):
+                if "history" in stats_list:
+                    stats_list = stats_list["history"]
+                elif "stats" in stats_list:
+                    stats_list = stats_list["stats"]
+                elif "data" in stats_list:
+                    stats_list = stats_list["data"]
+                else:
+                    stats_list = [stats_list]
+
+            df = pd.DataFrame(stats_list)
+
+            rename_map = {
+                "opens": "opens_unique",
+                "open_unique": "opens_unique",
+                "unique_opens": "opens_unique",
+                "clicks": "clicks_unique",
+                "click_unique": "clicks_unique",
+                "unique_clicks": "clicks_unique",
+            }
+
+            for old, new in rename_map.items():
+                if old in df.columns and new not in df.columns:
+                    df.rename(columns={old: new}, inplace=True)
+
+            total_clicks = df["clicks_unique"].sum() if "clicks_unique" in df else 0
+
+            today_clicks = 0
+            if "date" in df.columns:
+                df["date"] = pd.to_datetime(df["date"])
+                today_clicks = df.loc[df["date"].dt.date == datetime.utcnow().date(), "clicks_unique"].sum()
+            elif "timestamp" in df.columns:
+                df["timestamp"] = pd.to_datetime(df["timestamp"])
+                today_clicks = df.loc[df["timestamp"].dt.date == datetime.utcnow().date(), "clicks_unique"].sum()
+
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.metric("Total Website Visits", total_clicks)
+            with col_b:
+                st.metric("Today's Website Visit", today_clicks)
+
     if not st.session_state.block_settings_loaded:
         load_block_settings()
         st.session_state.block_settings_loaded = True
