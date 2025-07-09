@@ -372,6 +372,7 @@ JOURNALS = [
     "JP Journal of Fixed Point Theory and Applications",
     "JP Journal of Heat and Mass Transfer",
     "Universal Journal of Mathematics and Mathematical Sciences"
+    "Advances in Food & Dairy Sciences and Their Emerging Technologies (FDSET)"
 ]
 
 # Editor Invitation journal list
