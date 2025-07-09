@@ -561,8 +561,21 @@ def send_email_via_smtp2go(recipient, subject, body_html, body_text, unsubscribe
             data['reply_to'] = reply_to
         
         response = requests.post(api_url, json=data)
-        result = response.json()
-        
+
+        if response.status_code != 200:
+            st.error(
+                f"SMTP2GO HTTP {response.status_code}: {response.text.strip()}"
+            )
+            return False, None
+
+        try:
+            result = response.json()
+        except ValueError:
+            st.error(
+                f"SMTP2GO returned invalid JSON: {response.text.strip()}"
+            )
+            return False, None
+
         if result.get('data', {}).get('succeeded', 0) == 1:
             return True, result.get('data', {}).get('email_id', '')
         else:
