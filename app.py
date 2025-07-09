@@ -537,9 +537,10 @@ def send_email_via_smtp2go(recipient, subject, body_html, body_text, unsubscribe
         
         sender_email = config['smtp2go']['sender']
         sender_name = st.session_state.sender_name
+        formatted_sender = formataddr((sender_name, sender_email))
         data = {
             "api_key": config['smtp2go']['api_key'],
-            "sender": f"{sender_name} <{sender_email}>",
+            "sender": formatted_sender,
             "sender_name": sender_name,
             "to": [recipient],
             "subject": subject,
@@ -1137,7 +1138,7 @@ def highlight_spam_words(text):
     return words_found, highlighted
 
 # Check template spam score using Postmark Spamcheck API
-from email.utils import formatdate, make_msgid
+from email.utils import formataddr, formatdate, make_msgid
 
 def check_postmark_spam(template_html, subject="Test"):
     try:
