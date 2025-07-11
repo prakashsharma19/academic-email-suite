@@ -380,7 +380,8 @@ EDITOR_JOURNALS = [
     "Mechanical Engineering and Physics",
     "Biological Sciences and Biotechnology",
     "Food & Dairy Sciences and their Emerging Technologies",
-    "Oceanography, Marine Science and their Resources",
+    "Far East Journal of Mathematical Sciences (FJMS)",
+    "Oceanography, Marine Science and their Resources",  
 ]
 
 # Default email template
