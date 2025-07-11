@@ -381,6 +381,7 @@ EDITOR_JOURNALS = [
     "Biological Sciences and Biotechnology",
     "Food & Dairy Sciences and their Emerging Technologies",
     "Editors Invitation - Far East Journal of Mathematical Sciences (FJMS)",
+    "Editors Invitation - JP Journal of Heat and Mass Transfer",
     "Oceanography, Marine Science and their Resources",  
 ]
 
