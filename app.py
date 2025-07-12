@@ -373,6 +373,8 @@ JOURNALS = [
     "JP Journal of Heat and Mass Transfer",
     "Universal Journal of Mathematics and Mathematical Sciences",
     "Advances in Materials Science and their Emerging Technologies",
+    "Sci - Mechanical Engineering",
+    "Sci - Materials Science",
     "Advances in Food & Dairy Sciences and Their Emerging Technologies (FDSET)"
 ]
 
