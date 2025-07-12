@@ -382,8 +382,8 @@ JOURNALS = [
     "JP Journal of Fixed Point Theory and Applications",
     "JP Journal of Heat and Mass Transfer",
     "Universal Journal of Mathematics and Mathematical Sciences",
-    "Sci - Mechanical Engineering",
-    "Sci - Materials Science",
+    "Mechanical Engineering",
+    "Materials Science",
     "Advances in Food & Dairy Sciences and Their Emerging Technologies (FDSET)"
 ]
 
