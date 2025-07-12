@@ -210,6 +210,10 @@ def init_session_state():
         st.session_state.sender_email = config['smtp2go']['sender']
     if 'sender_name' not in st.session_state:
         st.session_state.sender_name = config['sender_name']
+    if 'sender_base_name' not in st.session_state:
+        st.session_state.sender_base_name = config['sender_name']
+    if 'sender_name_loaded' not in st.session_state:
+        st.session_state.sender_name_loaded = False
     if 'blocked_domains' not in st.session_state:
         st.session_state.blocked_domains = []
     if 'blocked_emails' not in st.session_state:
@@ -241,16 +245,22 @@ def init_session_state():
 def update_sender_name():
     """Update sender name with the currently selected journal."""
     journal = st.session_state.get("selected_journal")
+    base = st.session_state.get("sender_base_name", config['sender_name'])
     if journal:
-        st.session_state.sender_name = f"{journal} - {config['sender_name']}"
+        st.session_state.sender_name = f"{journal} - {base}"
+    else:
+        st.session_state.sender_name = base
     st.session_state.show_journal_details = False
 
 
 def update_editor_sender_name():
     """Update sender name for editor invitation based on selected journal."""
     journal = st.session_state.get("selected_editor_journal")
+    base = st.session_state.get("sender_base_name", config['sender_name'])
     if journal:
-        st.session_state.sender_name = f"{journal} - {config['sender_name']}"
+        st.session_state.sender_name = f"{journal} - {base}"
+    else:
+        st.session_state.sender_name = base
     st.session_state.editor_show_journal_details = False
 
 
@@ -1124,6 +1134,42 @@ def load_block_settings():
         st.error(f"Failed to load block settings: {str(e)}")
         return False
 
+# Sender name persistence functions
+def save_sender_name(sender_name):
+    """Persist the base sender name to Firestore."""
+    try:
+        db = get_firestore_db()
+        if not db:
+            return False
+
+        doc_ref = db.collection("settings").document("sender_name")
+        doc_ref.set({
+            "value": sender_name,
+            "last_updated": datetime.now(),
+            "updated_by": "admin",
+        })
+        return True
+    except Exception as e:
+        st.error(f"Failed to save sender name: {str(e)}")
+        return False
+
+
+def load_sender_name():
+    """Load the base sender name from Firestore if available."""
+    try:
+        db = get_firestore_db()
+        if not db:
+            return None
+
+        doc_ref = db.collection("settings").document("sender_name")
+        doc = doc_ref.get()
+        if doc.exists:
+            return doc.to_dict().get("value", None)
+        return None
+    except Exception as e:
+        st.error(f"Failed to load sender name: {str(e)}")
+        return None
+
 def is_email_blocked(email):
     email_lower = email.lower()
     domain = email_lower.split('@')[-1]
@@ -1338,6 +1384,13 @@ def email_campaign_section():
         load_block_settings()
         st.session_state.block_settings_loaded = True
 
+    if not st.session_state.sender_name_loaded:
+        stored_name = load_sender_name()
+        if stored_name:
+            st.session_state.sender_base_name = stored_name
+        update_sender_name()
+        st.session_state.sender_name_loaded = True
+
     if not st.session_state.journals_loaded:
         load_journals_from_firebase()
         st.session_state.journals_loaded = True
@@ -1394,9 +1447,13 @@ def email_campaign_section():
         )
         st.text_input(
             "Sender Name",
-            value=st.session_state.sender_name,
-            key="sender_name"
+            value=st.session_state.sender_base_name,
+            key="sender_base_name"
         )
+        if st.button("Save Sender Name", key="save_sender_name"):
+            if save_sender_name(st.session_state.sender_base_name):
+                update_sender_name()
+                st.success("Sender name saved!")
 
         blocked_domains_text = st.text_area(
             "Blocked Domains (one per line)",
@@ -1865,6 +1922,13 @@ def editor_invitation_section():
         load_block_settings()
         st.session_state.block_settings_loaded = True
 
+    if not st.session_state.sender_name_loaded:
+        stored_name = load_sender_name()
+        if stored_name:
+            st.session_state.sender_base_name = stored_name
+        update_editor_sender_name()
+        st.session_state.sender_name_loaded = True
+
     if not st.session_state.editor_journals_loaded:
         load_editor_journals_from_firebase()
         st.session_state.editor_journals_loaded = True
@@ -1920,9 +1984,13 @@ def editor_invitation_section():
         )
         st.text_input(
             "Sender Name",
-            value=st.session_state.sender_name,
-            key="sender_name"
+            value=st.session_state.sender_base_name,
+            key="sender_base_name"
         )
+        if st.button("Save Sender Name", key="save_sender_name_editor"):
+            if save_sender_name(st.session_state.sender_base_name):
+                update_editor_sender_name()
+                st.success("Sender name saved!")
 
         blocked_domains_text = st.text_area(
             "Blocked Domains (one per line)",
