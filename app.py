@@ -379,7 +379,7 @@ JOURNALS = [
 EDITOR_JOURNALS = [
     "Mechanical Engineering and Physics",
     "Biological Sciences and Biotechnology",
-    "Materials Science and their Emerging Technologies"
+    "Materials Science and their Emerging Technologies",
     "Food & Dairy Sciences and their Emerging Technologies",
     "Editors Invitation - Far East Journal of Mathematical Sciences (FJMS)",
     "Editors Invitation - JP Journal of Heat and Mass Transfer",
