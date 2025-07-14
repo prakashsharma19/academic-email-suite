@@ -395,7 +395,9 @@ EDITOR_JOURNALS = [
     "Food & Dairy Sciences and their Emerging Technologies",
     "Editors Invitation - Far East Journal of Mathematical Sciences (FJMS)",
     "Editors Invitation - JP Journal of Heat and Mass Transfer",
-    "Oceanography, Marine Science and their Resources",  
+    "Editors Invitation - JP Journal of Geometry and Topology",
+    "Editors Invitation - Far East Journal of Theoretical Statistics",
+    "Oceanography, Marine Science and their Resources"  
 ]
 
 # Default email template
