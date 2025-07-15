@@ -397,6 +397,22 @@ EDITOR_JOURNALS = [
     "Editors Invitation - JP Journal of Heat and Mass Transfer",
     "Editors Invitation - JP Journal of Geometry and Topology",
     "Editors Invitation - Far East Journal of Theoretical Statistics",
+    "Editors Invitation - Advances and Applications in Statistics",
+    "Editors Invitation - Advances and Applications in Discrete Mathematics",
+    "Editors Invitation - Advances and Applications in Fluid Mechanics",
+    "Editors Invitation - Advances in Fuzzy Sets and Systems",
+    "Editors Invitation - Far East Journal of Electronics and Communications",
+    "Editors Invitation - Far East Journal of Mathematical Education",
+    "Editors Invitation - International Journal of Nutrition and Dietetics",
+    "Editors Invitation - International Journal of Numerical Methods and Applications",
+    "Editors Invitation - International Journal of Materials Engineering and Technology",
+    "Editors Invitation - Far East Journal of Applied Mathematics",
+    "Editors Invitation - Far East Journal of Dynamical Systems",
+    "Editors Invitation - JP Journal of Algebra, Number Theory and Applications",
+    "Editors Invitation - JP Journal of Geometry and Topology",
+    "Editors Invitation - JP Journal of Biostatistics",
+    "Editors Invitation - JP Journal of Fixed Point Theory and Applications",
+    "Editors Invitation - Universal Journal of Mathematics and Mathematical Sciences"
     "Oceanography, Marine Science and their Resources"  
 ]
 
