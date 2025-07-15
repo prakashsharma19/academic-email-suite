@@ -412,7 +412,7 @@ EDITOR_JOURNALS = [
     "Editors Invitation - JP Journal of Geometry and Topology",
     "Editors Invitation - JP Journal of Biostatistics",
     "Editors Invitation - JP Journal of Fixed Point Theory and Applications",
-    "Editors Invitation - Universal Journal of Mathematics and Mathematical Sciences"
+    "Editors Invitation - Universal Journal of Mathematics and Mathematical Sciences",
     "Oceanography, Marine Science and their Resources"  
 ]
 
