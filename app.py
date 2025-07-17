@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import boto3
 import pandas as pd
 import datetime
@@ -1634,7 +1635,7 @@ def email_campaign_section():
             )
 
 
-            st.markdown(preview_html, unsafe_allow_html=True)
+            components.html(preview_html, height=400, scrolling=True)
 
     # File Upload
     st.subheader("Recipient List")
@@ -2168,7 +2169,7 @@ def editor_invitation_section():
                 "https://pphmjopenaccess.com/unsubscribe?email=john.doe@harvard.edu"
             )
 
-            st.markdown(preview_html, unsafe_allow_html=True)
+            components.html(preview_html, height=400, scrolling=True)
 
     st.subheader("Recipient List")
     col_src, col_clock = st.columns([1, 2])
