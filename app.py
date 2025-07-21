@@ -689,7 +689,7 @@ def check_millionverifier_quota(api_key):
         st.error(f"Failed to check quota: {str(e)}")
         return 0
 
-def process_email_list(file_content, api_key):
+def process_email_list(file_content, api_key, log_id=None):
     try:
         # Parse the text file with the specific format
         entries = []
@@ -735,6 +735,8 @@ def process_email_list(file_content, api_key):
             progress = (i + 1) / total_emails
             st.session_state.verification_progress = progress
             progress_bar.progress(progress)
+            if log_id:
+                update_operation_log(log_id, progress=progress)
             
             # Calculate estimated time remaining
             elapsed_time = time.time() - st.session_state.verification_start_time
@@ -762,10 +764,13 @@ def process_email_list(file_content, api_key):
             'bad_percent': round((bad / total) * 100, 1) if total > 0 else 0,
             'risky_percent': round((risky / total) * 100, 1) if total > 0 else 0
         }
-        
+        if log_id:
+            update_operation_log(log_id, status="completed", progress=1.0)
         return df
     except Exception as e:
         st.error(f"Failed to process email list: {str(e)}")
+        if log_id:
+            update_operation_log(log_id, status="failed")
         return pd.DataFrame()
 
 def generate_report_file(df, report_type):
@@ -1298,6 +1303,21 @@ def get_active_campaigns():
         st.error(f"Failed to get active campaigns: {str(e)}")
         return []
 
+def get_campaign_state(campaign_id):
+    """Retrieve a single campaign document by ID."""
+    try:
+        db = get_firestore_db()
+        if not db:
+            return None
+
+        doc = db.collection("active_campaigns").document(str(campaign_id)).get()
+        if doc.exists:
+            return doc.to_dict()
+        return None
+    except Exception as e:
+        st.error(f"Failed to get campaign: {str(e)}")
+        return None
+
 def delete_campaign(campaign_id):
     try:
         db = get_firestore_db()
@@ -1327,6 +1347,93 @@ def update_campaign_progress(campaign_id, current_index, emails_sent):
     except Exception as e:
         st.error(f"Failed to update campaign progress: {str(e)}")
         return False
+
+# ----- Operation Logging Functions -----
+def start_operation_log(operation_type, meta=None):
+    """Create a log entry in Firestore and return the log ID."""
+    try:
+        db = get_firestore_db()
+        if not db:
+            return None
+
+        log_ref = db.collection("operation_logs").document()
+        log_data = {
+            "user": st.session_state.get("username", "admin"),
+            "operation_type": operation_type,
+            "status": "in_progress",
+            "timestamp": datetime.now(),
+            "last_updated": datetime.now(),
+            "meta": meta or {},
+            "progress": 0,
+        }
+        log_ref.set(log_data)
+        return log_ref.id
+    except Exception as e:
+        st.error(f"Failed to log operation: {str(e)}")
+        return None
+
+
+def update_operation_log(log_id, status=None, progress=None, meta=None):
+    """Update status/progress for a given log entry."""
+    try:
+        if not log_id:
+            return
+        db = get_firestore_db()
+        if not db:
+            return
+
+        update_data = {"last_updated": datetime.now()}
+        if status:
+            update_data["status"] = status
+        if progress is not None:
+            update_data["progress"] = progress
+        if meta is not None:
+            update_data["meta"] = meta
+
+        db.collection("operation_logs").document(log_id).update(update_data)
+    except Exception as e:
+        st.error(f"Failed to update log: {str(e)}")
+
+
+def get_incomplete_logs():
+    """Return any logs for current user that are not completed."""
+    try:
+        db = get_firestore_db()
+        if not db:
+            return []
+
+        logs_ref = db.collection("operation_logs")\
+            .where("user", "==", st.session_state.get("username", "admin"))\
+            .where("status", "in", ["in_progress", "failed"])
+
+        return [doc.to_dict() | {"id": doc.id} for doc in logs_ref.stream()]
+    except Exception as e:
+        st.error(f"Failed to fetch logs: {str(e)}")
+        return []
+
+
+def check_incomplete_operations():
+    """Show any incomplete operations in the sidebar."""
+    logs = get_incomplete_logs()
+    if not logs:
+        return
+
+    st.sidebar.markdown("### Pending Operations")
+    for log in logs:
+        op_type = log.get("operation_type")
+        progress = log.get("progress", 0)
+        status = log.get("status")
+        meta = log.get("meta", {})
+        if op_type == "campaign" and meta.get("campaign_id"):
+            cid = meta.get("campaign_id")
+            label = f"Resume Campaign {cid} ({int(progress*100)}%)"
+            if st.sidebar.button(label, key=f"resume_{cid}"):
+                campaign = get_campaign_state(cid)
+                if campaign:
+                    st.session_state.active_campaign = campaign
+                    st.experimental_rerun()
+        elif op_type == "verification":
+            st.sidebar.write(f"Email Verification {int(progress*100)}% - {status}")
 
 # Persist completed campaign details to Firestore
 def save_campaign_history(campaign_data):
@@ -1397,6 +1504,11 @@ def refresh_editor_journal_data():
 # Email Campaign Section
 def email_campaign_section():
     st.header("Email Campaign Management")
+
+    if st.session_state.active_campaign and not st.session_state.campaign_paused:
+        ac = st.session_state.active_campaign
+        if ac.get('current_index', 0) < ac.get('total_emails', 0):
+            st.info(f"Resuming campaign {ac.get('campaign_id')} - {ac.get('current_index')}/{ac.get('total_emails')}")
 
     if not st.session_state.block_settings_loaded:
         load_block_settings()
@@ -1790,6 +1902,10 @@ def email_campaign_section():
                 'last_updated': datetime.now()
             }
 
+            log_id = start_operation_log("campaign", {"campaign_id": campaign_id, "journal": selected_journal})
+            if log_id:
+                campaign_data['log_id'] = log_id
+
             if not save_campaign_state(campaign_data):
                 st.error("Failed to save campaign state")
                 return
@@ -1818,6 +1934,8 @@ def email_campaign_section():
                     progress_bar.progress(progress)
                     status_text.text(f"Skipping {i+1} of {total_emails}: {recipient_email} (blocked)")
                     update_campaign_progress(campaign_id, i+1, success_count)
+                    if log_id:
+                        update_operation_log(log_id, progress=progress)
                     continue
 
                 # Build author address from all fields except email
@@ -1887,9 +2005,9 @@ def email_campaign_section():
                 progress = (i + 1) / total_emails
                 progress_bar.progress(progress)
                 status_text.text(f"Processing {i+1} of {total_emails}: {row.get('email', '')}")
-
-                # Update progress in Firestore
                 update_campaign_progress(campaign_id, i+1, success_count)
+                if log_id:
+                    update_operation_log(log_id, progress=progress)
 
                 # Check for cancel button
                 if cancel_button:
@@ -1928,13 +2046,22 @@ def email_campaign_section():
                 progress_bar.progress(1.0)
                 status_text.text("Campaign completed")
                 st.success(f"Campaign completed! {success_count} of {total_emails} emails sent successfully.")
+                if log_id:
+                    update_operation_log(log_id, status="completed", progress=1.0)
 
             else:
                 st.warning(f"Campaign cancelled. {success_count} of {total_emails} emails were sent.")
+                if log_id:
+                    update_operation_log(log_id, status="failed", progress=(success_count/total_emails if total_emails else 0))
 
 
 def editor_invitation_section():
     st.header("Editor Invitation")
+
+    if st.session_state.active_campaign and not st.session_state.campaign_paused:
+        ac = st.session_state.active_campaign
+        if ac.get('current_index', 0) < ac.get('total_emails', 0):
+            st.info(f"Resuming campaign {ac.get('campaign_id')} - {ac.get('current_index')}/{ac.get('total_emails')}")
 
     if not st.session_state.block_settings_loaded:
         load_block_settings()
@@ -2317,6 +2444,10 @@ def editor_invitation_section():
                 'last_updated': datetime.now()
             }
 
+            log_id = start_operation_log("campaign", {"campaign_id": campaign_id, "journal": selected_editor_journal})
+            if log_id:
+                campaign_data['log_id'] = log_id
+
             if not save_campaign_state(campaign_data):
                 st.error("Failed to save campaign state")
                 return
@@ -2344,6 +2475,8 @@ def editor_invitation_section():
                     progress_bar.progress(progress)
                     status_text.text(f"Skipping {i+1} of {total_emails}: {recipient_email} (blocked)")
                     update_campaign_progress(campaign_id, i+1, success_count)
+                    if log_id:
+                        update_operation_log(log_id, progress=progress)
                     continue
 
                 author_address = ""
@@ -2411,8 +2544,9 @@ def editor_invitation_section():
                 progress = (i + 1) / total_emails
                 progress_bar.progress(progress)
                 status_text.text(f"Processing {i+1} of {total_emails}: {row.get('email', '')}")
-
                 update_campaign_progress(campaign_id, i+1, success_count)
+                if log_id:
+                    update_operation_log(log_id, progress=progress)
 
                 if cancel_button:
                     st.session_state.campaign_cancelled = True
@@ -2447,8 +2581,12 @@ def editor_invitation_section():
                 progress_bar.progress(1.0)
                 status_text.text("Campaign completed")
                 st.success(f"Campaign completed! {success_count} of {total_emails} emails sent successfully.")
+                if log_id:
+                    update_operation_log(log_id, status="completed", progress=1.0)
             else:
                 st.warning(f"Campaign cancelled. {success_count} of {total_emails} emails were sent.")
+                if log_id:
+                    update_operation_log(log_id, status="failed", progress=(success_count/total_emails if total_emails else 0))
 
 # Email Verification Section
 def email_verification_section():
@@ -2478,7 +2616,8 @@ def email_verification_section():
                     return
                 
                 with st.spinner("Verifying emails..."):
-                    result_df = process_email_list(file_content, config['millionverifier']['api_key'])
+                    log_id = start_operation_log("verification", {"source": "upload"})
+                    result_df = process_email_list(file_content, config['millionverifier']['api_key'], log_id)
                     if not result_df.empty:
                         st.session_state.verified_emails = result_df
                         st.dataframe(result_df)
@@ -2504,7 +2643,8 @@ def email_verification_section():
                     return
                 
                 with st.spinner("Verifying emails..."):
-                    result_df = process_email_list(st.session_state.current_verification_list, config['millionverifier']['api_key'])
+                    log_id = start_operation_log("verification", {"source": selected_file})
+                    result_df = process_email_list(st.session_state.current_verification_list, config['millionverifier']['api_key'], log_id)
                     if not result_df.empty:
                         st.session_state.verified_emails = result_df
                         st.dataframe(result_df)
@@ -3083,6 +3223,7 @@ def show_email_analytics():
 def main():
     # Check authentication
     check_auth()
+    check_incomplete_operations()
     
     # Main app for authenticated users
 
