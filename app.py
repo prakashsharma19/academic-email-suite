@@ -1424,6 +1424,7 @@ def check_incomplete_operations():
 
     st.sidebar.markdown("### Pending Operations")
     for log in logs:
+        log_id = log.get("id")
         op_type = log.get("operation_type")
         progress = log.get("progress", 0)
         status = log.get("status")
@@ -1436,8 +1437,14 @@ def check_incomplete_operations():
                 if campaign:
                     st.session_state.active_campaign = campaign
                     st.experimental_rerun()
+            if st.sidebar.button("Mark as Complete", key=f"complete_sb_{log_id}"):
+                update_operation_log(log_id, status="completed", progress=1.0)
+                st.experimental_rerun()
         elif op_type == "verification":
             st.sidebar.write(f"Email Verification {int(progress*100)}% - {status}")
+            if st.sidebar.button("Mark as Complete", key=f"complete_sb_{log_id}"):
+                update_operation_log(log_id, status="completed", progress=1.0)
+                st.experimental_rerun()
 
 def display_pending_operations(operation_type):
     """Display incomplete operations of a specific type on the main page."""
@@ -1447,6 +1454,7 @@ def display_pending_operations(operation_type):
 
     st.warning("Pending Operations")
     for log in logs:
+        log_id = log.get("id")
         meta = log.get("meta", {})
         progress = log.get("progress", 0)
         status = log.get("status")
@@ -1456,14 +1464,21 @@ def display_pending_operations(operation_type):
             file_name = meta.get("file_name", "")
             label = f"Resume Campaign {cid} ({int(progress*100)}%)"
             st.write(f"**{journal}** - {file_name} - {status}")
-            if st.button(label, key=f"resume_main_{cid}"):
+            cols = st.columns(2)
+            if cols[0].button(label, key=f"resume_main_{cid}"):
                 campaign = get_campaign_state(cid)
                 if campaign:
                     st.session_state.active_campaign = campaign
                     st.experimental_rerun()
+            if cols[1].button("Mark as Complete", key=f"complete_{log_id}"):
+                update_operation_log(log_id, status="completed", progress=1.0)
+                st.experimental_rerun()
         elif operation_type == "verification":
             file_name = meta.get("file_name", meta.get("source", ""))
             st.write(f"{file_name} - {status} ({int(progress*100)}%)")
+            if st.button("Mark as Complete", key=f"complete_{log_id}"):
+                update_operation_log(log_id, status="completed", progress=1.0)
+                st.experimental_rerun()
 
 # Persist completed campaign details to Firestore
 def save_campaign_history(campaign_data):
@@ -3291,6 +3306,7 @@ def main():
         st.markdown("### Quick Links")
         st.markdown("[📊 Email Reports](https://app-us.smtp2go.com/reports/activity/)", unsafe_allow_html=True)
         st.markdown("[📝 Entry Manager](https://pphentry.onrender.com)", unsafe_allow_html=True)
+        check_incomplete_operations()
     
     # Initialize services
     if not st.session_state.firebase_initialized:
