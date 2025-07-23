@@ -1440,6 +1440,10 @@ def check_incomplete_operations():
             if st.sidebar.button("Mark as Complete", key=f"complete_sb_{log_id}"):
                 update_operation_log(log_id, status="completed", progress=1.0)
                 st.experimental_rerun()
+            if st.sidebar.button("Delete", key=f"delete_sb_{cid}"):
+                delete_campaign(cid)
+                update_operation_log(log_id, status="completed", progress=1.0)
+                st.experimental_rerun()
         elif op_type == "verification":
             st.sidebar.write(f"Email Verification {int(progress*100)}% - {status}")
             if st.sidebar.button("Mark as Complete", key=f"complete_sb_{log_id}"):
@@ -1464,13 +1468,17 @@ def display_pending_operations(operation_type):
             file_name = meta.get("file_name", "")
             label = f"Resume Campaign {cid} ({int(progress*100)}%)"
             st.write(f"**{journal}** - {file_name} - {status}")
-            cols = st.columns(2)
+            cols = st.columns(3)
             if cols[0].button(label, key=f"resume_main_{cid}"):
                 campaign = get_campaign_state(cid)
                 if campaign:
                     st.session_state.active_campaign = campaign
                     st.experimental_rerun()
             if cols[1].button("Mark as Complete", key=f"complete_{log_id}"):
+                update_operation_log(log_id, status="completed", progress=1.0)
+                st.experimental_rerun()
+            if cols[2].button("Delete", key=f"delete_{cid}"):
+                delete_campaign(cid)
                 update_operation_log(log_id, status="completed", progress=1.0)
                 st.experimental_rerun()
         elif operation_type == "verification":
