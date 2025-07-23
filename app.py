@@ -197,6 +197,10 @@ def init_session_state():
         st.session_state.verification_start_time = None
     if 'verification_progress' not in st.session_state:
         st.session_state.verification_progress = 0
+    if 'current_recipient_file' not in st.session_state:
+        st.session_state.current_recipient_file = None
+    if 'current_verification_file' not in st.session_state:
+        st.session_state.current_verification_file = None
     if 'active_campaign' not in st.session_state:
         st.session_state.active_campaign = None
     if 'campaign_paused' not in st.session_state:
@@ -1435,6 +1439,32 @@ def check_incomplete_operations():
         elif op_type == "verification":
             st.sidebar.write(f"Email Verification {int(progress*100)}% - {status}")
 
+def display_pending_operations(operation_type):
+    """Display incomplete operations of a specific type on the main page."""
+    logs = [l for l in get_incomplete_logs() if l.get("operation_type") == operation_type]
+    if not logs:
+        return
+
+    st.warning("Pending Operations")
+    for log in logs:
+        meta = log.get("meta", {})
+        progress = log.get("progress", 0)
+        status = log.get("status")
+        if operation_type == "campaign" and meta.get("campaign_id"):
+            cid = meta.get("campaign_id")
+            journal = meta.get("journal", "")
+            file_name = meta.get("file_name", "")
+            label = f"Resume Campaign {cid} ({int(progress*100)}%)"
+            st.write(f"**{journal}** - {file_name} - {status}")
+            if st.button(label, key=f"resume_main_{cid}"):
+                campaign = get_campaign_state(cid)
+                if campaign:
+                    st.session_state.active_campaign = campaign
+                    st.experimental_rerun()
+        elif operation_type == "verification":
+            file_name = meta.get("file_name", meta.get("source", ""))
+            st.write(f"{file_name} - {status} ({int(progress*100)}%)")
+
 # Persist completed campaign details to Firestore
 def save_campaign_history(campaign_data):
     try:
@@ -1504,6 +1534,7 @@ def refresh_editor_journal_data():
 # Email Campaign Section
 def email_campaign_section():
     st.header("Email Campaign Management")
+    display_pending_operations("campaign")
 
     if st.session_state.active_campaign and not st.session_state.campaign_paused:
         ac = st.session_state.active_campaign
@@ -1760,6 +1791,7 @@ def email_campaign_section():
     if file_source == "Local Upload":
         uploaded_file = st.file_uploader("Upload recipient list (CSV or TXT)", type=["csv", "txt"])
         if uploaded_file:
+            st.session_state.current_recipient_file = uploaded_file.name
             if uploaded_file.name.endswith('.txt'):
                 # Process the text file with the specific format
                 file_content = read_uploaded_text(uploaded_file)
@@ -1809,6 +1841,7 @@ def email_campaign_section():
                 if st.button("Load File"):
                     file_content = download_from_firebase(selected_file)
                     if file_content:
+                        st.session_state.current_recipient_file = selected_file
                         if selected_file.endswith('.txt'):
                             # Process the text file with the specific format
                             entries = []
@@ -1888,6 +1921,7 @@ def email_campaign_section():
             campaign_data = {
                 'campaign_id': campaign_id,
                 'journal_name': selected_journal,
+                'file_name': st.session_state.get('current_recipient_file'),
                 'email_subjects': selected_subjects,
                 'email_body': email_body,
                 'email_service': st.session_state.email_service,
@@ -1902,7 +1936,14 @@ def email_campaign_section():
                 'last_updated': datetime.now()
             }
 
-            log_id = start_operation_log("campaign", {"campaign_id": campaign_id, "journal": selected_journal})
+            log_id = start_operation_log(
+                "campaign",
+                {
+                    "campaign_id": campaign_id,
+                    "journal": selected_journal,
+                    "file_name": st.session_state.get("current_recipient_file"),
+                },
+            )
             if log_id:
                 campaign_data['log_id'] = log_id
 
@@ -2057,6 +2098,7 @@ def email_campaign_section():
 
 def editor_invitation_section():
     st.header("Editor Invitation")
+    display_pending_operations("campaign")
 
     if st.session_state.active_campaign and not st.session_state.campaign_paused:
         ac = st.session_state.active_campaign
@@ -2308,6 +2350,7 @@ def editor_invitation_section():
     if file_source == "Local Upload":
         uploaded_file = st.file_uploader("Upload recipient list (CSV or TXT)", type=["csv", "txt"], key="recipient_upload_editor")
         if uploaded_file:
+            st.session_state.current_recipient_file = uploaded_file.name
             if uploaded_file.name.endswith('.txt'):
                 file_content = read_uploaded_text(uploaded_file)
                 entries = []
@@ -2355,6 +2398,7 @@ def editor_invitation_section():
             if st.button("Load File", key="load_file_editor"):
                 file_content = download_from_firebase(selected_file)
                 if file_content:
+                    st.session_state.current_recipient_file = selected_file
                     if selected_file.endswith('.txt'):
                         entries = []
                         current_entry = {}
@@ -2430,6 +2474,7 @@ def editor_invitation_section():
             campaign_data = {
                 'campaign_id': campaign_id,
                 'journal_name': selected_editor_journal,
+                'file_name': st.session_state.get('current_recipient_file'),
                 'email_subjects': selected_subjects,
                 'email_body': email_body,
                 'email_service': st.session_state.email_service,
@@ -2444,7 +2489,14 @@ def editor_invitation_section():
                 'last_updated': datetime.now()
             }
 
-            log_id = start_operation_log("campaign", {"campaign_id": campaign_id, "journal": selected_editor_journal})
+            log_id = start_operation_log(
+                "campaign",
+                {
+                    "campaign_id": campaign_id,
+                    "journal": selected_editor_journal,
+                    "file_name": st.session_state.get("current_recipient_file"),
+                },
+            )
             if log_id:
                 campaign_data['log_id'] = log_id
 
@@ -2591,6 +2643,7 @@ def editor_invitation_section():
 # Email Verification Section
 def email_verification_section():
     st.header("Email Verification")
+    display_pending_operations("verification")
     
     # Check verification quota using correct endpoint
     if config['millionverifier']['api_key']:
@@ -2607,6 +2660,7 @@ def email_verification_section():
     if file_source == "Local Upload":
         uploaded_file = st.file_uploader("Upload email list for verification (TXT format)", type=["txt"])
         if uploaded_file:
+            st.session_state.current_verification_file = uploaded_file.name
             file_content = read_uploaded_text(uploaded_file)
             st.text_area("File Content Preview", file_content, height=150)
             
@@ -2616,7 +2670,8 @@ def email_verification_section():
                     return
                 
                 with st.spinner("Verifying emails..."):
-                    log_id = start_operation_log("verification", {"source": "upload"})
+                    log_id = start_operation_log(
+                        "verification", {"file_name": uploaded_file.name})
                     result_df = process_email_list(file_content, config['millionverifier']['api_key'], log_id)
                     if not result_df.empty:
                         st.session_state.verified_emails = result_df
@@ -2634,6 +2689,7 @@ def email_verification_section():
             if st.button("Load File for Verification"):
                 file_content = download_from_firebase(selected_file)
                 if file_content:
+                    st.session_state.current_verification_file = selected_file
                     st.text_area("File Content Preview", file_content, height=150)
                     st.session_state.current_verification_list = file_content
             
@@ -2643,7 +2699,8 @@ def email_verification_section():
                     return
                 
                 with st.spinner("Verifying emails..."):
-                    log_id = start_operation_log("verification", {"source": selected_file})
+                    log_id = start_operation_log(
+                        "verification", {"file_name": selected_file})
                     result_df = process_email_list(st.session_state.current_verification_list, config['millionverifier']['api_key'], log_id)
                     if not result_df.empty:
                         st.session_state.verified_emails = result_df
@@ -3223,7 +3280,6 @@ def show_email_analytics():
 def main():
     # Check authentication
     check_auth()
-    check_incomplete_operations()
     
     # Main app for authenticated users
 
