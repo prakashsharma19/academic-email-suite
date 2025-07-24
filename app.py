@@ -1520,6 +1520,7 @@ def execute_campaign(campaign_data):
         st.success(f"Campaign completed! {success_count} of {total_emails} emails sent successfully.")
         if log_id:
             update_operation_log(log_id, status="completed", progress=1.0)
+        delete_campaign(campaign_id)
     else:
         st.warning(f"Campaign cancelled. {success_count} of {total_emails} emails were sent.")
         if log_id:
@@ -1612,6 +1613,7 @@ def check_incomplete_operations():
                     st.experimental_rerun()
             if st.sidebar.button("Mark as Complete", key=f"complete_sb_{log_id}"):
                 update_operation_log(log_id, status="completed", progress=1.0)
+                delete_campaign(cid)
                 st.experimental_rerun()
             if st.sidebar.button("Delete", key=f"delete_sb_{cid}"):
                 delete_campaign(cid)
@@ -1649,6 +1651,7 @@ def display_pending_operations(operation_type):
                     st.experimental_rerun()
             if cols[1].button("Mark as Complete", key=f"complete_{log_id}"):
                 update_operation_log(log_id, status="completed", progress=1.0)
+                delete_campaign(cid)
                 st.experimental_rerun()
             if cols[2].button("Delete", key=f"delete_{cid}"):
                 delete_campaign(cid)
@@ -2035,15 +2038,18 @@ def email_campaign_section():
         if 'firebase_files' not in st.session_state or not st.session_state.firebase_files:
             st.session_state.firebase_files = list_firebase_files()
 
-        if st.button("Refresh File List"):
-            st.session_state.firebase_files = list_firebase_files()
-
         if 'firebase_files' in st.session_state and st.session_state.firebase_files:
-            selected_file = st.selectbox(
+            sel_col, del_col = st.columns([8,1])
+            selected_file = sel_col.selectbox(
                 "Select file from Firebase",
                 st.session_state.firebase_files,
                 key="select_file_campaign",
             )
+            if del_col.button("🗑️", key="del_selected_campaign"):
+                if delete_firebase_file(selected_file):
+                    st.session_state.firebase_files.remove(selected_file)
+                    st.success(f"{selected_file} deleted!")
+                    st.experimental_rerun()
 
             col_load, _ = st.columns([1, 1])
             if col_load.button("Load File", key="load_file_campaign"):
@@ -2076,15 +2082,6 @@ def email_campaign_section():
                     st.dataframe(df.head())
                     st.info(f"Total emails loaded: {len(df)}")
                     refresh_journal_data()
-            st.markdown("---")
-            for f in st.session_state.firebase_files:
-                c1, c2 = st.columns([8,1])
-                c1.write(f)
-                if c2.button("🗑️", key=f"del_{f}_campaign"):
-                    if delete_firebase_file(f):
-                        st.session_state.firebase_files.remove(f)
-                        st.success(f"{f} deleted!")
-                        st.experimental_rerun()
         else:
             st.info("No files found in Cloud Storage")
         
@@ -2474,15 +2471,18 @@ def editor_invitation_section():
         if 'firebase_files' not in st.session_state or not st.session_state.firebase_files:
             st.session_state.firebase_files = list_firebase_files()
 
-        if st.button("Refresh File List", key="refresh_file_list_editor"):
-            st.session_state.firebase_files = list_firebase_files()
-
         if 'firebase_files' in st.session_state and st.session_state.firebase_files:
-            selected_file = st.selectbox(
+            sel_col, del_col = st.columns([8,1])
+            selected_file = sel_col.selectbox(
                 "Select file from Firebase",
                 st.session_state.firebase_files,
                 key="select_file_editor",
             )
+            if del_col.button("🗑️", key="del_selected_editor"):
+                if delete_firebase_file(selected_file):
+                    st.session_state.firebase_files.remove(selected_file)
+                    st.success(f"{selected_file} deleted!")
+                    st.experimental_rerun()
 
             col_load, _ = st.columns([1, 1])
             if col_load.button("Load File", key="load_file_editor"):
@@ -2516,15 +2516,6 @@ def editor_invitation_section():
                     st.info(f"Total emails loaded: {len(df)}")
                     refresh_editor_journal_data()
 
-            st.markdown("---")
-            for f in st.session_state.firebase_files:
-                c1, c2 = st.columns([8,1])
-                c1.write(f)
-                if c2.button("🗑️", key=f"del_{f}_editor"):
-                    if delete_firebase_file(f):
-                        st.session_state.firebase_files.remove(f)
-                        st.success(f"{f} deleted!")
-                        st.experimental_rerun()
         else:
             st.info("No files found in Cloud Storage")
 
@@ -2657,14 +2648,17 @@ def email_verification_section():
         if 'firebase_files_verification' not in st.session_state or not st.session_state.firebase_files_verification:
             st.session_state.firebase_files_verification = list_firebase_files()
 
-        if st.button("Refresh File List for Verification"):
-            st.session_state.firebase_files_verification = list_firebase_files()
-
         if 'firebase_files_verification' in st.session_state and st.session_state.firebase_files_verification:
-            selected_file = st.selectbox(
+            sel_col, del_col = st.columns([8,1])
+            selected_file = sel_col.selectbox(
                 "Select file to verify from Firebase",
                 st.session_state.firebase_files_verification,
             )
+            if del_col.button("🗑️", key="del_selected_verify"):
+                if delete_firebase_file(selected_file):
+                    st.session_state.firebase_files_verification.remove(selected_file)
+                    st.success(f"{selected_file} deleted!")
+                    st.experimental_rerun()
 
             col_load, _ = st.columns([1, 1])
             if col_load.button("Load File for Verification"):
@@ -2693,15 +2687,6 @@ def email_verification_section():
                     else:
                         st.error("No valid emails found in the file")
 
-            st.markdown("---")
-            for f in st.session_state.firebase_files_verification:
-                c1, c2 = st.columns([8,1])
-                c1.write(f)
-                if c2.button("🗑️", key=f"del_{f}_verify"):
-                    if delete_firebase_file(f):
-                        st.session_state.firebase_files_verification.remove(f)
-                        st.success(f"{f} deleted!")
-                        st.experimental_rerun()
         else:
             st.info("No files found in Cloud Storage")
     
