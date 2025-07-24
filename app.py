@@ -778,11 +778,10 @@ def process_email_list(file_content, api_key, log_id=None):
         return pd.DataFrame()
 
 def generate_report_file(df, report_type):
-    """Generate different types of report files"""
+    """Generate different types of report files without 'nan' entries"""
     if df.empty:
         return ""
-    
-    output = ""
+
     if report_type == "good":
         valid_statuses = ['valid', 'ok', 'good']
         filtered_df = df[df['verification_result'].str.lower().isin(valid_statuses)]
@@ -793,15 +792,28 @@ def generate_report_file(df, report_type):
         filtered_df = df[df['verification_result'].str.lower().isin(risky_statuses)]
     else:
         filtered_df = df
-    
-    for _, row in filtered_df.iterrows():
-        output += f"{row.get('name', '')}\n"
-        output += f"{row.get('department', '')}\n"
-        output += f"{row.get('university', '')}\n"
-        output += f"{row.get('country', '')}\n"
-        output += f"{row.get('email', '')}\n\n"
 
-    return output.strip()
+    entries = []
+    for _, row in filtered_df.iterrows():
+        lines = []
+        for field in ['name', 'department', 'university', 'country', 'email']:
+            value = row.get(field, '')
+            if pd.notna(value) and str(value).strip() != "":
+                lines.append(str(value))
+        if lines:
+            entries.append("\n".join(lines))
+
+    return "\n\n".join(entries).strip()
+
+def generate_good_emails_filename(original_name, count):
+    """Return a cleaned filename for good emails with updated count."""
+    name_no_ext = os.path.splitext(original_name)[0]
+    pattern = r"\(\d+\s*entries\)\s*-\s*.+$"
+    if re.search(pattern, name_no_ext):
+        name_no_ext = re.sub(pattern, f"({count} entries) - CQ", name_no_ext)
+    else:
+        name_no_ext = f"{name_no_ext} ({count} entries) - CQ"
+    return name_no_ext + ".txt"
 
 def analyze_subject_csv(df):
     """Return subject wise delivery, open and click rates."""
@@ -2671,10 +2683,13 @@ def email_verification_section():
         
         with col1:
             good_content = generate_report_file(st.session_state.verified_emails, "good")
+            good_count = st.session_state.verification_stats.get('good', 0)
+            original_name = st.session_state.get('current_verification_file') or "good_emails.txt"
+            good_file_name = generate_good_emails_filename(original_name, good_count)
             st.download_button(
                 label="Good Emails Only",
                 data=good_content,
-                file_name="good_emails.txt",
+                file_name=good_file_name,
                 mime="text/plain",
                 help="Download only emails verified as good",
                 key="good_emails_btn",
