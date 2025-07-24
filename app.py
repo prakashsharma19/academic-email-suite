@@ -895,6 +895,18 @@ def list_firebase_files():
         st.error(f"Failed to list files: {str(e)}")
         return []
 
+def delete_firebase_file(filename):
+    try:
+        db = get_firestore_db()
+        if not db:
+            return False
+
+        db.collection("email_files").document(filename).delete()
+        return True
+    except Exception as e:
+        st.error(f"Failed to delete file: {str(e)}")
+        return False
+
 # Journal management functions
 def load_journals_from_firebase():
     """Load the list of journals from Firestore.
@@ -2020,47 +2032,61 @@ def email_campaign_section():
                     if upload_to_firebase(csv_content, uploaded_file.name):
                         st.success("File uploaded to Firebase successfully!")
     else:
+        if 'firebase_files' not in st.session_state or not st.session_state.firebase_files:
+            st.session_state.firebase_files = list_firebase_files()
+
         if st.button("Refresh File List"):
             st.session_state.firebase_files = list_firebase_files()
-            
-            if 'firebase_files' in st.session_state and st.session_state.firebase_files:
-                selected_file = st.selectbox("Select file from Firebase", st.session_state.firebase_files)
-                
-                if st.button("Load File"):
-                    file_content = download_from_firebase(selected_file)
-                    if file_content:
-                        st.session_state.current_recipient_file = selected_file
-                        if selected_file.endswith('.txt'):
-                            # Process the text file with the specific format
-                            entries = []
-                            current_entry = {}
-                            
-                            for line in file_content.split('\n'):
-                                line = line.strip()
-                                if line:
-                                    if '@' in line and '.' in line and ' ' not in line:  # Likely email
-                                        current_entry['email'] = line
-                                        entries.append(current_entry)
-                                        current_entry = {}
-                                    elif not current_entry.get('name', ''):
-                                        current_entry['name'] = line
-                                    elif not current_entry.get('department', ''):
-                                        current_entry['department'] = line
-                                    elif not current_entry.get('university', ''):
-                                        current_entry['university'] = line
-                                    elif not current_entry.get('country', ''):
-                                        current_entry['country'] = line
-                            
-                            df = pd.DataFrame(entries)
-                        else:
-                            df = pd.read_csv(StringIO(file_content))
-                        
-                        st.session_state.current_recipient_list = df
-                        st.dataframe(df.head())
-                        st.info(f"Total emails loaded: {len(df)}")
-                        refresh_journal_data()
-            else:
-                st.info("No files found in Cloud Storage")
+
+        if 'firebase_files' in st.session_state and st.session_state.firebase_files:
+            selected_file = st.selectbox(
+                "Select file from Firebase",
+                st.session_state.firebase_files,
+                key="select_file_campaign",
+            )
+
+            col_load, _ = st.columns([1, 1])
+            if col_load.button("Load File", key="load_file_campaign"):
+                file_content = download_from_firebase(selected_file)
+                if file_content:
+                    st.session_state.current_recipient_file = selected_file
+                    if selected_file.endswith('.txt'):
+                        entries = []
+                        current_entry = {}
+                        for line in file_content.split('\n'):
+                            line = line.strip()
+                            if line:
+                                if '@' in line and '.' in line and ' ' not in line:
+                                    current_entry['email'] = line
+                                    entries.append(current_entry)
+                                    current_entry = {}
+                                elif not current_entry.get('name', ''):
+                                    current_entry['name'] = line
+                                elif not current_entry.get('department', ''):
+                                    current_entry['department'] = line
+                                elif not current_entry.get('university', ''):
+                                    current_entry['university'] = line
+                                elif not current_entry.get('country', ''):
+                                    current_entry['country'] = line
+                        df = pd.DataFrame(entries)
+                    else:
+                        df = pd.read_csv(StringIO(file_content))
+
+                    st.session_state.current_recipient_list = df
+                    st.dataframe(df.head())
+                    st.info(f"Total emails loaded: {len(df)}")
+                    refresh_journal_data()
+            st.markdown("---")
+            for f in st.session_state.firebase_files:
+                c1, c2 = st.columns([8,1])
+                c1.write(f)
+                if c2.button("🗑️", key=f"del_{f}_campaign"):
+                    if delete_firebase_file(f):
+                        st.session_state.firebase_files.remove(f)
+                        st.success(f"{f} deleted!")
+                        st.experimental_rerun()
+        else:
+            st.info("No files found in Cloud Storage")
         
         
     # Send Options
@@ -2445,13 +2471,21 @@ def editor_invitation_section():
                     if upload_to_firebase(csv_content, uploaded_file.name):
                         st.success("File uploaded to Firebase successfully!")
     else:
+        if 'firebase_files' not in st.session_state or not st.session_state.firebase_files:
+            st.session_state.firebase_files = list_firebase_files()
+
         if st.button("Refresh File List", key="refresh_file_list_editor"):
             st.session_state.firebase_files = list_firebase_files()
 
         if 'firebase_files' in st.session_state and st.session_state.firebase_files:
-            selected_file = st.selectbox("Select file from Firebase", st.session_state.firebase_files, key="select_file_editor")
+            selected_file = st.selectbox(
+                "Select file from Firebase",
+                st.session_state.firebase_files,
+                key="select_file_editor",
+            )
 
-            if st.button("Load File", key="load_file_editor"):
+            col_load, _ = st.columns([1, 1])
+            if col_load.button("Load File", key="load_file_editor"):
                 file_content = download_from_firebase(selected_file)
                 if file_content:
                     st.session_state.current_recipient_file = selected_file
@@ -2473,7 +2507,6 @@ def editor_invitation_section():
                                     current_entry['university'] = line
                                 elif not current_entry.get('country', ''):
                                     current_entry['country'] = line
-
                         df = pd.DataFrame(entries)
                     else:
                         df = pd.read_csv(StringIO(file_content))
@@ -2482,6 +2515,16 @@ def editor_invitation_section():
                     st.dataframe(df.head())
                     st.info(f"Total emails loaded: {len(df)}")
                     refresh_editor_journal_data()
+
+            st.markdown("---")
+            for f in st.session_state.firebase_files:
+                c1, c2 = st.columns([8,1])
+                c1.write(f)
+                if c2.button("🗑️", key=f"del_{f}_editor"):
+                    if delete_firebase_file(f):
+                        st.session_state.firebase_files.remove(f)
+                        st.success(f"{f} deleted!")
+                        st.experimental_rerun()
         else:
             st.info("No files found in Cloud Storage")
 
@@ -2611,34 +2654,54 @@ def email_verification_section():
                     else:
                         st.error("No valid emails found in the file")
     else:
+        if 'firebase_files_verification' not in st.session_state or not st.session_state.firebase_files_verification:
+            st.session_state.firebase_files_verification = list_firebase_files()
+
         if st.button("Refresh File List for Verification"):
             st.session_state.firebase_files_verification = list_firebase_files()
-        
+
         if 'firebase_files_verification' in st.session_state and st.session_state.firebase_files_verification:
-            selected_file = st.selectbox("Select file to verify from Firebase", 
-                                       st.session_state.firebase_files_verification)
-            
-            if st.button("Load File for Verification"):
+            selected_file = st.selectbox(
+                "Select file to verify from Firebase",
+                st.session_state.firebase_files_verification,
+            )
+
+            col_load, _ = st.columns([1, 1])
+            if col_load.button("Load File for Verification"):
                 file_content = download_from_firebase(selected_file)
                 if file_content:
                     st.session_state.current_verification_file = selected_file
                     st.text_area("File Content Preview", file_content, height=150)
                     st.session_state.current_verification_list = file_content
-            
+
             if 'current_verification_list' in st.session_state and st.button("Start Verification"):
                 if not config['millionverifier']['api_key']:
                     st.error("Please configure MillionVerifier API Key first")
                     return
-                
+
                 with st.spinner("Verifying emails..."):
                     log_id = start_operation_log(
                         "verification", {"file_name": selected_file})
-                    result_df = process_email_list(st.session_state.current_verification_list, config['millionverifier']['api_key'], log_id)
+                    result_df = process_email_list(
+                        st.session_state.current_verification_list,
+                        config['millionverifier']['api_key'],
+                        log_id,
+                    )
                     if not result_df.empty:
                         st.session_state.verified_emails = result_df
                         st.dataframe(result_df)
                     else:
                         st.error("No valid emails found in the file")
+
+            st.markdown("---")
+            for f in st.session_state.firebase_files_verification:
+                c1, c2 = st.columns([8,1])
+                c1.write(f)
+                if c2.button("🗑️", key=f"del_{f}_verify"):
+                    if delete_firebase_file(f):
+                        st.session_state.firebase_files_verification.remove(f)
+                        st.success(f"{f} deleted!")
+                        st.experimental_rerun()
         else:
             st.info("No files found in Cloud Storage")
     
