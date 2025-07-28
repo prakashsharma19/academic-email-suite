@@ -772,6 +772,7 @@ def process_email_list(file_content, api_key, log_id=None):
             'risky_percent': round((risky / total) * 100, 1) if total > 0 else 0
         }
         if log_id:
+            save_verification_results(log_id, df)
             update_operation_log(log_id, status="completed", progress=1.0)
         return df
     except Exception as e:
@@ -908,6 +909,50 @@ def delete_firebase_file(filename):
     except Exception as e:
         st.error(f"Failed to delete file: {str(e)}")
         return False
+
+# ----- Verification Result Storage Functions -----
+def save_verification_results(log_id, df):
+    """Persist verification results to Firestore for later retrieval."""
+    try:
+        db = get_firestore_db()
+        if not db:
+            return False
+
+        doc_ref = db.collection("verification_results").document(log_id)
+        doc_ref.set({
+            "user": st.session_state.get("username", "admin"),
+            "file_name": st.session_state.get("current_verification_file", ""),
+            "csv": df.to_csv(index=False),
+            "stats": st.session_state.verification_stats,
+            "saved_at": datetime.now(),
+        })
+        return True
+    except Exception as e:
+        st.error(f"Failed to save verification results: {str(e)}")
+        return False
+
+
+def load_verification_results(log_id):
+    """Load previously saved verification results from Firestore."""
+    try:
+        db = get_firestore_db()
+        if not db:
+            return None
+
+        doc_ref = db.collection("verification_results").document(log_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            return None
+
+        data = doc.to_dict()
+        csv_data = data.get("csv", "")
+        df = pd.read_csv(StringIO(csv_data)) if csv_data else pd.DataFrame()
+        stats = data.get("stats", {})
+        file_name = data.get("file_name", "")
+        return df, stats, file_name
+    except Exception as e:
+        st.error(f"Failed to load verification results: {str(e)}")
+        return None
 
 # Journal management functions
 def load_journals_from_firebase():
@@ -1623,6 +1668,16 @@ def check_incomplete_operations():
                 st.experimental_rerun()
         elif op_type == "verification":
             st.sidebar.write(f"Email Verification {int(progress*100)}% - {status}")
+            if st.sidebar.button("View Results", key=f"view_sb_{log_id}"):
+                result = load_verification_results(log_id)
+                if result:
+                    df, stats, fname = result
+                    st.session_state.verified_emails = df
+                    st.session_state.verification_stats = stats
+                    st.session_state.current_verification_file = fname
+                    st.experimental_rerun()
+                else:
+                    st.sidebar.write("Results not available")
             if st.sidebar.button("Mark as Complete", key=f"complete_sb_{log_id}"):
                 update_operation_log(log_id, status="completed", progress=1.0)
                 st.experimental_rerun()
@@ -1662,7 +1717,18 @@ def display_pending_operations(operation_type):
         elif operation_type == "verification":
             file_name = meta.get("file_name", meta.get("source", ""))
             st.write(f"{file_name} - {status} ({int(progress*100)}%)")
-            if st.button("Mark as Complete", key=f"complete_{log_id}"):
+            cols = st.columns(2)
+            if cols[0].button("View Results", key=f"view_{log_id}"):
+                result = load_verification_results(log_id)
+                if result:
+                    df, stats, fname = result
+                    st.session_state.verified_emails = df
+                    st.session_state.verification_stats = stats
+                    st.session_state.current_verification_file = fname
+                    st.experimental_rerun()
+                else:
+                    st.warning("Results not available")
+            if cols[1].button("Mark as Complete", key=f"complete_{log_id}"):
                 update_operation_log(log_id, status="completed", progress=1.0)
                 st.experimental_rerun()
 
