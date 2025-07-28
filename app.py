@@ -389,6 +389,8 @@ JOURNALS = [
     "Universal Journal of Mathematics and Mathematical Sciences",
     "Mechanical Engineering",
     "Materials Science",
+    "Far East Journal of Endocrinology, Diabetes and Obesity",
+    "Advances in Oceanography, Marine Science and their Resources",
     "Advances in Food & Dairy Sciences and Their Emerging Technologies (FDSET)"
 ]
 
