@@ -100,6 +100,18 @@ def set_light_theme():
     .send-ads-btn button:hover {
         background-color: #45a049 !important;
     }
+    /* Resume icon button */
+    .resume-btn button {
+        background: url('https://github.com/prakashsharma19/academic-email-suite/blob/main/resumeicon.png?raw=true') no-repeat center center !important;
+        background-size: contain !important;
+        width: 40px !important;
+        height: 40px !important;
+        padding: 0 !important;
+        color: transparent !important;
+    }
+    .resume-btn button:hover {
+        background-color: transparent !important;
+    }
     .stButton button:active,
     .stDownloadButton button:active,
     .bad-email-btn button:active,
@@ -1744,14 +1756,18 @@ def check_incomplete_operations():
                 update_operation_log(log_id, status="completed", progress=1.0)
                 st.experimental_rerun()
         elif op_type == "verification":
-            st.sidebar.write(f"Email Verification {int(progress*100)}% - {status}")
-            if progress < 1.0 and st.sidebar.button("Resume", key=f"resume_sb_{log_id}"):
-                pdata = load_verification_progress(log_id)
-                if pdata:
-                    st.session_state.verification_resume_data = pdata
-                    st.session_state.verification_resume_log_id = log_id
-                    st.session_state.current_verification_file = meta.get("file_name", meta.get("source", ""))
-                    st.experimental_rerun()
+            file_name = meta.get("file_name", meta.get("source", ""))
+            st.sidebar.write(f"{file_name} - {status} ({int(progress*100)}%)")
+            if progress < 1.0:
+                st.sidebar.markdown("<div class='resume-btn'>", unsafe_allow_html=True)
+                if st.sidebar.button("Resume", key=f"resume_sb_{log_id}"):
+                    pdata = load_verification_progress(log_id)
+                    if pdata:
+                        st.session_state.verification_resume_data = pdata
+                        st.session_state.verification_resume_log_id = log_id
+                        st.session_state.current_verification_file = file_name
+                        st.experimental_rerun()
+                st.sidebar.markdown("</div>", unsafe_allow_html=True)
             if st.sidebar.button("View Results", key=f"view_sb_{log_id}"):
                 result = load_verification_results(log_id)
                 if result:
@@ -1805,6 +1821,7 @@ def display_pending_operations(operation_type):
             cols = st.columns(col_count)
             idx = 0
             if progress < 1.0:
+                cols[idx].markdown("<div class='resume-btn'>", unsafe_allow_html=True)
                 if cols[idx].button("Resume", key=f"resume_verify_{log_id}"):
                     pdata = load_verification_progress(log_id)
                     if pdata:
@@ -1812,6 +1829,7 @@ def display_pending_operations(operation_type):
                         st.session_state.verification_resume_log_id = log_id
                         st.session_state.current_verification_file = file_name
                         st.experimental_rerun()
+                cols[idx].markdown("</div>", unsafe_allow_html=True)
                 idx += 1
             if cols[idx].button("View Results", key=f"view_{log_id}"):
                 result = load_verification_results(log_id)
