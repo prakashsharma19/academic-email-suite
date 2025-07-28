@@ -245,6 +245,10 @@ def init_session_state():
         st.session_state.selected_editor_journal = None
     if 'editor_show_journal_details' not in st.session_state:
         st.session_state.editor_show_journal_details = False
+    if 'verification_resume_data' not in st.session_state:
+        st.session_state.verification_resume_data = None
+    if 'verification_resume_log_id' not in st.session_state:
+        st.session_state.verification_resume_log_id = None
 
 
 def update_sender_name():
@@ -696,7 +700,7 @@ def check_millionverifier_quota(api_key):
         st.error(f"Failed to check quota: {str(e)}")
         return 0
 
-def process_email_list(file_content, api_key, log_id=None):
+def process_email_list(file_content, api_key, log_id=None, resume_data=None):
     try:
         # Parse the text file with the specific format
         entries = []
@@ -727,11 +731,23 @@ def process_email_list(file_content, api_key, log_id=None):
         results = []
         total_emails = len(df)
         st.session_state.verification_start_time = time.time()
-        
+
         progress_bar = st.progress(0)
         status_text = st.empty()
-        
-        for i, email in enumerate(df['email']):
+
+        start_index = 0
+        if resume_data:
+            start_index = resume_data.get('current_index', 0)
+            prev_results = resume_data.get('results', [])
+            for idx, res in enumerate(prev_results):
+                if idx < len(df):
+                    df.loc[idx, 'verification_result'] = res
+                    results.append({'result': res})
+            progress_bar.progress(start_index / total_emails)
+            st.session_state.verification_progress = start_index / total_emails
+
+        for i in range(start_index, total_emails):
+            email = df.loc[i, 'email']
             result = verify_email(email, api_key)
             if result:
                 results.append(result)
@@ -744,6 +760,13 @@ def process_email_list(file_content, api_key, log_id=None):
             progress_bar.progress(progress)
             if log_id:
                 update_operation_log(log_id, progress=progress)
+                save_verification_progress(
+                    log_id,
+                    file_content,
+                    [r.get('result', 'error') if isinstance(r, dict) else r for r in results],
+                    i + 1,
+                    total_emails,
+                )
             
             # Calculate estimated time remaining
             elapsed_time = time.time() - st.session_state.verification_start_time
@@ -774,6 +797,7 @@ def process_email_list(file_content, api_key, log_id=None):
         if log_id:
             save_verification_results(log_id, df)
             update_operation_log(log_id, status="completed", progress=1.0)
+            delete_verification_progress(log_id)
         return df
     except Exception as e:
         st.error(f"Failed to process email list: {str(e)}")
@@ -953,6 +977,59 @@ def load_verification_results(log_id):
     except Exception as e:
         st.error(f"Failed to load verification results: {str(e)}")
         return None
+
+
+# ----- Verification Progress Persistence Functions -----
+def save_verification_progress(log_id, file_content, results, current_index, total_emails):
+    """Save intermediate verification progress for resuming later."""
+    try:
+        db = get_firestore_db()
+        if not db:
+            return False
+
+        doc_ref = db.collection("verification_progress").document(log_id)
+        doc_ref.set({
+            "user": st.session_state.get("username", "admin"),
+            "file_content": file_content,
+            "results": results,
+            "current_index": current_index,
+            "total_emails": total_emails,
+            "last_updated": datetime.now(),
+        })
+        return True
+    except Exception as e:
+        st.error(f"Failed to save verification progress: {str(e)}")
+        return False
+
+
+def load_verification_progress(log_id):
+    """Load saved verification progress if available."""
+    try:
+        db = get_firestore_db()
+        if not db:
+            return None
+
+        doc = db.collection("verification_progress").document(log_id).get()
+        if doc.exists:
+            return doc.to_dict()
+        return None
+    except Exception as e:
+        st.error(f"Failed to load verification progress: {str(e)}")
+        return None
+
+
+def delete_verification_progress(log_id):
+    """Remove saved verification progress when done."""
+    try:
+        db = get_firestore_db()
+        if not db:
+            return False
+
+        db.collection("verification_progress").document(log_id).delete()
+        return True
+    except Exception as e:
+        st.error(f"Failed to delete verification progress: {str(e)}")
+        return False
 
 # Journal management functions
 def load_journals_from_firebase():
@@ -1668,6 +1745,13 @@ def check_incomplete_operations():
                 st.experimental_rerun()
         elif op_type == "verification":
             st.sidebar.write(f"Email Verification {int(progress*100)}% - {status}")
+            if progress < 1.0 and st.sidebar.button("Resume", key=f"resume_sb_{log_id}"):
+                pdata = load_verification_progress(log_id)
+                if pdata:
+                    st.session_state.verification_resume_data = pdata
+                    st.session_state.verification_resume_log_id = log_id
+                    st.session_state.current_verification_file = meta.get("file_name", meta.get("source", ""))
+                    st.experimental_rerun()
             if st.sidebar.button("View Results", key=f"view_sb_{log_id}"):
                 result = load_verification_results(log_id)
                 if result:
@@ -1717,8 +1801,19 @@ def display_pending_operations(operation_type):
         elif operation_type == "verification":
             file_name = meta.get("file_name", meta.get("source", ""))
             st.write(f"{file_name} - {status} ({int(progress*100)}%)")
-            cols = st.columns(2)
-            if cols[0].button("View Results", key=f"view_{log_id}"):
+            col_count = 3 if progress < 1.0 else 2
+            cols = st.columns(col_count)
+            idx = 0
+            if progress < 1.0:
+                if cols[idx].button("Resume", key=f"resume_verify_{log_id}"):
+                    pdata = load_verification_progress(log_id)
+                    if pdata:
+                        st.session_state.verification_resume_data = pdata
+                        st.session_state.verification_resume_log_id = log_id
+                        st.session_state.current_verification_file = file_name
+                        st.experimental_rerun()
+                idx += 1
+            if cols[idx].button("View Results", key=f"view_{log_id}"):
                 result = load_verification_results(log_id)
                 if result:
                     df, stats, fname = result
@@ -1728,7 +1823,7 @@ def display_pending_operations(operation_type):
                     st.experimental_rerun()
                 else:
                     st.warning("Results not available")
-            if cols[1].button("Mark as Complete", key=f"complete_{log_id}"):
+            if cols[idx+1].button("Mark as Complete", key=f"complete_{log_id}"):
                 update_operation_log(log_id, status="completed", progress=1.0)
                 st.experimental_rerun()
 
@@ -2678,6 +2773,22 @@ def editor_invitation_section():
 def email_verification_section():
     st.header("Email Verification")
     display_pending_operations("verification")
+
+    # If a resume action was triggered, continue the verification
+    if st.session_state.get("verification_resume_data"):
+        pdata = st.session_state.verification_resume_data
+        log_id = st.session_state.verification_resume_log_id
+        with st.spinner("Resuming verification..."):
+            result_df = process_email_list(
+                pdata.get("file_content", ""),
+                config['millionverifier']['api_key'],
+                log_id,
+                resume_data=pdata,
+            )
+            if not result_df.empty:
+                st.session_state.verified_emails = result_df
+        st.session_state.verification_resume_data = None
+        st.session_state.verification_resume_log_id = None
     
     # Check verification quota using correct endpoint
     if config['millionverifier']['api_key']:
