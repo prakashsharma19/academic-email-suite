@@ -209,6 +209,12 @@ def init_session_state():
         st.session_state.verification_start_time = None
     if 'verification_progress' not in st.session_state:
         st.session_state.verification_progress = 0
+    if 'auto_download_good' not in st.session_state:
+        st.session_state.auto_download_good = False
+    if 'good_download_content' not in st.session_state:
+        st.session_state.good_download_content = None
+    if 'good_download_file_name' not in st.session_state:
+        st.session_state.good_download_file_name = None
     if 'current_recipient_file' not in st.session_state:
         st.session_state.current_recipient_file = None
     if 'current_verification_file' not in st.session_state:
@@ -2754,6 +2760,13 @@ def email_verification_section():
             )
             if not result_df.empty:
                 st.session_state.verified_emails = result_df
+                good_content = generate_report_file(result_df, "good")
+                good_count = st.session_state.verification_stats.get('good', 0)
+                original_name = st.session_state.get('current_verification_file') or "good_emails.txt"
+                good_file_name = generate_good_emails_filename(original_name, good_count)
+                st.session_state.good_download_content = good_content
+                st.session_state.good_download_file_name = good_file_name
+                st.session_state.auto_download_good = True
         st.session_state.verification_resume_data = None
         st.session_state.verification_resume_log_id = None
     
@@ -2787,6 +2800,13 @@ def email_verification_section():
                     result_df = process_email_list(file_content, config['millionverifier']['api_key'], log_id)
                     if not result_df.empty:
                         st.session_state.verified_emails = result_df
+                        good_content = generate_report_file(result_df, "good")
+                        good_count = st.session_state.verification_stats.get('good', 0)
+                        original_name = st.session_state.get('current_verification_file') or "good_emails.txt"
+                        good_file_name = generate_good_emails_filename(original_name, good_count)
+                        st.session_state.good_download_content = good_content
+                        st.session_state.good_download_file_name = good_file_name
+                        st.session_state.auto_download_good = True
                         st.dataframe(result_df)
                     else:
                         st.error("No valid emails found in the file")
@@ -2829,6 +2849,13 @@ def email_verification_section():
                     )
                     if not result_df.empty:
                         st.session_state.verified_emails = result_df
+                        good_content = generate_report_file(result_df, "good")
+                        good_count = st.session_state.verification_stats.get('good', 0)
+                        original_name = st.session_state.get('current_verification_file') or "good_emails.txt"
+                        good_file_name = generate_good_emails_filename(original_name, good_count)
+                        st.session_state.good_download_content = good_content
+                        st.session_state.good_download_file_name = good_file_name
+                        st.session_state.auto_download_good = True
                         st.dataframe(result_df)
                     else:
                         st.error("No valid emails found in the file")
@@ -2839,7 +2866,16 @@ def email_verification_section():
     # Verification Results and Reports
     if not st.session_state.verified_emails.empty:
         st.subheader("Verification Results")
-        
+
+        if st.session_state.get("auto_download_good"):
+            good_content = st.session_state.get("good_download_content", "")
+            good_file_name = st.session_state.get("good_download_file_name", "good_emails.txt")
+            b64 = base64.b64encode(good_content.encode()).decode()
+            download_html = f'<a id="auto_good_download" href="data:text/plain;base64,{b64}" download="{good_file_name}"></a>'
+            download_html += "<script>document.getElementById('auto_good_download').click();</script>"
+            components.html(download_html)
+            st.session_state.auto_download_good = False
+
         # Display stats
         stats = st.session_state.verification_stats
         col1, col2, col3 = st.columns(3)
