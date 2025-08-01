@@ -382,6 +382,42 @@ def display_world_clocks():
     html += "</div><div style='font-size:14px;margin-top:4px;color:red;'>Note: Sending emails in working hours improves read rate.</div>"
     st.markdown(html, unsafe_allow_html=True)
 
+
+def parse_email_entries(file_content: str) -> pd.DataFrame:
+    """Return DataFrame of email entries allowing variable address lengths."""
+    entries = []
+    current_lines = []
+    for line in file_content.split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+        if '@' in line and '.' in line and ' ' not in line:
+            name = current_lines[0] if current_lines else ''
+            addr_parts = current_lines[1:] if len(current_lines) > 1 else []
+            department = addr_parts[0] if len(addr_parts) >= 1 else ''
+            university = addr_parts[1] if len(addr_parts) >= 2 else ''
+            country = addr_parts[-1] if len(addr_parts) >= 3 else ''
+            address_lines = '\n'.join(addr_parts)
+            entries.append(
+                {
+                    'name': name,
+                    'department': department,
+                    'university': university,
+                    'country': country,
+                    'address_lines': address_lines,
+                    'email': line,
+                }
+            )
+            current_lines = []
+        else:
+            current_lines.append(line)
+
+    return pd.DataFrame(
+        entries,
+        columns=['name', 'department', 'university', 'country', 'address_lines', 'email'],
+    )
+
+
 # Journal Data
 JOURNALS = [
     "Advances and Applications in Fluid Mechanics",
@@ -714,30 +750,12 @@ def check_millionverifier_quota(api_key):
 
 def process_email_list(file_content, api_key, log_id=None, resume_data=None):
     try:
-        # Parse the text file with the specific format
-        entries = []
-        current_entry = {}
-        
-        for line in file_content.split('\n'):
-            line = line.strip()
-            if line:
-                if '@' in line and '.' in line and ' ' not in line:  # Likely email
-                    current_entry['email'] = line
-                    entries.append(current_entry)
-                    current_entry = {}
-                elif not current_entry.get('name', ''):
-                    current_entry['name'] = line
-                elif not current_entry.get('department', ''):
-                    current_entry['department'] = line
-                elif not current_entry.get('university', ''):
-                    current_entry['university'] = line
-                elif not current_entry.get('country', ''):
-                    current_entry['country'] = line
-        
-        df = pd.DataFrame(entries)
+        df = parse_email_entries(file_content)
         
         if df.empty:
-            return pd.DataFrame(columns=['name', 'department', 'university', 'country', 'email', 'verification_result'])
+            return pd.DataFrame(
+                columns=['name', 'department', 'university', 'country', 'address_lines', 'email', 'verification_result']
+            )
         
         # Verify emails
         results = []
@@ -836,10 +854,15 @@ def generate_report_file(df, report_type):
     entries = []
     for _, row in filtered_df.iterrows():
         lines = []
-        for field in ['name', 'department', 'university', 'country', 'email']:
-            value = row.get(field, '')
-            if pd.notna(value) and str(value).strip() != "":
-                lines.append(str(value))
+        name = row.get('name', '')
+        if pd.notna(name) and str(name).strip() != "":
+            lines.append(str(name))
+        address = row.get('address_lines', '')
+        if pd.notna(address) and str(address).strip() != "":
+            lines.extend(str(address).split('\n'))
+        email = row.get('email', '')
+        if pd.notna(email) and str(email).strip() != "":
+            lines.append(str(email))
         if lines:
             entries.append("\n".join(lines))
 
@@ -1550,13 +1573,11 @@ def execute_campaign(campaign_data):
                 update_operation_log(log_id, progress=progress)
             continue
 
-        author_address = ""
-        if row.get('department', ''):
-            author_address += f"{row['department']}<br>"
-        if row.get('university', ''):
-            author_address += f"{row['university']}<br>"
-        if row.get('country', ''):
-            author_address += f"{row['country']}<br>"
+        address_lines = row.get('address_lines', '')
+        if pd.notna(address_lines) and str(address_lines).strip() != "":
+            author_address = "".join(f"{ln}<br>" for ln in str(address_lines).split('\n'))
+        else:
+            author_address = ""
 
         email_content = email_body or ""
         sanitized_name = sanitize_author_name(str(row.get('name', '')))
@@ -2144,7 +2165,7 @@ def email_campaign_section():
             preview_html = email_body.replace("$$Author_Name$$", "Professor John Doe")
             preview_html = preview_html.replace(
                 "$$Author_Address$$",
-                "Department of Computer Science<br>Harvard University<br>United States"
+                "Department of Computer Science<br>Harvard University<br>Cambridge, MA<br>United States"
             )
             preview_html = preview_html.replace("$$AuthorLastname$$", "Doe")
             preview_html = preview_html.replace("$$Department$$", "Computer Science")
@@ -2177,28 +2198,8 @@ def email_campaign_section():
         if uploaded_file:
             st.session_state.current_recipient_file = uploaded_file.name
             if uploaded_file.name.endswith('.txt'):
-                # Process the text file with the specific format
                 file_content = read_uploaded_text(uploaded_file)
-                entries = []
-                current_entry = {}
-
-                for line in file_content.split('\n'):
-                    line = line.strip()
-                    if line:
-                        if '@' in line and '.' in line and ' ' not in line:  # Likely email
-                            current_entry['email'] = line
-                            entries.append(current_entry)
-                            current_entry = {}
-                        elif not current_entry.get('name', ''):
-                            current_entry['name'] = line
-                        elif not current_entry.get('department', ''):
-                            current_entry['department'] = line
-                        elif not current_entry.get('university', ''):
-                            current_entry['university'] = line
-                        elif not current_entry.get('country', ''):
-                            current_entry['country'] = line
-
-                df = pd.DataFrame(entries)
+                df = parse_email_entries(file_content)
             else:
                 df = pd.read_csv(uploaded_file)
 
@@ -2238,24 +2239,7 @@ def email_campaign_section():
                 if file_content:
                     st.session_state.current_recipient_file = selected_file
                     if selected_file.endswith('.txt'):
-                        entries = []
-                        current_entry = {}
-                        for line in file_content.split('\n'):
-                            line = line.strip()
-                            if line:
-                                if '@' in line and '.' in line and ' ' not in line:
-                                    current_entry['email'] = line
-                                    entries.append(current_entry)
-                                    current_entry = {}
-                                elif not current_entry.get('name', ''):
-                                    current_entry['name'] = line
-                                elif not current_entry.get('department', ''):
-                                    current_entry['department'] = line
-                                elif not current_entry.get('university', ''):
-                                    current_entry['university'] = line
-                                elif not current_entry.get('country', ''):
-                                    current_entry['country'] = line
-                        df = pd.DataFrame(entries)
+                        df = parse_email_entries(file_content)
                     else:
                         df = pd.read_csv(StringIO(file_content))
 
@@ -2581,7 +2565,7 @@ def editor_invitation_section():
             preview_html = email_body.replace("$$Author_Name$$", "Professor John Doe")
             preview_html = preview_html.replace(
                 "$$Author_Address$$",
-                "Department of Computer Science<br>Harvard University<br>United States"
+                "Department of Computer Science<br>Harvard University<br>Cambridge, MA<br>United States"
             )
             preview_html = preview_html.replace("$$AuthorLastname$$", "Doe")
             preview_html = preview_html.replace("$$Department$$", "Computer Science")
@@ -2613,25 +2597,7 @@ def editor_invitation_section():
             st.session_state.current_recipient_file = uploaded_file.name
             if uploaded_file.name.endswith('.txt'):
                 file_content = read_uploaded_text(uploaded_file)
-                entries = []
-                current_entry = {}
-                for line in file_content.split('\n'):
-                    line = line.strip()
-                    if line:
-                        if '@' in line and '.' in line and ' ' not in line:
-                            current_entry['email'] = line
-                            entries.append(current_entry)
-                            current_entry = {}
-                        elif not current_entry.get('name', ''):
-                            current_entry['name'] = line
-                        elif not current_entry.get('department', ''):
-                            current_entry['department'] = line
-                        elif not current_entry.get('university', ''):
-                            current_entry['university'] = line
-                        elif not current_entry.get('country', ''):
-                            current_entry['country'] = line
-
-                df = pd.DataFrame(entries)
+                df = parse_email_entries(file_content)
             else:
                 df = pd.read_csv(uploaded_file)
 
@@ -2671,24 +2637,7 @@ def editor_invitation_section():
                 if file_content:
                     st.session_state.current_recipient_file = selected_file
                     if selected_file.endswith('.txt'):
-                        entries = []
-                        current_entry = {}
-                        for line in file_content.split('\n'):
-                            line = line.strip()
-                            if line:
-                                if '@' in line and '.' in line and ' ' not in line:
-                                    current_entry['email'] = line
-                                    entries.append(current_entry)
-                                    current_entry = {}
-                                elif not current_entry.get('name', ''):
-                                    current_entry['name'] = line
-                                elif not current_entry.get('department', ''):
-                                    current_entry['department'] = line
-                                elif not current_entry.get('university', ''):
-                                    current_entry['university'] = line
-                                elif not current_entry.get('country', ''):
-                                    current_entry['country'] = line
-                        df = pd.DataFrame(entries)
+                        df = parse_email_entries(file_content)
                     else:
                         df = pd.read_csv(StringIO(file_content))
 
