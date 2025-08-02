@@ -428,6 +428,7 @@ def parse_email_entries(file_content: str) -> pd.DataFrame:
 JOURNALS = [
     "Advances and Applications in Fluid Mechanics",
     "Advances in Fuzzy Sets and Systems",
+    "Biological Sciences and Biotechnology"
     "Far East Journal of Electronics and Communications",
     "Far East Journal of Mathematical Education",
     "International Journal of Nutrition and Dietetics",
@@ -455,7 +456,7 @@ JOURNALS = [
 # Editor Invitation journal list
 EDITOR_JOURNALS = [
     "Mechanical Engineering and Physics",
-    "Biological Sciences and Biotechnology",
+    "Editors Invitation - Biological Sciences and Biotechnology",
     "Materials Science and their Emerging Technologies",
     "Editors Invitation - Far East Journal of Endocrinology, Diabetes and Obesity",
     "Food & Dairy Sciences and their Emerging Technologies",
