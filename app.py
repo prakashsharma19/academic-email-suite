@@ -451,6 +451,25 @@ JOURNALS = [
     "Far East Journal of Endocrinology, Diabetes and Obesity",
     "Advances in Oceanography, Marine Science and their Resources",
     "Advances in Food & Dairy Sciences and Their Emerging Technologies (FDSET)"
+    "OA - Advances and Applications in Fluid Mechanics",
+    "OA - Advances in Fuzzy Sets and Systems",
+    "OA - Far East Journal of Electronics and Communications",
+    "OA - Far East Journal of Mathematical Education",
+    "OA - International Journal of Nutrition and Dietetics",
+    "OA - International Journal of Numerical Methods and Applications",
+    "OA - International Journal of Materials Engineering and Technology",
+    "OA - Advances and Applications in Discrete Mathematics",
+    "OA - Advances and Applications in Statistics",
+    "OA - Far East Journal of Applied Mathematics",
+    "OA - Far East Journal of Dynamical Systems",
+    "OA - Far East Journal of Mathematical Sciences (FJMS)",
+    "OA - Far East Journal of Theoretical Statistics",
+    "OA - JP Journal of Algebra, Number Theory and Applications",
+    "OA - JP Journal of Geometry and Topology",
+    "OA - JP Journal of Biostatistics",
+    "OA - JP Journal of Fixed Point Theory and Applications",
+    "OA - JP Journal of Heat and Mass Transfer",
+    "OA - Universal Journal of Mathematics and Mathematical Sciences"
 ]
 
 # Editor Invitation journal list
