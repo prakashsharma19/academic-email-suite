@@ -450,7 +450,7 @@ JOURNALS = [
     "Materials Science",
     "Far East Journal of Endocrinology, Diabetes and Obesity",
     "Advances in Oceanography, Marine Science and their Resources",
-    "Advances in Food & Dairy Sciences and Their Emerging Technologies (FDSET)"
+    "Advances in Food & Dairy Sciences and Their Emerging Technologies (FDSET)",
     "OA - Advances and Applications in Fluid Mechanics",
     "OA - Advances in Fuzzy Sets and Systems",
     "OA - Far East Journal of Electronics and Communications",
