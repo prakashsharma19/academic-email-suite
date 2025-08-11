@@ -153,7 +153,21 @@ def check_auth():
     
     if not st.session_state.authenticated:
         st.title("PPH Email Manager - Login")
-        
+        notice_html = """
+        <style>
+        .blinking-notice {
+            color: red;
+            font-weight: bold;
+            animation: blinker 1s linear infinite;
+        }
+        @keyframes blinker {
+            50% { opacity: 0; }
+        }
+        </style>
+        <p class="blinking-notice">Attention required!!!<br/>Contact app administrator for help.</p>
+        """
+        st.markdown(notice_html, unsafe_allow_html=True)
+
         with st.form("login_form"):
             username = st.text_input("Username")
             password = st.text_input("Password", type="password")
