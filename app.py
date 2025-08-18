@@ -759,16 +759,44 @@ def verify_email(email, api_key):
         return None
 
 def check_millionverifier_quota(api_key):
-    """Check actual remaining credits using MillionVerifier's official API"""
+    """Return remaining credits from MillionVerifier.
+
+    The MillionVerifier credit endpoint sometimes returns the credit
+    information in slightly different structures (integer, string, or nested
+    inside another object).  The previous implementation only handled one
+    very specific format which caused the UI to display an incorrect value –
+    typically ``1`` – for the remaining credit balance.
+
+    This function now normalises the API response and always returns an
+    integer credit balance.  If the API call fails or the response format is
+    unexpected, ``0`` is returned and a Streamlit error is displayed.
+    """
+
     url = f"https://api.millionverifier.com/api/v3/credits?api={api_key}"
     try:
-        response = requests.get(url)
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
         data = response.json()
-        if 'credits' in data:
-            return data['credits']
-        else:
+
+        # Credits may appear under different keys or as strings.
+        credits = (
+            data.get("credits")
+            or data.get("credit")
+            or data.get("credits_left")
+            or data.get("credit_left")
+        )
+
+        if credits is None:
             st.error(f"API Error: {data.get('error', 'Unknown error')}")
             return 0
+
+        try:
+            # Convert to integer in case the API returns a string/float
+            return int(float(credits))
+        except (ValueError, TypeError):
+            st.error(f"Unexpected credit format: {credits}")
+            return 0
+
     except Exception as e:
         st.error(f"Failed to check quota: {str(e)}")
         return 0
@@ -2792,8 +2820,10 @@ def email_verification_section():
     # Check verification quota using correct endpoint
     if config['millionverifier']['api_key']:
         with st.spinner("Checking verification quota..."):
-            remaining_quota = check_millionverifier_quota(config['millionverifier']['api_key'])
-            st.metric("Remaining Verification Credits", remaining_quota)
+            remaining_quota = check_millionverifier_quota(
+                config['millionverifier']['api_key']
+            )
+        st.metric("Remaining Verification Credits", remaining_quota)
     else:
         st.warning("MillionVerifier API key not configured")
     
