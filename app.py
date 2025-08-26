@@ -450,6 +450,8 @@ JOURNALS = [
     "Far East Journal of Endocrinology, Diabetes and Obesity",
     "Advances in Oceanography, Marine Science and their Resources",
     "Advances in Food & Dairy Sciences and Their Emerging Technologies (FDSET)",
+    "Advances in Computer Science and Engineering",
+    "Far East Journal of Experimental and Theoretical Artificial Intelligence",
     "OA - Advances and Applications in Fluid Mechanics",
     "OA - Advances in Fuzzy Sets and Systems",
     "OA - Far East Journal of Electronics and Communications",
@@ -498,6 +500,8 @@ EDITOR_JOURNALS = [
     "Editors Invitation - JP Journal of Biostatistics",
     "Editors Invitation - JP Journal of Fixed Point Theory and Applications",
     "Editors Invitation - Universal Journal of Mathematics and Mathematical Sciences",
+    "Editors Invitation - Advances in Computer Science and Engineering",
+    "Editors Invitation - Far East Journal of Experimental and Theoretical Artificial Intelligence",
     "Oceanography, Marine Science and their Resources"  
 ]
 
