@@ -502,7 +502,7 @@ EDITOR_JOURNALS = [
     "Editors Invitation - Universal Journal of Mathematics and Mathematical Sciences",
     "Editors Invitation - Advances in Computer Science and Engineering",
     "Editors Invitation - Far East Journal of Experimental and Theoretical Artificial Intelligence",
-    "OE - Editors Invitation - Advances and Applications in Fluid Mechanics""
+    "OE - Editors Invitation - Advances and Applications in Fluid Mechanics",
     "Oceanography, Marine Science and their Resources"
   ]
 
