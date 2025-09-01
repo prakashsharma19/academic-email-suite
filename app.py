@@ -502,8 +502,9 @@ EDITOR_JOURNALS = [
     "Editors Invitation - Universal Journal of Mathematics and Mathematical Sciences",
     "Editors Invitation - Advances in Computer Science and Engineering",
     "Editors Invitation - Far East Journal of Experimental and Theoretical Artificial Intelligence",
-    "Oceanography, Marine Science and their Resources"  
-]
+    "OE - Editors Invitation - Advances and Applications in Fluid Mechanics""
+    "Oceanography, Marine Science and their Resources"
+  ]
 
 # Default email template
 def get_journal_template(journal_name):
