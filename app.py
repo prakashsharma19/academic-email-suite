@@ -445,7 +445,9 @@ JOURNALS = [
     "JP Journal of Fixed Point Theory and Applications",
     "JP Journal of Heat and Mass Transfer",
     "Universal Journal of Mathematics and Mathematical Sciences",
+    "Far East Journal of Mechanical Engineering and Physics",
     "Mechanical Engineering",
+    "Advances in Materials Science and their Emerging Technologies",
     "Materials Science",
     "Far East Journal of Endocrinology, Diabetes and Obesity",
     "Advances in Oceanography, Marine Science and their Resources",
@@ -475,11 +477,13 @@ JOURNALS = [
 
 # Editor Invitation journal list
 EDITOR_JOURNALS = [
+    "Editors Invitation - Far East Journal of Mechanical Engineering and Physics",
     "Mechanical Engineering and Physics",
     "Editors Invitation - Biological Sciences and Biotechnology",
+    "Editors Invitation - Advances in Materials Science and their Emerging Technologies"
     "Materials Science and their Emerging Technologies",
     "Editors Invitation - Far East Journal of Endocrinology, Diabetes and Obesity",
-    "Food & Dairy Sciences and their Emerging Technologies",
+    "Editors Invitation - Food & Dairy Sciences and their Emerging Technologies",
     "Editors Invitation - Far East Journal of Mathematical Sciences (FJMS)",
     "Editors Invitation - JP Journal of Heat and Mass Transfer",
     "Editors Invitation - JP Journal of Geometry and Topology",
