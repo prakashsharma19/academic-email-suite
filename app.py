@@ -445,7 +445,6 @@ JOURNALS = [
     "Far East Journal of Mechanical Engineering and Physics",
     "Advances in Materials Science and their Emerging Technologies",
     "Far East Journal of Endocrinology, Diabetes and Obesity",
-    "Advances in Oceanography, Marine Science and their Resources",
     "Advances in Food & Dairy Sciences and Their Emerging Technologies (FDSET)",
     "Advances in Computer Science and Engineering",
     "Far East Journal of Experimental and Theoretical Artificial Intelligence",
