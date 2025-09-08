@@ -474,7 +474,7 @@ JOURNALS = [
 # Editor Invitation journal list
 EDITOR_JOURNALS = [
     "Editors Invitation - Far East Journal of Mechanical Engineering and Physics",
-    "Editors Invitation - Advances in Materials Science and their Emerging Technologies"
+    "Editors Invitation - Advances in Materials Science and their Emerging Technologies",
     "Editors Invitation - Far East Journal of Endocrinology, Diabetes and Obesity",
     "Editors Invitation - Advances in Food & Dairy Sciences and their Emerging Technologies",
     "Editors Invitation - Far East Journal of Mathematical Sciences (FJMS)",
