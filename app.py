@@ -474,11 +474,9 @@ JOURNALS = [
 # Editor Invitation journal list
 EDITOR_JOURNALS = [
     "Editors Invitation - Far East Journal of Mechanical Engineering and Physics",
-    "Mechanical Engineering and Physics",
     "Editors Invitation - Advances in Materials Science and their Emerging Technologies"
-    "Materials Science and their Emerging Technologies",
     "Editors Invitation - Far East Journal of Endocrinology, Diabetes and Obesity",
-    "Editors Invitation - Food & Dairy Sciences and their Emerging Technologies",
+    "Editors Invitation - Advances in Food & Dairy Sciences and their Emerging Technologies",
     "Editors Invitation - Far East Journal of Mathematical Sciences (FJMS)",
     "Editors Invitation - JP Journal of Heat and Mass Transfer",
     "Editors Invitation - JP Journal of Geometry and Topology",
@@ -504,7 +502,6 @@ EDITOR_JOURNALS = [
     "Editors Invitation - JP Journal of Solids and Structures",
     "Editors Invitation - Current Development in Oceanography",
     "OE - Editors Invitation - Advances and Applications in Fluid Mechanics",
-    "Oceanography, Marine Science and their Resources"
   ]
 
 # Default email template
