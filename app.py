@@ -436,6 +436,7 @@ JOURNALS = [
     "Far East Journal of Applied Mathematics",
     "Far East Journal of Dynamical Systems",
     "Far East Journal of Mathematical Sciences (FJMS)",
+    "FJMS - Far East Journal of Mathematical Sciences (FJMS)",
     "Far East Journal of Theoretical Statistics",
     "JP Journal of Algebra, Number Theory and Applications",
     "JP Journal of Geometry and Topology",
