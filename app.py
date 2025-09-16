@@ -153,22 +153,6 @@ def check_auth():
 
     if not st.session_state.authenticated:
         st.title("PPH Email Manager - Login")
-        st.markdown(
-            """
-            <style>
-            .blink {
-                animation: blinker 1s linear infinite;
-                color: red;
-                font-weight: bold;
-            }
-            @keyframes blinker {
-                50% { opacity: 0; }
-            }
-            </style>
-            <p class="blink">Attention required!!! Contact app adminiatrator for help.</p>
-            """,
-            unsafe_allow_html=True,
-        )
         with st.form("login_form"):
             username = st.text_input("Username")
             password = st.text_input("Password", type="password")
