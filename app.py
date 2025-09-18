@@ -469,6 +469,12 @@ JOURNALS = [
     "OA - JP Journal of Biostatistics",
     "OA - JP Journal of Fixed Point Theory and Applications",
     "OA - JP Journal of Heat and Mass Transfer",
+    "OA - Current Development in Oceanography",
+    "OA - JP Journal of Solids and Structures",
+    "OA - Far East Journal of Electronics and Communications",
+    "OA - Advances in Computer Science and Engineering",
+    "OA - Far East Journal of Experimental and Theoretical Artificial Intelligence",
+    "OA - Far East Journal of Mechanical Engineering and Physics",
     "OA - Universal Journal of Mathematics and Mathematical Sciences"
 ]
 
