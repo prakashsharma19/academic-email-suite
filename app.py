@@ -212,6 +212,8 @@ def init_session_state():
         st.session_state.auto_download_good = False
     if 'auto_download_low_risk' not in st.session_state:
         st.session_state.auto_download_low_risk = False
+    if 'auto_download_high_risk' not in st.session_state:
+        st.session_state.auto_download_high_risk = False
     if 'good_download_content' not in st.session_state:
         st.session_state.good_download_content = None
     if 'good_download_file_name' not in st.session_state:
@@ -220,6 +222,10 @@ def init_session_state():
         st.session_state.low_risk_download_content = None
     if 'low_risk_download_file_name' not in st.session_state:
         st.session_state.low_risk_download_file_name = None
+    if 'high_risk_download_content' not in st.session_state:
+        st.session_state.high_risk_download_content = None
+    if 'high_risk_download_file_name' not in st.session_state:
+        st.session_state.high_risk_download_file_name = None
     if 'current_recipient_file' not in st.session_state:
         st.session_state.current_recipient_file = None
     if 'current_verification_file' not in st.session_state:
@@ -919,19 +925,18 @@ def generate_report_file(df, report_type):
         return ""
 
     lower_results = df['verification_result'].astype(str).str.lower()
+    low_risk_statuses = ['catch_all', 'catchall', 'catch-all']
 
     if report_type == "good":
         valid_statuses = ['valid', 'ok', 'good']
-        filtered_df = df[lower_results.isin(valid_statuses)]
+        filtered_df = df[lower_results.isin(valid_statuses + low_risk_statuses)]
     elif report_type == "bad":
         filtered_df = df[lower_results == 'invalid']
     elif report_type == "risky":
         risky_statuses = ['unknown', 'risky', 'accept_all']
-        low_risk_statuses = ['catch_all', 'catchall', 'catch-all']
         mask = lower_results.isin(risky_statuses) & ~lower_results.isin(low_risk_statuses)
         filtered_df = df[mask]
     elif report_type == "low_risk":
-        low_risk_statuses = ['catch_all', 'catchall', 'catch-all']
         filtered_df = df[lower_results.isin(low_risk_statuses)]
     else:
         filtered_df = df
@@ -974,19 +979,26 @@ def generate_low_risk_emails_filename(original_name, count):
     return generate_email_report_filename(original_name, count, "LR_CQ")
 
 
+def generate_high_risk_emails_filename(original_name, count):
+    """Return a cleaned filename for high-risk emails."""
+    return generate_email_report_filename(original_name, count, "HIGH_RISK")
+
+
 def prepare_verification_downloads(result_df):
     """Populate session state with download content and filenames for reports."""
     good_count = st.session_state.verification_stats.get('good', 0)
     low_risk_count = st.session_state.verification_stats.get('low_risk', 0)
+    high_risk_count = st.session_state.verification_stats.get('risky', 0)
 
     source_name = st.session_state.get('current_verification_file')
     good_source_name = source_name or "good_emails.txt"
     low_risk_source_name = source_name or "low_risk_emails.txt"
+    high_risk_source_name = source_name or "high_risk_emails.txt"
 
     good_content = generate_report_file(result_df, "good")
     st.session_state.good_download_content = good_content
     st.session_state.good_download_file_name = generate_good_emails_filename(
-        good_source_name, good_count
+        good_source_name, good_count + low_risk_count
     )
     st.session_state.auto_download_good = True
 
@@ -995,7 +1007,14 @@ def prepare_verification_downloads(result_df):
     st.session_state.low_risk_download_file_name = generate_low_risk_emails_filename(
         low_risk_source_name, low_risk_count
     )
-    st.session_state.auto_download_low_risk = low_risk_count > 0
+    st.session_state.auto_download_low_risk = False
+
+    high_risk_content = generate_report_file(result_df, "risky")
+    st.session_state.high_risk_download_content = high_risk_content
+    st.session_state.high_risk_download_file_name = generate_high_risk_emails_filename(
+        high_risk_source_name, high_risk_count
+    )
+    st.session_state.auto_download_high_risk = high_risk_count > 0
 
 def analyze_subject_csv(df):
     """Return subject wise delivery, open and click rates."""
@@ -2973,17 +2992,17 @@ def email_verification_section():
             components.html(download_html)
             st.session_state.auto_download_good = False
 
-        if st.session_state.get("auto_download_low_risk"):
-            low_risk_content = st.session_state.get("low_risk_download_content", "")
-            low_risk_file_name = st.session_state.get("low_risk_download_file_name", "low_risk_emails.txt")
-            b64 = base64.b64encode(low_risk_content.encode()).decode()
+        if st.session_state.get("auto_download_high_risk"):
+            high_risk_content = st.session_state.get("high_risk_download_content", "")
+            high_risk_file_name = st.session_state.get("high_risk_download_file_name", "high_risk_emails.txt")
+            b64 = base64.b64encode(high_risk_content.encode()).decode()
             download_html = (
-                f'<a id="auto_low_risk_download" href="data:text/plain;base64,{b64}" '
-                f'download="{low_risk_file_name}"></a>'
+                f'<a id="auto_high_risk_download" href="data:text/plain;base64,{b64}" '
+                f'download="{high_risk_file_name}"></a>'
             )
-            download_html += "<script>document.getElementById('auto_low_risk_download').click();</script>"
+            download_html += "<script>document.getElementById('auto_high_risk_download').click();</script>"
             components.html(download_html)
-            st.session_state.auto_download_low_risk = False
+            st.session_state.auto_download_high_risk = False
 
         # Display stats
         stats_defaults = {
@@ -3037,26 +3056,29 @@ def email_verification_section():
         
         # First row of buttons
         col1, col2, col3, col4 = st.columns(4)
+        good_count = st.session_state.verification_stats.get('good', 0)
+        low_risk_count = st.session_state.verification_stats.get('low_risk', 0)
+        high_risk_count = st.session_state.verification_stats.get('risky', 0)
+        source_name = st.session_state.get('current_verification_file')
 
         with col1:
             good_content = generate_report_file(st.session_state.verified_emails, "good")
-            good_count = st.session_state.verification_stats.get('good', 0)
-            original_name = st.session_state.get('current_verification_file') or "good_emails.txt"
-            good_file_name = generate_good_emails_filename(original_name, good_count)
+            original_name = source_name or "good_emails.txt"
+            combined_good_count = good_count + low_risk_count
+            good_file_name = generate_good_emails_filename(original_name, combined_good_count)
             st.download_button(
-                label="Good Emails Only",
+                label="Good Emails (incl. Low Risk)",
                 data=good_content,
                 file_name=good_file_name,
                 mime="text/plain",
-                help="Download only emails verified as good",
+                help="Download emails verified as good plus low-risk catch-all addresses",
                 key="good_emails_btn",
                 use_container_width=True
             )
 
         with col2:
             low_risk_content = generate_report_file(st.session_state.verified_emails, "low_risk")
-            low_risk_count = st.session_state.verification_stats.get('low_risk', 0)
-            low_risk_name = st.session_state.get('current_verification_file') or "low_risk_emails.txt"
+            low_risk_name = source_name or "low_risk_emails.txt"
             low_risk_file_name = generate_low_risk_emails_filename(low_risk_name, low_risk_count)
             st.download_button(
                 label="Low Risk (Catch-all)",
@@ -3082,12 +3104,14 @@ def email_verification_section():
 
         with col4:
             risky_content = generate_report_file(st.session_state.verified_emails, "risky")
+            high_risk_name = source_name or "high_risk_emails.txt"
+            high_risk_file_name = generate_high_risk_emails_filename(high_risk_name, high_risk_count)
             st.download_button(
-                label="Risky Emails Only",
+                label="High Risk Emails",
                 data=risky_content,
-                file_name="risky_emails.txt",
+                file_name=high_risk_file_name,
                 mime="text/plain",
-                help="Download only emails verified as risky",
+                help="Download emails flagged as high risk",
                 key="risky_emails_btn",
                 use_container_width=True
             )
