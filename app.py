@@ -210,10 +210,16 @@ def init_session_state():
         st.session_state.verification_progress = 0
     if 'auto_download_good' not in st.session_state:
         st.session_state.auto_download_good = False
+    if 'auto_download_low_risk' not in st.session_state:
+        st.session_state.auto_download_low_risk = False
     if 'good_download_content' not in st.session_state:
         st.session_state.good_download_content = None
     if 'good_download_file_name' not in st.session_state:
         st.session_state.good_download_file_name = None
+    if 'low_risk_download_content' not in st.session_state:
+        st.session_state.low_risk_download_content = None
+    if 'low_risk_download_file_name' not in st.session_state:
+        st.session_state.low_risk_download_file_name = None
     if 'current_recipient_file' not in st.session_state:
         st.session_state.current_recipient_file = None
     if 'current_verification_file' not in st.session_state:
@@ -873,19 +879,28 @@ def process_email_list(file_content, api_key, log_id=None, resume_data=None):
         df['verification_result'] = [r.get('result', 'error') if r else 'error' for r in results]
         
         # Calculate verification stats
+        results_lower = df['verification_result'].astype(str).str.lower()
         total = len(df)
-        good = len(df[df['verification_result'].str.lower().isin(['valid', 'ok', 'good'])])
-        bad = len(df[df['verification_result'] == 'invalid'])
-        risky = len(df[df['verification_result'].str.lower().isin(['unknown', 'risky', 'accept_all'])])
-        
+        good_statuses = ['valid', 'ok', 'good']
+        risky_statuses = ['unknown', 'risky', 'accept_all']
+        low_risk_statuses = ['catch_all', 'catchall', 'catch-all']
+
+        good = int(results_lower.isin(good_statuses).sum())
+        bad = int((results_lower == 'invalid').sum())
+        low_risk_mask = results_lower.isin(low_risk_statuses)
+        low_risk = int(low_risk_mask.sum())
+        risky = int((results_lower.isin(risky_statuses) & ~low_risk_mask).sum())
+
         st.session_state.verification_stats = {
             'total': total,
             'good': good,
             'bad': bad,
             'risky': risky,
+            'low_risk': low_risk,
             'good_percent': round((good / total) * 100, 1) if total > 0 else 0,
             'bad_percent': round((bad / total) * 100, 1) if total > 0 else 0,
-            'risky_percent': round((risky / total) * 100, 1) if total > 0 else 0
+            'risky_percent': round((risky / total) * 100, 1) if total > 0 else 0,
+            'low_risk_percent': round((low_risk / total) * 100, 1) if total > 0 else 0,
         }
         if log_id:
             save_verification_results(log_id, df)
@@ -903,14 +918,21 @@ def generate_report_file(df, report_type):
     if df.empty:
         return ""
 
+    lower_results = df['verification_result'].astype(str).str.lower()
+
     if report_type == "good":
         valid_statuses = ['valid', 'ok', 'good']
-        filtered_df = df[df['verification_result'].str.lower().isin(valid_statuses)]
+        filtered_df = df[lower_results.isin(valid_statuses)]
     elif report_type == "bad":
-        filtered_df = df[df['verification_result'] == 'invalid']
+        filtered_df = df[lower_results == 'invalid']
     elif report_type == "risky":
         risky_statuses = ['unknown', 'risky', 'accept_all']
-        filtered_df = df[df['verification_result'].str.lower().isin(risky_statuses)]
+        low_risk_statuses = ['catch_all', 'catchall', 'catch-all']
+        mask = lower_results.isin(risky_statuses) & ~lower_results.isin(low_risk_statuses)
+        filtered_df = df[mask]
+    elif report_type == "low_risk":
+        low_risk_statuses = ['catch_all', 'catchall', 'catch-all']
+        filtered_df = df[lower_results.isin(low_risk_statuses)]
     else:
         filtered_df = df
 
@@ -931,15 +953,49 @@ def generate_report_file(df, report_type):
 
     return "\n\n".join(entries).strip()
 
-def generate_good_emails_filename(original_name, count):
-    """Return a cleaned filename for good emails with updated count."""
+def generate_email_report_filename(original_name, count, suffix):
+    """Return a cleaned filename for email reports with an updated count."""
     name_no_ext = os.path.splitext(original_name)[0]
     pattern = r"\(\d+\s*entries\)\s*-\s*.+$"
     if re.search(pattern, name_no_ext):
-        name_no_ext = re.sub(pattern, f"({count} entries) - CQ", name_no_ext)
+        name_no_ext = re.sub(pattern, f"({count} entries) - {suffix}", name_no_ext)
     else:
-        name_no_ext = f"{name_no_ext} ({count} entries) - CQ"
+        name_no_ext = f"{name_no_ext} ({count} entries) - {suffix}"
     return name_no_ext + ".txt"
+
+
+def generate_good_emails_filename(original_name, count):
+    """Return a cleaned filename for good emails with updated count."""
+    return generate_email_report_filename(original_name, count, "CQ")
+
+
+def generate_low_risk_emails_filename(original_name, count):
+    """Return a cleaned filename for low-risk (catch-all) emails."""
+    return generate_email_report_filename(original_name, count, "LR_CQ")
+
+
+def prepare_verification_downloads(result_df):
+    """Populate session state with download content and filenames for reports."""
+    good_count = st.session_state.verification_stats.get('good', 0)
+    low_risk_count = st.session_state.verification_stats.get('low_risk', 0)
+
+    source_name = st.session_state.get('current_verification_file')
+    good_source_name = source_name or "good_emails.txt"
+    low_risk_source_name = source_name or "low_risk_emails.txt"
+
+    good_content = generate_report_file(result_df, "good")
+    st.session_state.good_download_content = good_content
+    st.session_state.good_download_file_name = generate_good_emails_filename(
+        good_source_name, good_count
+    )
+    st.session_state.auto_download_good = True
+
+    low_risk_content = generate_report_file(result_df, "low_risk")
+    st.session_state.low_risk_download_content = low_risk_content
+    st.session_state.low_risk_download_file_name = generate_low_risk_emails_filename(
+        low_risk_source_name, low_risk_count
+    )
+    st.session_state.auto_download_low_risk = low_risk_count > 0
 
 def analyze_subject_csv(df):
     """Return subject wise delivery, open and click rates."""
@@ -2817,13 +2873,7 @@ def email_verification_section():
             )
             if not result_df.empty:
                 st.session_state.verified_emails = result_df
-                good_content = generate_report_file(result_df, "good")
-                good_count = st.session_state.verification_stats.get('good', 0)
-                original_name = st.session_state.get('current_verification_file') or "good_emails.txt"
-                good_file_name = generate_good_emails_filename(original_name, good_count)
-                st.session_state.good_download_content = good_content
-                st.session_state.good_download_file_name = good_file_name
-                st.session_state.auto_download_good = True
+                prepare_verification_downloads(result_df)
         st.session_state.verification_resume_data = None
         st.session_state.verification_resume_log_id = None
     
@@ -2859,13 +2909,7 @@ def email_verification_section():
                     result_df = process_email_list(file_content, config['millionverifier']['api_key'], log_id)
                     if not result_df.empty:
                         st.session_state.verified_emails = result_df
-                        good_content = generate_report_file(result_df, "good")
-                        good_count = st.session_state.verification_stats.get('good', 0)
-                        original_name = st.session_state.get('current_verification_file') or "good_emails.txt"
-                        good_file_name = generate_good_emails_filename(original_name, good_count)
-                        st.session_state.good_download_content = good_content
-                        st.session_state.good_download_file_name = good_file_name
-                        st.session_state.auto_download_good = True
+                        prepare_verification_downloads(result_df)
                         st.dataframe(result_df)
                     else:
                         st.error("No valid emails found in the file")
@@ -2908,13 +2952,7 @@ def email_verification_section():
                     )
                     if not result_df.empty:
                         st.session_state.verified_emails = result_df
-                        good_content = generate_report_file(result_df, "good")
-                        good_count = st.session_state.verification_stats.get('good', 0)
-                        original_name = st.session_state.get('current_verification_file') or "good_emails.txt"
-                        good_file_name = generate_good_emails_filename(original_name, good_count)
-                        st.session_state.good_download_content = good_content
-                        st.session_state.good_download_file_name = good_file_name
-                        st.session_state.auto_download_good = True
+                        prepare_verification_downloads(result_df)
                         st.dataframe(result_df)
                     else:
                         st.error("No valid emails found in the file")
@@ -2935,25 +2973,54 @@ def email_verification_section():
             components.html(download_html)
             st.session_state.auto_download_good = False
 
+        if st.session_state.get("auto_download_low_risk"):
+            low_risk_content = st.session_state.get("low_risk_download_content", "")
+            low_risk_file_name = st.session_state.get("low_risk_download_file_name", "low_risk_emails.txt")
+            b64 = base64.b64encode(low_risk_content.encode()).decode()
+            download_html = (
+                f'<a id="auto_low_risk_download" href="data:text/plain;base64,{b64}" '
+                f'download="{low_risk_file_name}"></a>'
+            )
+            download_html += "<script>document.getElementById('auto_low_risk_download').click();</script>"
+            components.html(download_html)
+            st.session_state.auto_download_low_risk = False
+
         # Display stats
-        stats = st.session_state.verification_stats
-        col1, col2, col3 = st.columns(3)
+        stats_defaults = {
+            'good': 0,
+            'good_percent': 0,
+            'bad': 0,
+            'bad_percent': 0,
+            'risky': 0,
+            'risky_percent': 0,
+            'low_risk': 0,
+            'low_risk_percent': 0,
+        }
+        stats = {**stats_defaults, **st.session_state.verification_stats}
+
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("Good Emails", f"{stats['good']} ({stats['good_percent']}%)", 
+            st.metric("Good Emails", f"{stats['good']} ({stats['good_percent']}%)",
                      help="Good emails are valid, existing emails. It is safe to send emails to them.")
         with col2:
-            st.metric("Bad Emails", f"{stats['bad']} ({stats['bad_percent']}%)", 
+            st.metric("Bad Emails", f"{stats['bad']} ({stats['bad_percent']}%)",
                      help="Bad emails don't exist, don't email them!")
         with col3:
-            st.metric("Risky Emails", f"{stats['risky']} ({stats['risky_percent']}%)", 
+            st.metric("Risky Emails", f"{stats['risky']} ({stats['risky_percent']}%)",
                      help="Risky emails may exist or not. Use with caution.")
-        
+        with col4:
+            st.metric(
+                "Low Risk Emails",
+                f"{stats['low_risk']} ({stats['low_risk_percent']}%)",
+                help="Catch-all addresses verified as low risk. Engage with caution and monitor delivery.",
+            )
+
         # Bar chart instead of pie chart
         plt.style.use("seaborn-v0_8-whitegrid")
         fig, ax = plt.subplots(figsize=(6, 3))
-        categories = ['Good', 'Bad', 'Risky']
-        counts = [stats['good'], stats['bad'], stats['risky']]
-        colors = ['#4CAF50', '#F44336', '#9C27B0']
+        categories = ['Good', 'Bad', 'Risky', 'Low Risk']
+        counts = [stats['good'], stats['bad'], stats['risky'], stats['low_risk']]
+        colors = ['#4CAF50', '#F44336', '#9C27B0', '#2196F3']
         
         bars = ax.bar(categories, counts, color=colors, edgecolor='black')
         ax.set_title('Email Verification Results')
@@ -2969,8 +3036,8 @@ def email_verification_section():
         st.subheader("Download Reports")
         
         # First row of buttons
-        col1, col2, col3 = st.columns(3)
-        
+        col1, col2, col3, col4 = st.columns(4)
+
         with col1:
             good_content = generate_report_file(st.session_state.verified_emails, "good")
             good_count = st.session_state.verification_stats.get('good', 0)
@@ -2985,8 +3052,23 @@ def email_verification_section():
                 key="good_emails_btn",
                 use_container_width=True
             )
-        
+
         with col2:
+            low_risk_content = generate_report_file(st.session_state.verified_emails, "low_risk")
+            low_risk_count = st.session_state.verification_stats.get('low_risk', 0)
+            low_risk_name = st.session_state.get('current_verification_file') or "low_risk_emails.txt"
+            low_risk_file_name = generate_low_risk_emails_filename(low_risk_name, low_risk_count)
+            st.download_button(
+                label="Low Risk (Catch-all)",
+                data=low_risk_content,
+                file_name=low_risk_file_name,
+                mime="text/plain",
+                help="Download catch-all addresses classified as low risk",
+                key="low_risk_emails_btn",
+                use_container_width=True,
+            )
+
+        with col3:
             bad_content = generate_report_file(st.session_state.verified_emails, "bad")
             st.download_button(
                 label="Bad Emails Only",
@@ -2997,8 +3079,8 @@ def email_verification_section():
                 key="bad_emails_btn",
                 use_container_width=True
             )
-        
-        with col3:
+
+        with col4:
             risky_content = generate_report_file(st.session_state.verified_emails, "risky")
             st.download_button(
                 label="Risky Emails Only",
