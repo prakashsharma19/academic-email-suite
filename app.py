@@ -187,7 +187,7 @@ def init_session_state():
     if 'selected_journal' not in st.session_state:
         st.session_state.selected_journal = None
     if 'email_service' not in st.session_state:
-        st.session_state.email_service = "SMTP2GO"
+        st.session_state.email_service = "MAILGUN"
     if 'campaign_history' not in st.session_state:
         st.session_state.campaign_history = []
     if 'journal_reply_addresses' not in st.session_state:
@@ -241,7 +241,10 @@ def init_session_state():
     if 'journal_subjects' not in st.session_state:
         st.session_state.journal_subjects = {}
     if 'sender_email' not in st.session_state:
-        st.session_state.sender_email = config['smtp2go']['sender']
+        st.session_state.sender_email = (
+            config.get('mailgun', {}).get('sender')
+            or config['smtp2go']['sender']
+        )
     if 'sender_name' not in st.session_state:
         st.session_state.sender_name = config['sender_name']
     if 'sender_base_name' not in st.session_state:
@@ -593,6 +596,11 @@ def load_config():
             'sender': os.getenv("SMTP2GO_SENDER_EMAIL", "noreply@cpsharma.com"),
             'template_id': os.getenv("SMTP2GO_TEMPLATE_ID", "")
         },
+        'mailgun': {
+            'api_key': os.getenv("MAILGUN_API_KEY", ""),
+            'domain': os.getenv("MAILGUN_DOMAIN", ""),
+            'sender': os.getenv("MAILGUN_SENDER_EMAIL", "")
+        },
         'sender_name': os.getenv("SENDER_NAME", "Pushpa Publishing House"),
         'webhook': {
             'url': os.getenv("WEBHOOK_URL", "")
@@ -670,7 +678,7 @@ def initialize_ses():
 def send_email_via_smtp2go(recipient, subject, body_html, body_text, unsubscribe_link, reply_to=None):
     try:
         api_url = "https://api.smtp2go.com/v3/email/send"
-        
+
         headers = {
             "List-Unsubscribe": f"<{unsubscribe_link}>",
             "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"
@@ -726,6 +734,64 @@ def send_email_via_smtp2go(recipient, subject, body_html, body_text, unsubscribe
     except Exception as e:
         st.error(f"Failed to send email via SMTP2GO: {str(e)}")
         return False, None
+
+
+def send_email_via_mailgun(recipient, subject, body_html, body_text, unsubscribe_link, reply_to=None):
+    try:
+        api_key = config['mailgun']['api_key']
+        domain = config['mailgun']['domain']
+        sender_email = config['mailgun']['sender'] or st.session_state.sender_email
+
+        if not api_key or not domain or not sender_email:
+            st.error("Mailgun configuration not complete")
+            return False, None
+
+        sender_name = st.session_state.sender_name
+        formatted_sender = formataddr((sender_name, sender_email))
+        api_url = f"https://api.mailgun.net/v3/{domain}/messages"
+
+        data = {
+            "from": formatted_sender,
+            "to": recipient,
+            "subject": subject,
+            "text": body_text,
+            "html": body_html,
+            "h:List-Unsubscribe": f"<{unsubscribe_link}>",
+            "h:List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        }
+
+        if reply_to:
+            data["h:Reply-To"] = reply_to
+
+        response = requests.post(
+            api_url,
+            auth=("api", api_key),
+            data=data,
+            timeout=10,
+        )
+
+        if not response.ok:
+            try:
+                error_message = response.json().get("message", response.text.strip())
+            except ValueError:
+                error_message = response.text.strip()
+            st.error(f"Mailgun HTTP {response.status_code}: {error_message}")
+            return False, None
+
+        try:
+            result = response.json()
+        except ValueError:
+            result = {}
+
+        message_id = result.get("id") or response.headers.get("X-Message-Id")
+        return True, message_id
+    except requests.exceptions.RequestException as e:
+        st.error(f"Mailgun request failed: {str(e)}")
+        return False, None
+    except Exception as e:
+        st.error(f"Failed to send email via Mailgun: {str(e)}")
+        return False, None
+
 
 def send_ses_email(ses_client, sender, recipient, subject, body_html, body_text, unsubscribe_link, reply_to=None):
     try:
@@ -1743,7 +1809,8 @@ def execute_campaign(campaign_data):
         subject = subject_cycle[i % len(subject_cycle)]
         subject = subject.replace("$$AuthorLastname$$", last_name)
 
-        if st.session_state.email_service == "SMTP2GO":
+        service = (st.session_state.email_service or "MAILGUN").upper()
+        if service == "SMTP2GO":
             success, email_id = send_email_via_smtp2go(
                 recipient_email,
                 subject,
@@ -1753,9 +1820,7 @@ def execute_campaign(campaign_data):
                 reply_to,
             )
         else:
-            response, email_id = send_ses_email(
-                st.session_state.ses_client,
-                f"{st.session_state.sender_name} <{st.session_state.sender_email}>",
+            success, email_id = send_email_via_mailgun(
                 recipient_email,
                 subject,
                 email_content,
@@ -1763,7 +1828,6 @@ def execute_campaign(campaign_data):
                 unsubscribe_link,
                 reply_to,
             )
-            success = response is not None
 
         if success:
             success_count += 1
@@ -2128,10 +2192,15 @@ def email_campaign_section():
     
     # Campaign settings in the sidebar
     with st.sidebar.expander("Campaign Settings", expanded=False):
-        st.session_state.email_service = st.radio(
+        service_options = ["SMTP2GO", "MAILGUN"]
+        current_service = (st.session_state.email_service or "MAILGUN").upper()
+        default_index = service_options.index("MAILGUN")
+        if current_service in service_options:
+            default_index = service_options.index(current_service)
+        st.session_state.email_service = st.selectbox(
             "Select Email Service",
-            ["SMTP2GO", "Amazon SES"],
-            index=0 if st.session_state.email_service == "SMTP2GO" else 1,
+            service_options,
+            index=default_index,
             key="email_service_select"
         )
 
@@ -2414,14 +2483,19 @@ def email_campaign_section():
                 else:
                     csv_content = df.to_csv(index=False)
                     upload_to_firebase(csv_content, uploaded_file.name)
-            if st.session_state.email_service == "SMTP2GO" and not config['smtp2go']['api_key']:
-                st.error("SMTP2GO API key not configured")
-                return
-            elif st.session_state.email_service == "Amazon SES":
-                if not st.session_state.ses_client:
-                    initialize_ses()
-                if not st.session_state.ses_client:
-                    st.error("SES client not initialized. Please configure SES first.")
+            service = (st.session_state.email_service or "MAILGUN").upper()
+            if service == "SMTP2GO":
+                if not config['smtp2go']['api_key']:
+                    st.error("SMTP2GO API key not configured")
+                    return
+            else:
+                mailgun_config = config.get('mailgun', {})
+                if not (
+                    mailgun_config.get('api_key')
+                    and mailgun_config.get('domain')
+                    and (mailgun_config.get('sender') or st.session_state.sender_email)
+                ):
+                    st.error("Mailgun configuration not complete")
                     return
 
             email_body = st.session_state.get(
@@ -2530,10 +2604,15 @@ def editor_invitation_section():
 
     # Campaign settings in the sidebar
     with st.sidebar.expander("Campaign Settings", expanded=False):
-        st.session_state.email_service = st.radio(
+        service_options = ["SMTP2GO", "MAILGUN"]
+        current_service = (st.session_state.email_service or "MAILGUN").upper()
+        default_index = service_options.index("MAILGUN")
+        if current_service in service_options:
+            default_index = service_options.index(current_service)
+        st.session_state.email_service = st.selectbox(
             "Select Email Service",
-            ["SMTP2GO", "Amazon SES"],
-            index=0 if st.session_state.email_service == "SMTP2GO" else 1,
+            service_options,
+            index=default_index,
             key="email_service_select_editor",
         )
 
@@ -2811,14 +2890,19 @@ def editor_invitation_section():
                 else:
                     csv_content = df.to_csv(index=False)
                     upload_to_firebase(csv_content, uploaded_file.name)
-            if st.session_state.email_service == "SMTP2GO" and not config['smtp2go']['api_key']:
-                st.error("SMTP2GO API key not configured")
-                return
-            elif st.session_state.email_service == "Amazon SES":
-                if not st.session_state.ses_client:
-                    initialize_ses()
-                if not st.session_state.ses_client:
-                    st.error("SES client not initialized. Please configure SES first.")
+            service = (st.session_state.email_service or "MAILGUN").upper()
+            if service == "SMTP2GO":
+                if not config['smtp2go']['api_key']:
+                    st.error("SMTP2GO API key not configured")
+                    return
+            else:
+                mailgun_config = config.get('mailgun', {})
+                if not (
+                    mailgun_config.get('api_key')
+                    and mailgun_config.get('domain')
+                    and (mailgun_config.get('sender') or st.session_state.sender_email)
+                ):
+                    st.error("Mailgun configuration not complete")
                     return
 
             email_body = st.session_state.get(
@@ -3145,8 +3229,10 @@ def email_verification_section():
 
 def analytics_section():
     st.header("Comprehensive Email Analytics")
-    
-    if st.session_state.email_service == "SMTP2GO":
+
+    service = (st.session_state.email_service or "MAILGUN").upper()
+
+    if service == "SMTP2GO":
         st.info("SMTP2GO Analytics Dashboard")
 
         # Fetch detailed analytics
@@ -3360,46 +3446,7 @@ def analytics_section():
         else:
             st.info("No analytics data available yet. Please send some emails first.")
     else:
-        if not st.session_state.ses_client:
-            initialize_ses()
-            
-        if not st.session_state.ses_client:
-            st.error("SES client not initialized")
-            return
-        
-        try:
-            stats = st.session_state.ses_client.get_send_statistics()
-            datapoints = stats['SendDataPoints']
-            
-            if not datapoints:
-                st.info("No email statistics available yet.")
-                return
-            
-            df = pd.DataFrame(datapoints)
-            df['Timestamp'] = pd.to_datetime(df['Timestamp'])
-            df.set_index('Timestamp', inplace=True)
-            
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Delivery Attempts", df['DeliveryAttempts'].sum())
-            with col2:
-                delivery_rate = (df['DeliveryAttempts'].sum() - df['Bounces'].sum()) / df['DeliveryAttempts'].sum() * 100
-                st.metric("Delivery Rate", f"{delivery_rate:.2f}%")
-            with col3:
-                st.metric("Bounces", df['Bounces'].sum())
-            with col4:
-                st.metric("Complaints", df['Complaints'].sum())
-            
-            st.line_chart(df[['DeliveryAttempts', 'Bounces', 'Complaints']])
-            
-            bounce_response = st.session_state.ses_client.list_bounces()
-            if bounce_response['Bounces']:
-                st.subheader("Bounce Details")
-                bounce_df = pd.DataFrame(bounce_response['Bounces'])
-                st.dataframe(bounce_df)
-            
-        except Exception as e:
-            st.error(f"Failed to fetch analytics: {str(e)}")
+        st.info("Mailgun analytics are not available in this dashboard yet.")
 
 def fetch_smtp2go_analytics():
     """Retrieve analytics details from SMTP2GO using POST requests."""
@@ -3449,7 +3496,9 @@ def fetch_smtp2go_analytics():
 def show_email_analytics():
     st.subheader("Email Campaign Analytics Dashboard")
 
-    if st.session_state.email_service == "SMTP2GO":
+    service = (st.session_state.email_service or "MAILGUN").upper()
+
+    if service == "SMTP2GO":
         analytics_data = fetch_smtp2go_analytics()
 
         if not st.session_state.campaign_history:
@@ -3569,43 +3618,7 @@ def show_email_analytics():
         else:
             st.info("No analytics data available yet. Please send some emails first.")
     else:
-        if not st.session_state.ses_client:
-            st.error("SES client not initialized")
-            return
-        
-        try:
-            stats = st.session_state.ses_client.get_send_statistics()
-            datapoints = stats['SendDataPoints']
-            
-            if not datapoints:
-                st.info("No email statistics available yet.")
-                return
-            
-            df = pd.DataFrame(datapoints)
-            df['Timestamp'] = pd.to_datetime(df['Timestamp'])
-            df.set_index('Timestamp', inplace=True)
-            
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Delivery Attempts", df['DeliveryAttempts'].sum())
-            with col2:
-                delivery_rate = (df['DeliveryAttempts'].sum() - df['Bounces'].sum()) / df['DeliveryAttempts'].sum() * 100
-                st.metric("Delivery Rate", f"{delivery_rate:.2f}%")
-            with col3:
-                st.metric("Bounces", df['Bounces'].sum())
-            with col4:
-                st.metric("Complaints", df['Complaints'].sum())
-            
-            st.line_chart(df[['DeliveryAttempts', 'Bounces', 'Complaints']])
-            
-            bounce_response = st.session_state.ses_client.list_bounces()
-            if bounce_response['Bounces']:
-                st.subheader("Bounce Details")
-                bounce_df = pd.DataFrame(bounce_response['Bounces'])
-                st.dataframe(bounce_df)
-            
-        except Exception as e:
-            st.error(f"Failed to fetch analytics: {str(e)}")
+        st.info("Mailgun analytics are not available in this dashboard yet.")
 
 def main():
     # Check authentication
