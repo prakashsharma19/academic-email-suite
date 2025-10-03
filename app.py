@@ -995,7 +995,7 @@ def generate_report_file(df, report_type):
 
     if report_type == "good":
         valid_statuses = ['valid', 'ok', 'good']
-        filtered_df = df[lower_results.isin(valid_statuses + low_risk_statuses)]
+        filtered_df = df[lower_results.isin(valid_statuses)]
     elif report_type == "bad":
         filtered_df = df[lower_results == 'invalid']
     elif report_type == "risky":
@@ -1037,12 +1037,12 @@ def generate_email_report_filename(original_name, count, suffix):
 
 def generate_good_emails_filename(original_name, count):
     """Return a cleaned filename for good emails with updated count."""
-    return generate_email_report_filename(original_name, count, "CQ")
+    return generate_email_report_filename(original_name, count, "GOOD_EMAIL")
 
 
 def generate_low_risk_emails_filename(original_name, count):
     """Return a cleaned filename for low-risk (catch-all) emails."""
-    return generate_email_report_filename(original_name, count, "LR_CQ")
+    return generate_email_report_filename(original_name, count, "LOW_RISK_EMAIL")
 
 
 def generate_high_risk_emails_filename(original_name, count):
@@ -1064,7 +1064,7 @@ def prepare_verification_downloads(result_df):
     good_content = generate_report_file(result_df, "good")
     st.session_state.good_download_content = good_content
     st.session_state.good_download_file_name = generate_good_emails_filename(
-        good_source_name, good_count + low_risk_count
+        good_source_name, good_count
     )
     st.session_state.auto_download_good = True
 
@@ -1073,7 +1073,7 @@ def prepare_verification_downloads(result_df):
     st.session_state.low_risk_download_file_name = generate_low_risk_emails_filename(
         low_risk_source_name, low_risk_count
     )
-    st.session_state.auto_download_low_risk = False
+    st.session_state.auto_download_low_risk = low_risk_count > 0
 
     high_risk_content = generate_report_file(result_df, "risky")
     st.session_state.high_risk_download_content = high_risk_content
@@ -3076,6 +3076,18 @@ def email_verification_section():
             components.html(download_html)
             st.session_state.auto_download_good = False
 
+        if st.session_state.get("auto_download_low_risk"):
+            low_risk_content = st.session_state.get("low_risk_download_content", "")
+            low_risk_file_name = st.session_state.get("low_risk_download_file_name", "low_risk_emails.txt")
+            b64 = base64.b64encode(low_risk_content.encode()).decode()
+            download_html = (
+                f'<a id="auto_low_risk_download" href="data:text/plain;base64,{b64}" '
+                f'download="{low_risk_file_name}"></a>'
+            )
+            download_html += "<script>document.getElementById('auto_low_risk_download').click();</script>"
+            components.html(download_html)
+            st.session_state.auto_download_low_risk = False
+
         if st.session_state.get("auto_download_high_risk"):
             high_risk_content = st.session_state.get("high_risk_download_content", "")
             high_risk_file_name = st.session_state.get("high_risk_download_file_name", "high_risk_emails.txt")
@@ -3148,14 +3160,13 @@ def email_verification_section():
         with col1:
             good_content = generate_report_file(st.session_state.verified_emails, "good")
             original_name = source_name or "good_emails.txt"
-            combined_good_count = good_count + low_risk_count
-            good_file_name = generate_good_emails_filename(original_name, combined_good_count)
+            good_file_name = generate_good_emails_filename(original_name, good_count)
             st.download_button(
-                label="Good Emails (incl. Low Risk)",
+                label="Good Emails",
                 data=good_content,
                 file_name=good_file_name,
                 mime="text/plain",
-                help="Download emails verified as good plus low-risk catch-all addresses",
+                help="Download emails verified as good",
                 key="good_emails_btn",
                 use_container_width=True
             )
@@ -3165,7 +3176,7 @@ def email_verification_section():
             low_risk_name = source_name or "low_risk_emails.txt"
             low_risk_file_name = generate_low_risk_emails_filename(low_risk_name, low_risk_count)
             st.download_button(
-                label="Low Risk (Catch-all)",
+                label="Low Risk Emails",
                 data=low_risk_content,
                 file_name=low_risk_file_name,
                 mime="text/plain",
