@@ -1037,7 +1037,7 @@ def generate_email_report_filename(original_name, count, suffix):
 
 def generate_good_emails_filename(original_name, count):
     """Return a cleaned filename for good emails with updated count."""
-    return generate_email_report_filename(original_name, count, "GOOD_EMAIL")
+    return generate_email_report_filename(original_name, count, "CQ")
 
 
 def generate_low_risk_emails_filename(original_name, count):
