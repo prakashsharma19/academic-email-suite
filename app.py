@@ -758,6 +758,10 @@ def send_email_via_mailgun(recipient, subject, body_html, body_text, unsubscribe
             "html": body_html,
             "h:List-Unsubscribe": f"<{unsubscribe_link}>",
             "h:List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+            "o:unsubscribe": "true",
+            "o:tracking": "true",
+            "o:tracking-clicks": "true",
+            "o:tracking-opens": "true",
         }
 
         if reply_to:
@@ -1801,7 +1805,8 @@ def execute_campaign(campaign_data):
         email_content = email_content.replace("$$Journal_Name$$", journal)
 
         unsubscribe_link = f"{unsubscribe_base_url}{row.get('email', '')}"
-        email_content = email_content.replace("$$Unsubscribe_Link$$", unsubscribe_link)
+        for unsubscribe_placeholder in ("$$Unsubscribe_Link$$", "%unsubscribe_url%"):
+            email_content = email_content.replace(unsubscribe_placeholder, unsubscribe_link)
 
         plain_text = email_content.replace("<br>", "\n").replace("</p>", "\n\n").replace("<p>", "")
 
@@ -2365,7 +2370,8 @@ def email_campaign_section():
             - $$Country$$: Author's country
             - $$Author_Email$$: Author's email
             - $$Journal_Name$$: Selected journal name
-            - $$Unsubscribe_Link$$: Unsubscribe link""")
+            - $$Unsubscribe_Link$$: Unsubscribe link
+            - %unsubscribe_url%: Mailgun unsubscribe link""")
 
         with preview_col:
             st.markdown("**Preview**")
@@ -2384,10 +2390,11 @@ def email_campaign_section():
                 "$$Journal_Name$$",
                 journal_name
             )
-            preview_html = preview_html.replace(
-                "$$Unsubscribe_Link$$",
-                "https://pphmjopenaccess.com/unsubscribe?email=john.doe@harvard.edu"
-            )
+            for unsubscribe_placeholder in ("$$Unsubscribe_Link$$", "%unsubscribe_url%"):
+                preview_html = preview_html.replace(
+                    unsubscribe_placeholder,
+                    "https://pphmjopenaccess.com/unsubscribe?email=john.doe@harvard.edu"
+                )
 
 
             components.html(preview_html, height=400, scrolling=True)
@@ -2775,7 +2782,8 @@ def editor_invitation_section():
             - $$Country$$: Author's country
             - $$Author_Email$$: Author's email
             - $$Journal_Name$$: Selected journal name
-            - $$Unsubscribe_Link$$: Unsubscribe link""")
+            - $$Unsubscribe_Link$$: Unsubscribe link
+            - %unsubscribe_url%: Mailgun unsubscribe link""")
 
         with preview_col:
             st.markdown("**Preview**")
@@ -2794,10 +2802,11 @@ def editor_invitation_section():
                 "$$Journal_Name$$",
                 journal_name
             )
-            preview_html = preview_html.replace(
-                "$$Unsubscribe_Link$$",
-                "https://pphmjopenaccess.com/unsubscribe?email=john.doe@harvard.edu"
-            )
+            for unsubscribe_placeholder in ("$$Unsubscribe_Link$$", "%unsubscribe_url%"):
+                preview_html = preview_html.replace(
+                    unsubscribe_placeholder,
+                    "https://pphmjopenaccess.com/unsubscribe?email=john.doe@harvard.edu"
+                )
 
             components.html(preview_html, height=400, scrolling=True)
 
