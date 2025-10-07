@@ -76,6 +76,13 @@ def _store_feedback(email: str, message: str, status: str):
     }
 
 
+def _ensure_session_state_defaults():
+    if "firebase_initialized" not in st.session_state:
+        st.session_state.firebase_initialized = False
+    if "unsubscribed_users_loaded" not in st.session_state:
+        st.session_state.unsubscribed_users_loaded = False
+
+
 def _render_template(**context):
     template = _load_unsubscribe_template()
     html = template.render(**context)
@@ -83,6 +90,7 @@ def _render_template(**context):
 
 
 def _ensure_firebase_loaded():
+    _ensure_session_state_defaults()
     if not st.session_state.firebase_initialized:
         initialize_firebase()
     if not st.session_state.unsubscribed_users_loaded:
