@@ -10,6 +10,8 @@ import os
 import pytz
 import re
 import hashlib
+import hmac
+import logging
 from datetime import datetime, timedelta
 from io import StringIO, BytesIO
 import base64
@@ -21,8 +23,28 @@ from streamlit_ace import st_ace
 import firebase_admin
 from firebase_admin import credentials, firestore
 import matplotlib.pyplot as plt
+from flask import Flask, request, jsonify, abort
 
 import threading
+import copy
+
+
+logger = logging.getLogger("academic_email_suite")
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+    logger.addHandler(handler)
+logger.setLevel(logging.INFO)
+
+
+webhook_app = Flask(__name__)
+webhook_server_started = False
+webhook_server_lock = threading.Lock()
+
+UNSUBSCRIBED_CACHE = {"records": [], "emails": set(), "loaded": False}
+UNSUBSCRIBED_CACHE_LOCK = threading.Lock()
+
+MAILGUN_SIGNATURE_TOLERANCE_SECONDS = 300
 
 # App Configuration
 st.set_page_config(
@@ -201,6 +223,12 @@ def init_session_state():
         st.session_state.firebase_files = []
     if 'firebase_files_verification' not in st.session_state:
         st.session_state.firebase_files_verification = []
+    if 'unsubscribed_users' not in st.session_state:
+        st.session_state.unsubscribed_users = []
+    if 'unsubscribed_email_lookup' not in st.session_state:
+        st.session_state.unsubscribed_email_lookup = set()
+    if 'unsubscribed_users_loaded' not in st.session_state:
+        st.session_state.unsubscribed_users_loaded = False
     if 'current_verification_list' not in st.session_state:
         st.session_state.current_verification_list = None
     if 'verification_stats' not in st.session_state:
@@ -282,6 +310,240 @@ def init_session_state():
         st.session_state.verification_resume_data = None
     if 'verification_resume_log_id' not in st.session_state:
         st.session_state.verification_resume_log_id = None
+
+
+def invalidate_unsubscribed_cache():
+    global UNSUBSCRIBED_CACHE
+    with UNSUBSCRIBED_CACHE_LOCK:
+        UNSUBSCRIBED_CACHE = {"records": [], "emails": set(), "loaded": False}
+    try:
+        st.session_state.unsubscribed_users_loaded = False
+    except RuntimeError:
+        # Accessing session state outside the Streamlit context will raise a RuntimeError.
+        pass
+
+
+def verify_mailgun_signature(signing_key, timestamp, token, signature):
+    if not signing_key:
+        return False, "Mailgun signing key not configured"
+    if not all([timestamp, token, signature]):
+        return False, "Missing signature parameters"
+    try:
+        timestamp_int = int(float(timestamp))
+    except (TypeError, ValueError):
+        return False, "Invalid timestamp"
+
+    current_ts = int(time.time())
+    if abs(current_ts - timestamp_int) > MAILGUN_SIGNATURE_TOLERANCE_SECONDS:
+        return False, "Expired signature timestamp"
+
+    expected = hmac.new(
+        signing_key.encode("utf-8"),
+        msg=f"{timestamp_int}{token}".encode("utf-8"),
+        digestmod=hashlib.sha256,
+    ).hexdigest()
+
+    if not hmac.compare_digest(expected, signature):
+        return False, "Signature mismatch"
+
+    return True, None
+
+
+def set_email_unsubscribed(email, event_payload=None):
+    email_normalized = (email or "").strip().lower()
+    if not email_normalized:
+        logger.warning("Attempted to mark empty email as unsubscribed")
+        return False
+
+    db = get_firestore_db()
+    if not db:
+        logger.error("Firestore client unavailable while processing unsubscribe for %s", email_normalized)
+        return False
+
+    unsubscribed_at = datetime.utcnow()
+    event_type = None
+    mailing_list = None
+    reason = None
+    tags = None
+    if isinstance(event_payload, dict):
+        event_type = event_payload.get("event")
+        tags = event_payload.get("tags")
+        event_ts = event_payload.get("timestamp")
+        if event_ts:
+            try:
+                unsubscribed_at = datetime.utcfromtimestamp(float(event_ts))
+            except Exception:
+                logger.debug("Unable to parse event timestamp for %s", email_normalized)
+        mailing_list_data = event_payload.get("mailing-list")
+        if isinstance(mailing_list_data, dict):
+            mailing_list = mailing_list_data.get("address")
+        elif mailing_list_data:
+            mailing_list = mailing_list_data
+        reason = (
+            event_payload.get("reason")
+            or event_payload.get("description")
+            or (event_payload.get("body", {}) or {}).get("description")
+        )
+
+    record = {
+        "email": email_normalized,
+        "unsubscribed": True,
+        "unsubscribed_at": unsubscribed_at,
+        "updated_at": datetime.utcnow(),
+        "event": event_type,
+        "mailing_list": mailing_list,
+        "reason": reason,
+        "tags": tags,
+    }
+
+    if isinstance(event_payload, dict):
+        record["raw_event"] = event_payload
+
+    try:
+        doc_ref = db.collection("unsubscribed_users").document(email_normalized)
+        doc_ref.set({k: v for k, v in record.items() if v is not None}, merge=True)
+        invalidate_unsubscribed_cache()
+        logger.info("Marked %s as unsubscribed", email_normalized)
+        return True
+    except Exception as exc:
+        logger.exception("Failed to persist unsubscribe for %s: %s", email_normalized, exc)
+        return False
+
+
+def load_unsubscribed_users(force_refresh=False):
+    if force_refresh:
+        invalidate_unsubscribed_cache()
+
+    with UNSUBSCRIBED_CACHE_LOCK:
+        cache_loaded = UNSUBSCRIBED_CACHE["loaded"]
+        cached_records = copy.deepcopy(UNSUBSCRIBED_CACHE["records"]) if cache_loaded else None
+        cached_emails = set(UNSUBSCRIBED_CACHE["emails"]) if cache_loaded else set()
+
+    if cache_loaded:
+        st.session_state.unsubscribed_users = cached_records or []
+        st.session_state.unsubscribed_email_lookup = cached_emails
+        st.session_state.unsubscribed_users_loaded = True
+        return cached_records or []
+
+    db = get_firestore_db()
+    if not db:
+        return []
+
+    try:
+        unsubscribed_ref = db.collection("unsubscribed_users")
+        records = []
+        email_lookup = set()
+        for doc in unsubscribed_ref.stream():
+            data = doc.to_dict() or {}
+            email_value = (data.get("email") or doc.id or "").strip().lower()
+            if not email_value:
+                continue
+            unsubscribed_flag = data.get("unsubscribed", True)
+            unsubscribed_at = data.get("unsubscribed_at") or data.get("updated_at")
+            if isinstance(unsubscribed_at, datetime) and unsubscribed_at.tzinfo is not None:
+                unsubscribed_at = unsubscribed_at.astimezone(pytz.UTC).replace(tzinfo=None)
+
+            record = {
+                "email": email_value,
+                "unsubscribed": unsubscribed_flag,
+                "unsubscribed_at": unsubscribed_at,
+                "event": data.get("event"),
+                "mailing_list": data.get("mailing_list"),
+                "reason": data.get("reason"),
+                "tags": data.get("tags"),
+            }
+            records.append(record)
+            if unsubscribed_flag:
+                email_lookup.add(email_value)
+
+        records.sort(
+            key=lambda item: item.get("unsubscribed_at") if isinstance(item.get("unsubscribed_at"), datetime) else datetime.min,
+            reverse=True,
+        )
+
+        with UNSUBSCRIBED_CACHE_LOCK:
+            UNSUBSCRIBED_CACHE["records"] = copy.deepcopy(records)
+            UNSUBSCRIBED_CACHE["emails"] = set(email_lookup)
+            UNSUBSCRIBED_CACHE["loaded"] = True
+
+        st.session_state.unsubscribed_users = records
+        st.session_state.unsubscribed_email_lookup = email_lookup
+        st.session_state.unsubscribed_users_loaded = True
+        return records
+    except Exception as exc:
+        logger.exception("Failed to load unsubscribed users: %s", exc)
+        return []
+
+
+def is_email_unsubscribed(email):
+    if not email:
+        return False
+    lookup = st.session_state.get("unsubscribed_email_lookup", set())
+    return email.lower() in lookup
+
+
+@webhook_app.route("/unsubscribe", methods=["POST"])
+def unsubscribe_webhook():
+    signing_key = config.get("mailgun", {}).get("signing_key") or config.get("mailgun", {}).get("api_key")
+    if not signing_key:
+        abort(500, description="Mailgun signing key not configured")
+
+    timestamp = request.form.get("timestamp")
+    token = request.form.get("token")
+    signature = request.form.get("signature")
+
+    valid, error_message = verify_mailgun_signature(signing_key, timestamp, token, signature)
+    if not valid:
+        logger.warning("Rejected unsubscribe webhook due to signature error: %s", error_message)
+        abort(403, description=error_message or "Invalid signature")
+
+    event_json = {}
+    event_data_raw = request.form.get("event-data")
+    if event_data_raw:
+        try:
+            event_json = json.loads(event_data_raw)
+        except json.JSONDecodeError:
+            logger.warning("Invalid event-data JSON received from Mailgun")
+            abort(400, description="Invalid event-data payload")
+    else:
+        body_json = request.get_json(silent=True) or {}
+        event_json = body_json.get("event-data", body_json)
+
+    event_type = (event_json.get("event") or "").lower()
+    if event_type not in {"unsubscribed", "unsubscribe", "complained"}:
+        logger.info("Ignoring webhook event of type '%s'", event_type)
+        return jsonify({"status": "ignored", "reason": f"Unsupported event '{event_type}'"})
+
+    email = (
+        event_json.get("recipient")
+        or event_json.get("address")
+        or request.form.get("recipient")
+        or request.form.get("address")
+    )
+
+    if not email:
+        abort(400, description="Recipient email missing")
+
+    if not set_email_unsubscribed(email, event_json):
+        abort(500, description="Failed to persist unsubscribe event")
+
+    return jsonify({"status": "success"})
+
+
+def ensure_webhook_server():
+    global webhook_server_started
+    with webhook_server_lock:
+        if webhook_server_started:
+            return
+
+        def run_server():
+            port = int(os.getenv("WEBHOOK_PORT", "8000"))
+            logger.info("Starting Mailgun unsubscribe webhook server on port %s", port)
+            webhook_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+
+        thread = threading.Thread(target=run_server, daemon=True)
+        thread.start()
+        webhook_server_started = True
 
 
 def update_sender_name():
@@ -600,7 +862,8 @@ def load_config():
         'mailgun': {
             'api_key': os.getenv("MAILGUN_API_KEY", ""),
             'domain': os.getenv("MAILGUN_DOMAIN", ""),
-            'sender': os.getenv("MAILGUN_SENDER_EMAIL", "")
+            'sender': os.getenv("MAILGUN_SENDER_EMAIL", ""),
+            'signing_key': os.getenv("MAILGUN_SIGNING_KEY", "")
         },
         'sender_name': os.getenv("SENDER_NAME", "Pushpa Publishing House"),
         'webhook': {
@@ -1767,12 +2030,26 @@ def execute_campaign(campaign_data):
     reply_to = st.session_state.journal_reply_addresses.get(journal, None)
     email_ids = []
 
+    # Always refresh the unsubscribe cache at the start of a campaign run to
+    # ensure newly unsubscribed users are respected immediately.
+    load_unsubscribed_users(force_refresh=True)
+
     for i in range(current_index, total_emails):
         if st.session_state.campaign_cancelled:
             break
 
         row = df.iloc[i]
         recipient_email = row.get('email', '')
+        if is_email_unsubscribed(recipient_email):
+            progress = (i + 1) / total_emails
+            progress_bar.progress(progress)
+            status_text.text(
+                f"Skipping {i+1} of {total_emails}: {recipient_email} (unsubscribed)"
+            )
+            update_campaign_progress(campaign_id, i + 1, success_count)
+            if log_id:
+                update_operation_log(log_id, progress=progress)
+            continue
         if is_email_blocked(recipient_email):
             progress = (i + 1) / total_emails
             progress_bar.progress(progress)
@@ -2415,72 +2692,183 @@ def email_campaign_section():
 
             components.html(preview_html, height=400, scrolling=True)
 
-    # File Upload
-    st.subheader("Recipient List")
-    col_src, col_clock = st.columns([1, 2])
-    with col_src:
-        file_source = st.radio("Select file source", ["Local Upload", "Cloud Storage"])
-    with col_clock:
-        display_world_clocks()
+    # Recipient management tabs
+    st.subheader("Recipient Management")
+    uploaded_file = None
+    file_content = None
+    df = None
 
-    if file_source == "Local Upload":
-        uploaded_file = st.file_uploader("Upload recipient list (CSV or TXT)", type=["csv", "txt"])
-        if uploaded_file:
-            st.session_state.current_recipient_file = uploaded_file.name
-            if uploaded_file.name.endswith('.txt'):
-                file_content = read_uploaded_text(uploaded_file)
-                df = parse_email_entries(file_content)
-            else:
-                df = pd.read_csv(uploaded_file)
+    recipients_tab, unsubscribed_tab = st.tabs(["Recipient List", "Unsubscribed Users"])
 
-            st.session_state.current_recipient_list = df
-            st.dataframe(df.head())
-            st.info(f"Total emails loaded: {len(df)}")
-            refresh_journal_data()
-
-            if st.button("Save to Cloud"):
-                if uploaded_file.name.endswith('.txt'):
-                    if upload_to_firebase(file_content, uploaded_file.name):
-                        st.success("File uploaded to Firebase successfully!")
-                else:
-                    csv_content = df.to_csv(index=False)
-                    if upload_to_firebase(csv_content, uploaded_file.name):
-                        st.success("File uploaded to Firebase successfully!")
-    else:
-        if 'firebase_files' not in st.session_state or not st.session_state.firebase_files:
-            st.session_state.firebase_files = list_firebase_files()
-
-        if 'firebase_files' in st.session_state and st.session_state.firebase_files:
-            sel_col, del_col = st.columns([8,1])
-            selected_file = sel_col.selectbox(
-                "Select file from Firebase",
-                st.session_state.firebase_files,
-                key="select_file_campaign",
+    with recipients_tab:
+        col_src, col_clock = st.columns([1, 2])
+        with col_src:
+            file_source = st.radio(
+                "Select file source",
+                ["Local Upload", "Cloud Storage"],
+                key="recipient_file_source",
             )
-            if del_col.button("🗑️", key="del_selected_campaign"):
-                if delete_firebase_file(selected_file):
-                    st.session_state.firebase_files.remove(selected_file)
-                    st.success(f"{selected_file} deleted!")
-                    st.experimental_rerun()
+        with col_clock:
+            display_world_clocks()
 
-            col_load, _ = st.columns([1, 1])
-            if col_load.button("Load File", key="load_file_campaign"):
-                file_content = download_from_firebase(selected_file)
-                if file_content:
-                    st.session_state.current_recipient_file = selected_file
-                    if selected_file.endswith('.txt'):
-                        df = parse_email_entries(file_content)
+        unsubscribed_lookup = st.session_state.get("unsubscribed_email_lookup", set())
+
+        if file_source == "Local Upload":
+            uploaded_file = st.file_uploader(
+                "Upload recipient list (CSV or TXT)",
+                type=["csv", "txt"],
+                key="recipient_file_uploader",
+            )
+            if uploaded_file:
+                st.session_state.current_recipient_file = uploaded_file.name
+                if uploaded_file.name.endswith('.txt'):
+                    file_content = read_uploaded_text(uploaded_file)
+                    df = parse_email_entries(file_content)
+                else:
+                    df = pd.read_csv(uploaded_file)
+
+                st.session_state.current_recipient_list = df
+                st.dataframe(df.head())
+                st.info(f"Total emails loaded: {len(df)}")
+
+                if unsubscribed_lookup and 'email' in df.columns:
+                    unsubscribed_matches = (
+                        df['email']
+                        .fillna("")
+                        .astype(str)
+                        .str.lower()
+                        .isin(unsubscribed_lookup)
+                    )
+                    unsubscribed_count = int(unsubscribed_matches.sum())
+                    if unsubscribed_count:
+                        st.warning(
+                            f"{unsubscribed_count} recipient(s) have unsubscribed and will be skipped automatically."
+                        )
+
+                refresh_journal_data()
+
+                if st.button("Save to Cloud"):
+                    if uploaded_file.name.endswith('.txt'):
+                        if upload_to_firebase(file_content, uploaded_file.name):
+                            st.success("File uploaded to Firebase successfully!")
                     else:
-                        df = pd.read_csv(StringIO(file_content))
-
-                    st.session_state.current_recipient_list = df
-                    st.dataframe(df.head())
-                    st.info(f"Total emails loaded: {len(df)}")
-                    refresh_journal_data()
+                        csv_content = df.to_csv(index=False)
+                        if upload_to_firebase(csv_content, uploaded_file.name):
+                            st.success("File uploaded to Firebase successfully!")
         else:
-            st.info("No files found in Cloud Storage")
-        
-        
+            if 'firebase_files' not in st.session_state or not st.session_state.firebase_files:
+                st.session_state.firebase_files = list_firebase_files()
+
+            if st.session_state.firebase_files:
+                sel_col, del_col = st.columns([8, 1])
+                selected_file = sel_col.selectbox(
+                    "Select file from Firebase",
+                    st.session_state.firebase_files,
+                    key="select_file_campaign",
+                )
+                if del_col.button("🗑️", key="del_selected_campaign"):
+                    if delete_firebase_file(selected_file):
+                        st.session_state.firebase_files.remove(selected_file)
+                        st.success(f"{selected_file} deleted!")
+                        st.experimental_rerun()
+
+                col_load, _ = st.columns([1, 1])
+                if col_load.button("Load File", key="load_file_campaign"):
+                    file_content = download_from_firebase(selected_file)
+                    if file_content:
+                        st.session_state.current_recipient_file = selected_file
+                        if selected_file.endswith('.txt'):
+                            df = parse_email_entries(file_content)
+                        else:
+                            df = pd.read_csv(StringIO(file_content))
+
+                        st.session_state.current_recipient_list = df
+                        st.dataframe(df.head())
+                        st.info(f"Total emails loaded: {len(df)}")
+
+                        if unsubscribed_lookup and 'email' in df.columns:
+                            unsubscribed_matches = (
+                                df['email']
+                                .fillna("")
+                                .astype(str)
+                                .str.lower()
+                                .isin(unsubscribed_lookup)
+                            )
+                            unsubscribed_count = int(unsubscribed_matches.sum())
+                            if unsubscribed_count:
+                                st.warning(
+                                    f"{unsubscribed_count} recipient(s) have unsubscribed and will be skipped automatically."
+                                )
+
+                        refresh_journal_data()
+            else:
+                st.info("No files found in Cloud Storage")
+
+    with unsubscribed_tab:
+        st.caption(
+            "These contacts opted out via the Mailgun webhook and are automatically excluded from future campaigns."
+        )
+        if st.button("Refresh unsubscribe list"):
+            unsubscribe_records = load_unsubscribed_users(force_refresh=True)
+        else:
+            unsubscribe_records = st.session_state.get("unsubscribed_users", [])
+
+        signing_key = config.get("mailgun", {}).get("signing_key")
+        if not signing_key and config.get("mailgun", {}).get("api_key"):
+            st.info(
+                "Using the Mailgun API key for webhook signature verification. "
+                "Set MAILGUN_SIGNING_KEY for enhanced security."
+            )
+
+        webhook_base_url = config.get("webhook", {}).get("url")
+        if webhook_base_url:
+            webhook_endpoint = webhook_base_url.rstrip('/') + "/unsubscribe"
+            st.markdown(f"**Webhook Endpoint:** `{webhook_endpoint}`")
+        else:
+            port = os.getenv("WEBHOOK_PORT", "8000")
+            st.markdown(
+                f"Webhook server listening on `/unsubscribe` (local port {port}). "
+                "Expose this URL publicly and set WEBHOOK_URL for Mailgun notifications."
+            )
+
+        if unsubscribe_records:
+            display_rows = []
+            for record in unsubscribe_records:
+                unsubscribed_at = record.get("unsubscribed_at")
+                unsubscribed_at_str = ""
+                if isinstance(unsubscribed_at, datetime):
+                    unsubscribed_at_str = unsubscribed_at.strftime("%Y-%m-%d %H:%M:%S UTC")
+                display_rows.append(
+                    {
+                        "Email": record.get("email"),
+                        "Unsubscribed At": unsubscribed_at_str,
+                        "Event": record.get("event"),
+                        "Mailing List": record.get("mailing_list"),
+                        "Reason": record.get("reason"),
+                        "Tags": ", ".join(record.get("tags", [])) if record.get("tags") else "",
+                    }
+                )
+
+            unsubscribed_df = pd.DataFrame(display_rows)
+            st.metric("Total unsubscribed", len(unsubscribed_df))
+            st.dataframe(unsubscribed_df)
+
+            csv_buffer = StringIO()
+            unsubscribed_df.to_csv(csv_buffer, index=False)
+            st.download_button(
+                "Download Unsubscribed CSV",
+                csv_buffer.getvalue(),
+                "unsubscribed_users.csv",
+                "text/csv",
+                key="download_unsubscribed_csv",
+            )
+        else:
+            st.info("No unsubscribed users recorded yet.")
+
+
+    file_source = st.session_state.get("recipient_file_source", "Local Upload")
+
+
     # Send Options
     if 'current_recipient_list' in st.session_state and not st.session_state.campaign_paused:
         st.subheader("Campaign Options")
@@ -3675,7 +4063,12 @@ def main():
     # Initialize services
     if not st.session_state.firebase_initialized:
         initialize_firebase()
-    
+
+    ensure_webhook_server()
+
+    if not st.session_state.unsubscribed_users_loaded:
+        load_unsubscribed_users()
+
     if app_mode == "Email Campaign":
         email_campaign_section()
     elif app_mode == "Editor Invitation":
