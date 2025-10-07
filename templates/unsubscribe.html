@@ -113,11 +113,13 @@
         margin-bottom: 28px;
       }
 
-      .action-form {
+      .action-form,
+      .action-link-wrapper {
         flex: 1 1 200px;
       }
 
-      button {
+      button,
+      .action-link {
         width: 100%;
         border: none;
         border-radius: 999px;
@@ -126,11 +128,24 @@
         font-weight: 600;
         cursor: pointer;
         transition: transform 0.18s ease, box-shadow 0.18s ease;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        text-decoration: none;
+        box-shadow: 0 12px 25px rgba(31, 102, 255, 0.18);
       }
 
-      button:hover {
+      button:hover,
+      .action-link:hover {
         transform: translateY(-1px);
-        box-shadow: 0 12px 25px rgba(31, 102, 255, 0.18);
+        box-shadow: 0 16px 30px rgba(31, 102, 255, 0.25);
+      }
+
+      button:focus,
+      .action-link:focus {
+        outline: none;
+        box-shadow: 0 0 0 4px rgba(31, 102, 255, 0.25);
       }
 
       .btn-unsubscribe {
@@ -148,6 +163,7 @@
         cursor: not-allowed;
         box-shadow: none;
         transform: none !important;
+        pointer-events: none;
       }
 
       .details {
@@ -201,7 +217,29 @@
 
         {% if show_actions %}
         <div class="actions">
-          <form method="post" class="action-form">
+          {% if use_links_for_actions %}
+          <div class="action-link-wrapper">
+            <a
+              href="{{ unsubscribe_action_url }}"
+              class="action-link btn-unsubscribe{% if unsubscribed %} btn-disabled{% endif %}"
+              target="{{ link_target|default('_self') }}"
+              {% if unsubscribed %}aria-current="true"{% endif %}
+            >
+              Unsubscribe Me
+            </a>
+          </div>
+          <div class="action-link-wrapper">
+            <a
+              href="{{ resubscribe_action_url }}"
+              class="action-link btn-resubscribe{% if not unsubscribed %} btn-disabled{% endif %}"
+              target="{{ link_target|default('_self') }}"
+              {% if not unsubscribed %}aria-current="true"{% endif %}
+            >
+              Re-subscribe Me
+            </a>
+          </div>
+          {% else %}
+          <form method="{{ form_method|default('post') }}" class="action-form">
             <input type="hidden" name="email" value="{{ email }}" />
             <input type="hidden" name="action" value="unsubscribe" />
             <button
@@ -212,7 +250,7 @@
               Unsubscribe Me
             </button>
           </form>
-          <form method="post" class="action-form">
+          <form method="{{ form_method|default('post') }}" class="action-form">
             <input type="hidden" name="email" value="{{ email }}" />
             <input type="hidden" name="action" value="resubscribe" />
             <button
@@ -223,6 +261,7 @@
               Re-subscribe Me
             </button>
           </form>
+          {% endif %}
         </div>
         {% endif %}
 
