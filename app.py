@@ -488,10 +488,19 @@ def is_email_unsubscribed(email):
 def unsubscribe_webhook():
     if request.method == "GET":
         email = request.args.get("email", "").strip()
-        message = "You have been unsubscribed successfully"
+        message = "Your email has been unsubscribed successfully."
 
-        if email and EMAIL_VALIDATION_REGEX.match(email):
-            message = f"{email} has been unsubscribed successfully"
+        if email:
+            if EMAIL_VALIDATION_REGEX.match(email):
+                if not set_email_unsubscribed(email):
+                    message = (
+                        "We were unable to process your unsubscribe request at this time. "
+                        "Please try again later."
+                    )
+            else:
+                message = "The email address provided is invalid."
+        else:
+            message = "No email address was provided for unsubscribe."
 
         html_response = f"""
         <!DOCTYPE html>
