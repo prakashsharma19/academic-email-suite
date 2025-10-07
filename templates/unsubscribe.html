@@ -239,7 +239,11 @@
             </a>
           </div>
           {% else %}
-          <form method="{{ form_method|default('post') }}" class="action-form">
+          <form
+            method="{{ form_method|default('post') }}"
+            action="{{ form_action_url|default('') }}"
+            class="action-form"
+          >
             <input type="hidden" name="email" value="{{ email }}" />
             <input type="hidden" name="action" value="unsubscribe" />
             <button
@@ -250,7 +254,11 @@
               Unsubscribe Me
             </button>
           </form>
-          <form method="{{ form_method|default('post') }}" class="action-form">
+          <form
+            method="{{ form_method|default('post') }}"
+            action="{{ form_action_url|default('') }}"
+            class="action-form"
+          >
             <input type="hidden" name="email" value="{{ email }}" />
             <input type="hidden" name="action" value="resubscribe" />
             <button
