@@ -22,7 +22,7 @@ from streamlit_ace import st_ace
 import firebase_admin
 from firebase_admin import credentials, firestore
 import matplotlib.pyplot as plt
-from flask import Flask, request, jsonify, abort
+from flask import Flask, request, jsonify, abort, render_template
 
 import threading
 import copy
@@ -350,65 +350,95 @@ def verify_mailgun_signature(signing_key, timestamp, token, signature):
     return True, None
 
 
-def set_email_unsubscribed(email, event_payload=None):
+def set_email_subscription_status(email, unsubscribed, event_payload=None):
     email_normalized = (email or "").strip().lower()
     if not email_normalized:
-        logger.warning("Attempted to mark empty email as unsubscribed")
+        logger.warning(
+            "Attempted to update subscription status with empty email (unsubscribed=%s)",
+            unsubscribed,
+        )
         return False
 
     db = get_firestore_db()
     if not db:
-        logger.error("Firestore client unavailable while processing unsubscribe for %s", email_normalized)
+        logger.error(
+            "Firestore client unavailable while updating subscription for %s", email_normalized
+        )
         return False
 
-    unsubscribed_at = datetime.utcnow()
-    event_type = None
-    mailing_list = None
-    reason = None
-    tags = None
-    if isinstance(event_payload, dict):
-        event_type = event_payload.get("event")
-        tags = event_payload.get("tags")
-        event_ts = event_payload.get("timestamp")
-        if event_ts:
-            try:
-                unsubscribed_at = datetime.utcfromtimestamp(float(event_ts))
-            except Exception:
-                logger.debug("Unable to parse event timestamp for %s", email_normalized)
-        mailing_list_data = event_payload.get("mailing-list")
-        if isinstance(mailing_list_data, dict):
-            mailing_list = mailing_list_data.get("address")
-        elif mailing_list_data:
-            mailing_list = mailing_list_data
-        reason = (
-            event_payload.get("reason")
-            or event_payload.get("description")
-            or (event_payload.get("body", {}) or {}).get("description")
-        )
-
+    now = datetime.utcnow()
     record = {
         "email": email_normalized,
-        "unsubscribed": True,
-        "unsubscribed_at": unsubscribed_at,
-        "updated_at": datetime.utcnow(),
-        "event": event_type,
-        "mailing_list": mailing_list,
-        "reason": reason,
-        "tags": tags,
+        "unsubscribed": unsubscribed,
+        "updated_at": now,
     }
 
-    if isinstance(event_payload, dict):
-        record["raw_event"] = event_payload
+    if unsubscribed:
+        unsubscribed_at = now
+        event_type = None
+        mailing_list = None
+        reason = None
+        tags = None
+        if isinstance(event_payload, dict):
+            event_type = event_payload.get("event")
+            tags = event_payload.get("tags")
+            event_ts = event_payload.get("timestamp")
+            if event_ts:
+                try:
+                    unsubscribed_at = datetime.utcfromtimestamp(float(event_ts))
+                except Exception:
+                    logger.debug("Unable to parse event timestamp for %s", email_normalized)
+            mailing_list_data = event_payload.get("mailing-list")
+            if isinstance(mailing_list_data, dict):
+                mailing_list = mailing_list_data.get("address")
+            elif mailing_list_data:
+                mailing_list = mailing_list_data
+            reason = (
+                event_payload.get("reason")
+                or event_payload.get("description")
+                or (event_payload.get("body", {}) or {}).get("description")
+            )
+
+        record.update(
+            {
+                "unsubscribed_at": unsubscribed_at,
+                "event": event_type,
+                "mailing_list": mailing_list,
+                "reason": reason,
+                "tags": tags,
+            }
+        )
+
+        if isinstance(event_payload, dict):
+            record["raw_event"] = event_payload
+    else:
+        record["resubscribed_at"] = now
 
     try:
         doc_ref = db.collection("unsubscribed_users").document(email_normalized)
         doc_ref.set({k: v for k, v in record.items() if v is not None}, merge=True)
         invalidate_unsubscribed_cache()
-        logger.info("Marked %s as unsubscribed", email_normalized)
+        if unsubscribed:
+            logger.info("Marked %s as unsubscribed", email_normalized)
+        else:
+            logger.info("Marked %s as resubscribed", email_normalized)
         return True
     except Exception as exc:
-        logger.exception("Failed to persist unsubscribe for %s: %s", email_normalized, exc)
+        logger.exception(
+            "Failed to update subscription status for %s (unsubscribed=%s): %s",
+            email_normalized,
+            unsubscribed,
+            exc,
+        )
         return False
+
+
+def set_email_unsubscribed(email, event_payload=None):
+    return set_email_subscription_status(email, True, event_payload)
+
+
+def set_email_resubscribed(email):
+    return set_email_subscription_status(email, False)
 
 
 def load_unsubscribed_users(force_refresh=False):
@@ -485,70 +515,114 @@ def is_email_unsubscribed(email):
 
 @webhook_app.route("/unsubscribe", methods=["GET", "POST"])
 def unsubscribe_webhook():
+    def render_preference_page(email, message, status, unsubscribed, show_actions):
+        return (
+            render_template(
+                "unsubscribe.html",
+                email=email,
+                status=status,
+                message=message,
+                unsubscribed=unsubscribed,
+                excluded_from_future_sends=unsubscribed,
+                show_actions=show_actions,
+                current_year=datetime.utcnow().year,
+            ),
+            200,
+            {"Content-Type": "text/html; charset=utf-8"},
+        )
+
     if request.method == "GET":
         email = request.args.get("email", "").strip()
-        message = "Your email has been unsubscribed successfully."
+        if not email:
+            return render_preference_page(
+                email="",
+                message="No email address was provided for unsubscribe.",
+                status="warning",
+                unsubscribed=False,
+                show_actions=False,
+            )
 
-        if email:
-            if EMAIL_VALIDATION_REGEX.match(email):
-                if not set_email_unsubscribed(email):
-                    message = (
-                        "We were unable to process your unsubscribe request at this time. "
-                        "Please try again later."
-                    )
-            else:
-                message = "The email address provided is invalid."
-        else:
-            message = "No email address was provided for unsubscribe."
+        if not EMAIL_VALIDATION_REGEX.match(email):
+            return render_preference_page(
+                email=email,
+                message="The email address provided is invalid.",
+                status="error",
+                unsubscribed=False,
+                show_actions=False,
+            )
 
-        html_response = f"""
-        <!DOCTYPE html>
-        <html lang=\"en\">
-            <head>
-                <meta charset=\"UTF-8\" />
-                <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
-                <title>Unsubscribed</title>
-                <style>
-                    body {{
-                        font-family: Arial, sans-serif;
-                        background-color: #f9fafb;
-                        color: #111827;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        min-height: 100vh;
-                        margin: 0;
-                    }}
-                    .message-container {{
-                        background-color: #ffffff;
-                        border-radius: 8px;
-                        padding: 32px;
-                        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
-                        text-align: center;
-                        max-width: 480px;
-                        width: calc(100% - 32px);
-                    }}
-                    h1 {{
-                        font-size: 1.75rem;
-                        margin-bottom: 12px;
-                        color: #047857;
-                    }}
-                    p {{
-                        font-size: 1rem;
-                        margin: 0;
-                    }}
-                </style>
-            </head>
-            <body>
-                <div class=\"message-container\">
-                    <h1>You have been unsubscribed</h1>
-                    <p>{message}</p>
-                </div>
-            </body>
-        </html>
-        """
+        if set_email_unsubscribed(email):
+            return render_preference_page(
+                email=email,
+                message="You have been unsubscribed successfully and will be excluded from future campaigns.",
+                status="success",
+                unsubscribed=True,
+                show_actions=True,
+            )
 
-        return html_response, 200, {"Content-Type": "text/html; charset=utf-8"}
+        return render_preference_page(
+            email=email,
+            message="We were unable to process your unsubscribe request at this time. Please try again later.",
+            status="error",
+            unsubscribed=False,
+            show_actions=True,
+        )
+
+    form_action = (request.form.get("action") or "").lower()
+    if form_action in {"unsubscribe", "resubscribe"}:
+        email = (request.form.get("email") or "").strip()
+        if not email:
+            return render_preference_page(
+                email="",
+                message="No email address was provided.",
+                status="warning",
+                unsubscribed=False,
+                show_actions=False,
+            )
+
+        if not EMAIL_VALIDATION_REGEX.match(email):
+            return render_preference_page(
+                email=email,
+                message="The email address provided is invalid.",
+                status="error",
+                unsubscribed=False,
+                show_actions=False,
+            )
+
+        if form_action == "unsubscribe":
+            success = set_email_unsubscribed(email)
+            if success:
+                return render_preference_page(
+                    email=email,
+                    message="You have been unsubscribed successfully and will be excluded from future campaigns.",
+                    status="success",
+                    unsubscribed=True,
+                    show_actions=True,
+                )
+            return render_preference_page(
+                email=email,
+                message="We were unable to process your unsubscribe request at this time. Please try again later.",
+                status="error",
+                unsubscribed=False,
+                show_actions=True,
+            )
+
+        success = set_email_resubscribed(email)
+        if success:
+            return render_preference_page(
+                email=email,
+                message="You have been re-subscribed successfully. We will include you in future campaigns unless you opt out again.",
+                status="success",
+                unsubscribed=False,
+                show_actions=True,
+            )
+        return render_preference_page(
+            email=email,
+            message="We were unable to process your re-subscribe request at this time. Please try again later.",
+            status="error",
+            unsubscribed=False,
+            show_actions=True,
+        )
 
     signing_key = config.get("mailgun", {}).get("signing_key") or config.get("mailgun", {}).get("api_key")
     if not signing_key:

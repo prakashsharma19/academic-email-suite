@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Manage Email Preferences</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --brand-primary: #1f66ff;
+        --brand-danger: #d14343;
+        --brand-success: #218a62;
+        --brand-warning: #b7791f;
+        --text-color: #1f2933;
+        --muted-text: #52606d;
+        --card-background: #ffffff;
+        --background: #f3f4f6;
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --text-color: #f8fafc;
+          --muted-text: #cbd5f5;
+          --card-background: #1f2933;
+          --background: #111827;
+        }
+      }
+
+      body {
+        margin: 0;
+        background: var(--background);
+        color: var(--text-color);
+      }
+
+      .layout {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+
+      .card {
+        background: var(--card-background);
+        border-radius: 18px;
+        box-shadow: 0 30px 60px rgba(15, 23, 42, 0.15);
+        max-width: 640px;
+        width: 100%;
+        padding: 48px 42px;
+        box-sizing: border-box;
+      }
+
+      h1 {
+        margin-top: 0;
+        margin-bottom: 12px;
+        font-size: 2rem;
+        font-weight: 700;
+      }
+
+      .subtitle {
+        margin: 0 0 32px;
+        color: var(--muted-text);
+        font-size: 1rem;
+        line-height: 1.5;
+      }
+
+      .email-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: rgba(31, 102, 255, 0.08);
+        color: var(--brand-primary);
+        border-radius: 999px;
+        padding: 8px 18px;
+        font-weight: 600;
+        margin-bottom: 24px;
+        word-break: break-word;
+      }
+
+      .status {
+        border-radius: 14px;
+        padding: 14px 18px;
+        margin-bottom: 24px;
+        font-size: 0.95rem;
+        line-height: 1.4;
+      }
+
+      .status.success {
+        background: rgba(33, 138, 98, 0.12);
+        color: var(--brand-success);
+      }
+
+      .status.error {
+        background: rgba(209, 67, 67, 0.12);
+        color: var(--brand-danger);
+      }
+
+      .status.warning {
+        background: rgba(183, 121, 31, 0.12);
+        color: var(--brand-warning);
+      }
+
+      .status.info {
+        background: rgba(31, 102, 255, 0.12);
+        color: var(--brand-primary);
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        margin-bottom: 28px;
+      }
+
+      .action-form {
+        flex: 1 1 200px;
+      }
+
+      button {
+        width: 100%;
+        border: none;
+        border-radius: 999px;
+        padding: 14px 18px;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 0.18s ease, box-shadow 0.18s ease;
+      }
+
+      button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 12px 25px rgba(31, 102, 255, 0.18);
+      }
+
+      .btn-unsubscribe {
+        background: linear-gradient(135deg, #f97316, #d14343);
+        color: #fff;
+      }
+
+      .btn-resubscribe {
+        background: linear-gradient(135deg, #34d399, #1f66ff);
+        color: #fff;
+      }
+
+      .btn-disabled {
+        opacity: 0.65;
+        cursor: not-allowed;
+        box-shadow: none;
+        transform: none !important;
+      }
+
+      .details {
+        border-top: 1px solid rgba(82, 96, 109, 0.15);
+        padding-top: 24px;
+        color: var(--muted-text);
+        font-size: 0.95rem;
+        line-height: 1.6;
+      }
+
+      .details ul {
+        padding-left: 20px;
+        margin: 12px 0;
+      }
+
+      footer {
+        margin-top: 32px;
+        font-size: 0.85rem;
+        color: var(--muted-text);
+      }
+
+      @media (max-width: 600px) {
+        .card {
+          padding: 32px 24px;
+        }
+
+        h1 {
+          font-size: 1.7rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="layout">
+      <section class="card">
+        <h1>Manage Your Email Preferences</h1>
+        <p class="subtitle">
+          Update how you would like to hear from us. You are always in control of
+          your subscription status.
+        </p>
+
+        {% if email %}
+        <div class="email-chip">
+          <span>{{ email }}</span>
+        </div>
+        {% endif %}
+
+        {% if message %}
+        <div class="status {{ status|default('info') }}">{{ message }}</div>
+        {% endif %}
+
+        {% if show_actions %}
+        <div class="actions">
+          <form method="post" class="action-form">
+            <input type="hidden" name="email" value="{{ email }}" />
+            <input type="hidden" name="action" value="unsubscribe" />
+            <button
+              type="submit"
+              class="btn-unsubscribe{% if unsubscribed %} btn-disabled{% endif %}"
+              {% if unsubscribed %}aria-current="true"{% endif %}
+            >
+              Unsubscribe Me
+            </button>
+          </form>
+          <form method="post" class="action-form">
+            <input type="hidden" name="email" value="{{ email }}" />
+            <input type="hidden" name="action" value="resubscribe" />
+            <button
+              type="submit"
+              class="btn-resubscribe{% if not unsubscribed %} btn-disabled{% endif %}"
+              {% if not unsubscribed %}aria-current="true"{% endif %}
+            >
+              Re-subscribe Me
+            </button>
+          </form>
+        </div>
+        {% endif %}
+
+        <div class="details">
+          {% if excluded_from_future_sends %}
+          <p>
+            We will automatically exclude this address from all future email
+            campaigns. If you change your mind later, simply return to this page
+            and choose <strong>Re-subscribe Me</strong>.
+          </p>
+          {% else %}
+          <p>
+            Currently this address is subscribed. You can unsubscribe at any time
+            using the buttons above. When you unsubscribe we will respect your
+            choice and remove you from future communications.
+          </p>
+          {% endif %}
+          <ul>
+            <li>You can update your preference as often as you like.</li>
+            <li>Changes take effect immediately in our mailing system.</li>
+            <li>
+              Need help? Reply to any of our emails and a member of the team will
+              assist you.
+            </li>
+          </ul>
+        </div>
+
+        <footer>
+          &copy; {{ current_year }} Academic Email Suite. All rights reserved.
+        </footer>
+      </section>
+    </main>
+  </body>
+</html>
