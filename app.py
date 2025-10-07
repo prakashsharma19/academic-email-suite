@@ -484,8 +484,64 @@ def is_email_unsubscribed(email):
     return email.lower() in lookup
 
 
-@webhook_app.route("/unsubscribe", methods=["POST"])
+@webhook_app.route("/unsubscribe", methods=["GET", "POST"])
 def unsubscribe_webhook():
+    if request.method == "GET":
+        email = request.args.get("email", "").strip()
+        message = "You have been unsubscribed successfully"
+
+        if email and EMAIL_VALIDATION_REGEX.match(email):
+            message = f"{email} has been unsubscribed successfully"
+
+        html_response = f"""
+        <!DOCTYPE html>
+        <html lang=\"en\">
+            <head>
+                <meta charset=\"UTF-8\" />
+                <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
+                <title>Unsubscribed</title>
+                <style>
+                    body {{
+                        font-family: Arial, sans-serif;
+                        background-color: #f9fafb;
+                        color: #111827;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        min-height: 100vh;
+                        margin: 0;
+                    }}
+                    .message-container {{
+                        background-color: #ffffff;
+                        border-radius: 8px;
+                        padding: 32px;
+                        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
+                        text-align: center;
+                        max-width: 480px;
+                        width: calc(100% - 32px);
+                    }}
+                    h1 {{
+                        font-size: 1.75rem;
+                        margin-bottom: 12px;
+                        color: #047857;
+                    }}
+                    p {{
+                        font-size: 1rem;
+                        margin: 0;
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class=\"message-container\">
+                    <h1>You have been unsubscribed</h1>
+                    <p>{message}</p>
+                </div>
+            </body>
+        </html>
+        """
+
+        return html_response, 200, {"Content-Type": "text/html; charset=utf-8"}
+
     signing_key = config.get("mailgun", {}).get("signing_key") or config.get("mailgun", {}).get("api_key")
     if not signing_key:
         abort(500, description="Mailgun signing key not configured")
