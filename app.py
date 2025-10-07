@@ -22,10 +22,19 @@ from streamlit_ace import st_ace
 import firebase_admin
 from firebase_admin import credentials, firestore
 import matplotlib.pyplot as plt
-from flask import Flask, request, jsonify, abort, render_template
+from flask import (
+    Flask,
+    request,
+    jsonify,
+    abort,
+    render_template,
+    redirect,
+    url_for,
+)
 
 import threading
 import copy
+from urllib.parse import urlencode
 
 
 logger = logging.getLogger("academic_email_suite")
@@ -516,20 +525,20 @@ def is_email_unsubscribed(email):
 @webhook_app.route("/unsubscribe", methods=["GET", "POST"])
 def unsubscribe_webhook():
     def render_preference_page(email, message, status, unsubscribed, show_actions):
-        return (
-            render_template(
-                "unsubscribe.html",
-                email=email,
-                status=status,
-                message=message,
-                unsubscribed=unsubscribed,
-                excluded_from_future_sends=unsubscribed,
-                show_actions=show_actions,
-                current_year=datetime.utcnow().year,
-            ),
-            200,
-            {"Content-Type": "text/html; charset=utf-8"},
-        )
+        query_params = {
+            "email": email,
+            "message": message or "",
+            "status": status or "info",
+            "unsubscribed": "true" if unsubscribed else "false",
+            "show_actions": "true" if show_actions else "false",
+            "excluded": "true" if unsubscribed else "false",
+        }
+        redirect_url = url_for("unsubscribe_page")
+        if query_params:
+            redirect_url = f"{redirect_url}?{urlencode(query_params)}"
+        response = redirect(redirect_url)
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     if request.method == "GET":
         email = request.args.get("email", "").strip()
@@ -669,6 +678,43 @@ def unsubscribe_webhook():
 
     return jsonify({"status": "success"})
 
+
+
+def _coerce_bool(value, default=False):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+@webhook_app.route("/unsubscribe/page", methods=["GET"])
+def unsubscribe_page():
+    email = (request.args.get("email") or "").strip()
+    message = request.args.get("message") or ""
+    status = request.args.get("status") or "info"
+    unsubscribed = _coerce_bool(request.args.get("unsubscribed"), False)
+    show_actions = _coerce_bool(request.args.get("show_actions"), False)
+    excluded = _coerce_bool(request.args.get("excluded"), unsubscribed)
+
+    return (
+        render_template(
+            "unsubscribe.html",
+            email=email,
+            status=status,
+            message=message,
+            unsubscribed=unsubscribed,
+            excluded_from_future_sends=excluded,
+            show_actions=show_actions,
+            current_year=datetime.utcnow().year,
+            form_action_url=url_for("unsubscribe_webhook"),
+            form_method="post",
+            use_links_for_actions=False,
+            link_target="_self",
+        ),
+        200,
+        {"Content-Type": "text/html; charset=utf-8"},
+    )
 
 def ensure_webhook_server():
     global webhook_server_started
