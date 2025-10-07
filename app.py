@@ -16,7 +16,6 @@ from datetime import datetime, timedelta
 from io import StringIO, BytesIO
 import base64
 import math
-from urllib.parse import quote_plus
 from google.cloud import storage
 from google.oauth2 import service_account
 from streamlit_ace import st_ace
@@ -940,7 +939,9 @@ def load_config():
     return config
 
 config = load_config()
-DEFAULT_UNSUBSCRIBE_BASE_URL = "https://pphmjopenaccess.com/unsubscribe?email="
+DEFAULT_UNSUBSCRIBE_BASE_URL = (
+    "https://hooks.pphmjopenaccess.com/unsubscribe?email="
+)
 SPAMMY_WORDS = [
     "offer", "discount", "free", "win", "winner", "cash", "prize",
     "buy now", "cheap", "limited time", "money", "urgent"
@@ -2149,10 +2150,11 @@ def execute_campaign(campaign_data):
         email_content = email_content.replace("$$Author_Email$$", str(row.get('email', '')))
         email_content = email_content.replace("$$Journal_Name$$", journal)
 
-        recipient_email_for_unsubscribe = quote_plus(str(row.get('email', '')))
+        recipient_email_for_unsubscribe = str(row.get('email', '')).strip()
         unsubscribe_link = f"{unsubscribe_base_url}{recipient_email_for_unsubscribe}"
+        unsubscribe_placeholders = ("$$Unsubscribe_Link$$", "%unsubscribe_url%")
         unsubscribe_placeholder_found = False
-        for unsubscribe_placeholder in ("$$Unsubscribe_Link$$", "%unsubscribe_url%"):
+        for unsubscribe_placeholder in unsubscribe_placeholders:
             if unsubscribe_placeholder in email_content:
                 unsubscribe_placeholder_found = True
                 email_content = email_content.replace(
@@ -2168,7 +2170,22 @@ def execute_campaign(campaign_data):
                     f"<a href=\"{unsubscribe_link}\">unsubscribe here</a>." "</p>"
                 )
 
-        plain_text = email_content.replace("<br>", "\n").replace("</p>", "\n\n").replace("<p>", "")
+        plain_text = (
+            email_content.replace("<br>", "\n")
+            .replace("</p>", "\n\n")
+            .replace("<p>", "")
+        )
+        for unsubscribe_placeholder in unsubscribe_placeholders:
+            if unsubscribe_placeholder in plain_text:
+                plain_text = plain_text.replace(
+                    unsubscribe_placeholder,
+                    unsubscribe_link,
+                )
+        if unsubscribe_link not in plain_text:
+            plain_text += (
+                "\n\nIf you no longer wish to receive these emails, please unsubscribe here: "
+                f"{unsubscribe_link}"
+            )
 
         subject_cycle = selected_subjects if selected_subjects else [email_subject]
         subject = subject_cycle[i % len(subject_cycle)]
