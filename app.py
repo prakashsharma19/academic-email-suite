@@ -696,6 +696,75 @@ def unsubscribe_page():
     unsubscribed = _coerce_bool(request.args.get("unsubscribed"), False)
     show_actions = _coerce_bool(request.args.get("show_actions"), False)
     excluded = _coerce_bool(request.args.get("excluded"), unsubscribed)
+    action = (request.args.get("action") or "").strip().lower()
+
+    if action in {"unsubscribe", "resubscribe"}:
+        if not email:
+            message = "No email address was provided."
+            status = "warning"
+            unsubscribed = False
+            show_actions = False
+            excluded = False
+        elif not EMAIL_VALIDATION_REGEX.match(email):
+            message = "The email address provided is invalid."
+            status = "error"
+            unsubscribed = False
+            show_actions = False
+            excluded = False
+        else:
+            if action == "unsubscribe":
+                success = set_email_unsubscribed(email)
+                if success:
+                    message = (
+                        "You have been unsubscribed successfully and will be excluded from future campaigns."
+                    )
+                    status = "success"
+                    unsubscribed = True
+                else:
+                    message = (
+                        "We were unable to process your unsubscribe request at this time. Please try again later."
+                    )
+                    status = "error"
+                    unsubscribed = False
+            else:
+                success = set_email_resubscribed(email)
+                if success:
+                    message = (
+                        "You have been re-subscribed successfully. We will include you in future campaigns unless you opt out again."
+                    )
+                    status = "success"
+                    unsubscribed = False
+                else:
+                    message = (
+                        "We were unable to process your re-subscribe request at this time. Please try again later."
+                    )
+                    status = "error"
+                    unsubscribed = False
+
+            show_actions = True
+            excluded = unsubscribed
+
+        redirect_params = {
+            "email": email,
+            "message": message,
+            "status": status,
+            "unsubscribed": "true" if unsubscribed else "false",
+            "show_actions": "true" if show_actions else "false",
+            "excluded": "true" if excluded else "false",
+        }
+        return redirect(url_for("unsubscribe_page", **redirect_params), code=303)
+
+    base_action_params = {"email": email} if email else {}
+    unsubscribe_action_url = (
+        url_for("unsubscribe_page", **{**base_action_params, "action": "unsubscribe"})
+        if show_actions and email
+        else ""
+    )
+    resubscribe_action_url = (
+        url_for("unsubscribe_page", **{**base_action_params, "action": "resubscribe"})
+        if show_actions and email
+        else ""
+    )
 
     return (
         render_template(
@@ -709,8 +778,10 @@ def unsubscribe_page():
             current_year=datetime.utcnow().year,
             form_action_url=url_for("unsubscribe_webhook"),
             form_method="post",
-            use_links_for_actions=False,
+            use_links_for_actions=show_actions,
             link_target="_self",
+            unsubscribe_action_url=unsubscribe_action_url,
+            resubscribe_action_url=resubscribe_action_url,
         ),
         200,
         {"Content-Type": "text/html; charset=utf-8"},
