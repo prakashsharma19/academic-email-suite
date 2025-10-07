@@ -46,6 +46,8 @@ UNSUBSCRIBED_CACHE_LOCK = threading.Lock()
 
 MAILGUN_SIGNATURE_TOLERANCE_SECONDS = 300
 
+EMAIL_VALIDATION_REGEX = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
+
 # App Configuration
 st.set_page_config(
     page_title="PPH Email Manager",
@@ -2812,6 +2814,159 @@ def email_campaign_section():
             unsubscribe_records = load_unsubscribed_users(force_refresh=True)
         else:
             unsubscribe_records = st.session_state.get("unsubscribed_users", [])
+
+        unsubscribed_lookup = st.session_state.get("unsubscribed_email_lookup", set())
+
+        st.markdown("### Add Suppression Emails")
+        st.write(
+            "Use the options below to add unsubscribe/suppression emails manually or from a CSV file."
+        )
+
+        with st.form("manual_unsubscribe_form"):
+            manual_emails_input = st.text_area(
+                "Enter email addresses (one per line or separated by commas)",
+                height=120,
+                key="manual_unsubscribe_input",
+            )
+            manual_submit = st.form_submit_button("Add Email(s)")
+
+        if manual_submit:
+            raw_candidates = re.split(r"[\s,;]+", manual_emails_input or "")
+            raw_candidates = [item for item in raw_candidates if item]
+            valid_emails = []
+            invalid_entries = []
+            for candidate in raw_candidates:
+                normalized = candidate.strip().lower()
+                if not normalized:
+                    continue
+                if EMAIL_VALIDATION_REGEX.match(normalized):
+                    valid_emails.append(normalized)
+                else:
+                    invalid_entries.append(candidate)
+
+            valid_unique_emails = []
+            seen = set()
+            for email in valid_emails:
+                if email in seen:
+                    continue
+                seen.add(email)
+                valid_unique_emails.append(email)
+
+            existing_emails = []
+            added_count = 0
+            failed_emails = []
+            for email in valid_unique_emails:
+                if email in unsubscribed_lookup:
+                    existing_emails.append(email)
+                    continue
+                if set_email_unsubscribed(email):
+                    added_count += 1
+                else:
+                    failed_emails.append(email)
+
+            if added_count:
+                unsubscribe_records = load_unsubscribed_users(force_refresh=True)
+                unsubscribed_lookup = st.session_state.get("unsubscribed_email_lookup", set())
+                st.success(f"Added {added_count} email(s) to the unsubscribe list.")
+            if existing_emails:
+                st.info(
+                    f"{len(existing_emails)} email(s) were already unsubscribed and were skipped."
+                )
+            if invalid_entries:
+                st.warning(
+                    f"{len(invalid_entries)} entry(ies) were not valid email addresses and were skipped."
+                )
+            if failed_emails:
+                st.error(
+                    f"Unable to save {len(failed_emails)} email(s). Please try again."
+                )
+            if not any([added_count, existing_emails, invalid_entries, failed_emails]):
+                st.info("No emails were provided to add.")
+
+        suppression_csv = st.file_uploader(
+            "Upload suppression CSV (email addresses in column C)",
+            type=["csv"],
+            key="suppression_csv_uploader",
+            help="Only the third column (column C) will be processed for email addresses.",
+        )
+
+        process_csv_clicked = False
+        if suppression_csv is not None:
+            process_csv_clicked = st.button(
+                "Add Emails from CSV",
+                key="process_suppression_csv",
+            )
+
+        if suppression_csv is not None and process_csv_clicked:
+            try:
+                suppression_csv.seek(0)
+                csv_df = pd.read_csv(
+                    suppression_csv,
+                    header=None,
+                    dtype=str,
+                    on_bad_lines="skip",
+                )
+            except Exception as exc:
+                st.error(f"Failed to read CSV file: {exc}")
+                csv_df = None
+
+            if csv_df is not None:
+                if csv_df.shape[1] < 3:
+                    st.error("The uploaded CSV must contain at least three columns.")
+                else:
+                    column_c = (
+                        csv_df.iloc[:, 2]
+                        .dropna()
+                        .astype(str)
+                        .str.strip()
+                        .str.lower()
+                    )
+                    valid_emails = []
+                    invalid_entries = []
+                    for value in column_c.unique():
+                        if not value:
+                            continue
+                        if EMAIL_VALIDATION_REGEX.match(value):
+                            valid_emails.append(value)
+                        else:
+                            invalid_entries.append(value)
+
+                    if valid_emails:
+                        added_count = 0
+                        already_present = []
+                        failed_emails = []
+                        for email in valid_emails:
+                            if email in unsubscribed_lookup:
+                                already_present.append(email)
+                                continue
+                            if set_email_unsubscribed(email):
+                                added_count += 1
+                            else:
+                                failed_emails.append(email)
+
+                        if added_count:
+                            unsubscribe_records = load_unsubscribed_users(force_refresh=True)
+                            unsubscribed_lookup = st.session_state.get(
+                                "unsubscribed_email_lookup", set()
+                            )
+                            st.success(
+                                f"Added {added_count} email(s) from the CSV to the unsubscribe list."
+                            )
+                        if already_present:
+                            st.info(
+                                f"{len(already_present)} email(s) were already unsubscribed and were skipped."
+                            )
+                        if failed_emails:
+                            st.error(
+                                f"Failed to add {len(failed_emails)} email(s) from the CSV."
+                            )
+                    else:
+                        st.info("No valid email addresses were found in column C of the CSV file.")
+
+                    if invalid_entries:
+                        st.warning(
+                            f"{len(invalid_entries)} entries in column C were not valid email addresses."
+                        )
 
         signing_key = config.get("mailgun", {}).get("signing_key")
         if not signing_key and config.get("mailgun", {}).get("api_key"):
