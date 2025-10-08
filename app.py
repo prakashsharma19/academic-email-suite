@@ -696,15 +696,92 @@ def unsubscribe_page():
 
 @webhook_app.route("/api/unsubscribe", methods=["POST", "OPTIONS"])
 def unsubscribe_api():
-    try:
-        data = request.get_json(force=True)
-        email = data.get("email")
-        action = data.get("action", "unsubscribe")
-        print("Unsubscribe request for:", email, action)
-        return jsonify({"message": f"{email} {action} success"}), 200
-    except Exception as e:
-        print("Error:", e)
-        return jsonify({"message": "Error processing request"}), 500
+    if request.method == "OPTIONS":
+        response = webhook_app.make_default_options_response()
+        return _corsify_unsubscribe_response(response)
+
+    if request.method != "POST":
+        abort(405, description=f"Method Not Allowed ({request.method})")
+
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        response = jsonify(
+            {
+                "success": False,
+                "message": "Request body must be a valid JSON object.",
+            }
+        )
+        response.status_code = 400
+        return _corsify_unsubscribe_response(response)
+
+    email = (payload.get("email") or "").strip()
+    if not email:
+        response = jsonify(
+            {
+                "success": False,
+                "message": "No email address was provided.",
+            }
+        )
+        response.status_code = 400
+        return _corsify_unsubscribe_response(response)
+
+    if not EMAIL_VALIDATION_REGEX.match(email):
+        response = jsonify(
+            {
+                "success": False,
+                "message": "The email address provided is invalid.",
+            }
+        )
+        response.status_code = 400
+        return _corsify_unsubscribe_response(response)
+
+    action = _normalize_unsubscribe_action(payload.get("action")) or "unsubscribe"
+
+    if action not in {"unsubscribe", "resubscribe"}:
+        response = jsonify(
+            {
+                "success": False,
+                "message": "Unsupported action specified.",
+            }
+        )
+        response.status_code = 400
+        return _corsify_unsubscribe_response(response)
+
+    if action == "unsubscribe":
+        success = set_email_unsubscribed(email, payload)
+        if success:
+            message = (
+                "You have been unsubscribed successfully and will be excluded from future campaigns."
+            )
+            unsubscribed = True
+        else:
+            message = (
+                "We were unable to process your unsubscribe request at this time. Please try again later."
+            )
+            unsubscribed = is_email_unsubscribed(email)
+    else:
+        success = set_email_resubscribed(email)
+        if success:
+            message = (
+                "You have been re-subscribed successfully. We will include you in future campaigns unless you opt out again."
+            )
+            unsubscribed = False
+        else:
+            message = (
+                "We were unable to process your re-subscribe request at this time. Please try again later."
+            )
+            unsubscribed = is_email_unsubscribed(email)
+
+    status_code = 200 if success else 500
+    response = jsonify(
+        {
+            "success": bool(success),
+            "message": message,
+            "unsubscribed": bool(unsubscribed),
+        }
+    )
+    response.status_code = status_code
+    return _corsify_unsubscribe_response(response)
 
 def ensure_webhook_server():
     """Maintain backwards compatibility for legacy startup calls."""
