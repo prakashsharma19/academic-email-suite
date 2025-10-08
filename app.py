@@ -1,3 +1,45 @@
+# ---------------------------------
+# Webhook server setup
+# ---------------------------------
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from threading import Thread
+from waitress import serve
+
+# Initialize webhook Flask app
+webhook_app = Flask(__name__)
+
+# Allow access from your main website domain
+CORS(webhook_app, resources={r"/*": {"origins": ["https://pphmjopenaccess.com", "https://www.pphmjopenaccess.com"]}})
+
+# Define API endpoint
+@webhook_app.route("/api/unsubscribe", methods=["POST", "OPTIONS", "GET"])
+def unsubscribe_api():
+    if request.method == "GET":
+        # For browser check
+        return jsonify({"status": "Webhook is live"}), 200
+    try:
+        data = request.get_json(force=True)
+        email = data.get("email")
+        action = data.get("action", "unsubscribe")
+        print(f"Unsubscribe API called for {email} - {action}")
+        # Here you can add Firebase update logic later
+        return jsonify({"message": f"{email} {action} success"}), 200
+    except Exception as e:
+        print("Webhook error:", e)
+        return jsonify({"error": str(e)}), 500
+
+
+# Start webhook server in background
+def start_webhook():
+    print("🚀 Starting webhook server on port 8000")
+    serve(webhook_app, host="0.0.0.0", port=8000)
+
+
+Thread(target=start_webhook, daemon=True).start()
+# ---------------------------------
+
+
 import streamlit as st
 import streamlit.components.v1 as components
 import boto3
@@ -22,49 +64,11 @@ from streamlit_ace import st_ace
 import firebase_admin
 from firebase_admin import credentials, firestore
 import matplotlib.pyplot as plt
-from flask import (
-    Flask,
-    request,
-    jsonify,
-    abort,
-    redirect,
-)
+from flask import abort, redirect
 
 import threading
 import copy
 from urllib.parse import urlencode, urlsplit
-
-
-webhook_app = Flask(__name__)
-from flask_cors import CORS
-CORS(
-    webhook_app,
-    resources={
-        r"/*": {
-            "origins": [
-                "https://pphmjopenaccess.com",
-                "https://www.pphmjopenaccess.com",
-            ]
-        }
-    },
-    supports_credentials=True,
-)
-
-# ---------------------------
-# Start Flask webhook server
-# ---------------------------
-from threading import Thread
-from waitress import serve
-
-def start_webhook():
-    try:
-        print("Starting webhook server on port 8000...")
-        serve(webhook_app, host="0.0.0.0", port=8000)
-    except Exception as e:
-        print("Webhook server failed to start:", e)
-
-Thread(target=start_webhook, daemon=True).start()
-# ---------------------------
 
 
 logger = logging.getLogger("academic_email_suite")
