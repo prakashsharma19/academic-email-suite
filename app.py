@@ -12,31 +12,12 @@ webhook_app = Flask(__name__)
 # Allow access from your main website domain
 CORS(webhook_app, resources={r"/*": {"origins": ["https://pphmjopenaccess.com", "https://www.pphmjopenaccess.com"]}})
 
-# Define API endpoint
-@webhook_app.route("/api/unsubscribe", methods=["POST", "OPTIONS", "GET"])
-def unsubscribe_api():
-    if request.method == "GET":
-        # For browser check
-        return jsonify({"status": "Webhook is live"}), 200
-    try:
-        data = request.get_json(force=True)
-        email = data.get("email")
-        action = data.get("action", "unsubscribe")
-        print(f"Unsubscribe API called for {email} - {action}")
-        # Here you can add Firebase update logic later
-        return jsonify({"message": f"{email} {action} success"}), 200
-    except Exception as e:
-        print("Webhook error:", e)
-        return jsonify({"error": str(e)}), 500
-
-
 # Start webhook server in background
 def start_webhook():
     print("🚀 Starting webhook server on port 8000")
     serve(webhook_app, host="0.0.0.0", port=8000)
 
 
-Thread(target=start_webhook, daemon=True).start()
 # ---------------------------------
 
 
@@ -738,8 +719,17 @@ def unsubscribe_page():
     response.headers["Cache-Control"] = "no-store"
     return response
 
-@webhook_app.route("/api/unsubscribe", methods=["POST", "OPTIONS"])
+@webhook_app.route("/api/unsubscribe", methods=["GET", "POST", "OPTIONS"])
 def unsubscribe_api():
+    if request.method == "GET":
+        response = jsonify(
+            {
+                "success": True,
+                "message": "Webhook is live",
+            }
+        )
+        return _corsify_unsubscribe_response(response)
+
     if request.method == "OPTIONS":
         response = webhook_app.make_default_options_response()
         return _corsify_unsubscribe_response(response)
@@ -827,9 +817,25 @@ def unsubscribe_api():
     response.status_code = status_code
     return _corsify_unsubscribe_response(response)
 
+_WEBHOOK_THREAD = None
+_WEBHOOK_THREAD_LOCK = threading.Lock()
+
+
 def ensure_webhook_server():
-    """Maintain backwards compatibility for legacy startup calls."""
-    return
+    """Start the webhook server thread exactly once."""
+
+    global _WEBHOOK_THREAD
+
+    if _WEBHOOK_THREAD and _WEBHOOK_THREAD.is_alive():
+        return
+
+    with _WEBHOOK_THREAD_LOCK:
+        if _WEBHOOK_THREAD and _WEBHOOK_THREAD.is_alive():
+            return
+
+        thread = Thread(target=start_webhook, daemon=True)
+        thread.start()
+        _WEBHOOK_THREAD = thread
 
 
 def update_sender_name():
