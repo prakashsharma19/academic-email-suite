@@ -1154,6 +1154,11 @@ def initialize_firebase():
         st.error(f"Firebase initialization failed: {str(e)}")
         return False
 
+# Ensure Firebase and the webhook server are ready before rendering any UI
+if not st.session_state.get("firebase_initialized"):
+    initialize_firebase()
+ensure_webhook_server()
+
 def get_firestore_db():
     if not initialize_firebase():
         st.error("Firebase initialization failed")
