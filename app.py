@@ -459,7 +459,7 @@ def set_email_resubscribed(email):
     return set_email_subscription_status(email, False)
 
 
-def _build_external_unsubscribe_url(email="", extra_params=None):
+def _build_unsubscribe_page_url(email="", extra_params=None):
     params = {}
     if extra_params:
         params.update({key: value for key, value in extra_params.items() if value})
@@ -469,8 +469,11 @@ def _build_external_unsubscribe_url(email="", extra_params=None):
         params.setdefault("email", email_clean)
 
     if params:
-        return f"{EXTERNAL_UNSUBSCRIBE_PAGE_URL}?{urlencode(params)}"
-    return EXTERNAL_UNSUBSCRIBE_PAGE_URL
+        separator = "&" if "?" in UNSUBSCRIBE_PAGE_URL and not UNSUBSCRIBE_PAGE_URL.endswith("?") else "?"
+        if UNSUBSCRIBE_PAGE_URL.endswith("?") or UNSUBSCRIBE_PAGE_URL.endswith("&"):
+            separator = ""
+        return f"{UNSUBSCRIBE_PAGE_URL}{separator}{urlencode(params)}"
+    return UNSUBSCRIBE_PAGE_URL
 
 
 def _normalize_unsubscribe_action(raw_action):
@@ -486,7 +489,7 @@ def _corsify_unsubscribe_response(response):
     """Apply CORS headers for unsubscribe API responses."""
 
     origin = request.headers.get("Origin") or ""
-    allowed_origin = EXTERNAL_UNSUBSCRIBE_PAGE_ORIGIN
+    allowed_origin = UNSUBSCRIBE_PAGE_ORIGIN
 
     if origin:
         # Allow any explicitly whitelisted origins, but gracefully fall back to
@@ -605,7 +608,7 @@ def is_email_unsubscribed(email):
 def unsubscribe_webhook():
     if request.method == "GET":
         email = (request.args.get("email") or "").strip()
-        redirect_url = _build_external_unsubscribe_url(email)
+        redirect_url = _build_unsubscribe_page_url(email)
         response = redirect(redirect_url)
         response.headers["Cache-Control"] = "no-store"
         return response
@@ -714,7 +717,7 @@ def _coerce_bool(value, default=False):
 @webhook_app.route("/unsubscribe/page", methods=["GET"])
 def unsubscribe_page():
     email = (request.args.get("email") or "").strip()
-    redirect_url = _build_external_unsubscribe_url(email)
+    redirect_url = _build_unsubscribe_page_url(email)
     response = redirect(redirect_url)
     response.headers["Cache-Control"] = "no-store"
     return response
@@ -1160,34 +1163,58 @@ def load_config():
         'sender_name': os.getenv("SENDER_NAME", "Pushpa Publishing House"),
         'webhook': {
             'url': os.getenv("WEBHOOK_URL", "")
+        },
+        'unsubscribe': {
+            'page_url': os.getenv("UNSUBSCRIBE_PAGE_URL", ""),
+            'app_base_url': os.getenv("STREAMLIT_APP_BASE_URL", ""),
         }
     }
     return config
 
 config = load_config()
-EXTERNAL_UNSUBSCRIBE_PAGE_URL = "https://pphmjopenaccess.com/unsubscribe.html"
-_external_unsubscribe_origin_parts = urlsplit(EXTERNAL_UNSUBSCRIBE_PAGE_URL)
-EXTERNAL_UNSUBSCRIBE_PAGE_ORIGIN = (
-    f"{_external_unsubscribe_origin_parts.scheme}://{_external_unsubscribe_origin_parts.netloc}"
-    if _external_unsubscribe_origin_parts.scheme and _external_unsubscribe_origin_parts.netloc
+
+# Determine the unsubscribe page location. Prefer configuration, fall back to
+# the Streamlit app's own unsubscribe page so the experience stays within the
+# product rather than redirecting to an external site.
+_configured_unsubscribe_url = config.get("unsubscribe", {}).get("page_url", "").strip()
+_configured_app_base_url = config.get("unsubscribe", {}).get("app_base_url", "").strip()
+
+if _configured_unsubscribe_url:
+    UNSUBSCRIBE_PAGE_URL = _configured_unsubscribe_url
+else:
+    base_url = _configured_app_base_url.rstrip("/") if _configured_app_base_url else ""
+    if base_url:
+        UNSUBSCRIBE_PAGE_URL = f"{base_url}/unsubscribe"
+    else:
+        UNSUBSCRIBE_PAGE_URL = "https://pphmjopenaccess.com/unsubscribe"
+
+_unsubscribe_origin_parts = urlsplit(UNSUBSCRIBE_PAGE_URL)
+UNSUBSCRIBE_PAGE_ORIGIN = (
+    f"{_unsubscribe_origin_parts.scheme}://{_unsubscribe_origin_parts.netloc}"
+    if _unsubscribe_origin_parts.scheme and _unsubscribe_origin_parts.netloc
     else "https://pphmjopenaccess.com"
 )
 
 ALLOWED_UNSUBSCRIBE_ORIGINS = {
     origin.strip()
     for origin in (
-        EXTERNAL_UNSUBSCRIBE_PAGE_ORIGIN,
+        UNSUBSCRIBE_PAGE_ORIGIN,
         *[
             value.strip()
             for value in os.getenv("UNSUBSCRIBE_ALLOWED_ORIGINS", "").split(",")
             if value.strip()
         ],
     )
+    if origin.strip()
 }
 if not ALLOWED_UNSUBSCRIBE_ORIGINS:
-    ALLOWED_UNSUBSCRIBE_ORIGINS = {EXTERNAL_UNSUBSCRIBE_PAGE_ORIGIN}
+    ALLOWED_UNSUBSCRIBE_ORIGINS = {UNSUBSCRIBE_PAGE_ORIGIN}
 
-DEFAULT_UNSUBSCRIBE_BASE_URL = f"{EXTERNAL_UNSUBSCRIBE_PAGE_URL}?email="
+if UNSUBSCRIBE_PAGE_URL.endswith("?") or UNSUBSCRIBE_PAGE_URL.endswith("&"):
+    DEFAULT_UNSUBSCRIBE_BASE_URL = f"{UNSUBSCRIBE_PAGE_URL}email="
+else:
+    separator = "&" if "?" in UNSUBSCRIBE_PAGE_URL else "?"
+    DEFAULT_UNSUBSCRIBE_BASE_URL = f"{UNSUBSCRIBE_PAGE_URL}{separator}email="
 SPAMMY_WORDS = [
     "offer", "discount", "free", "win", "winner", "cash", "prize",
     "buy now", "cheap", "limited time", "money", "urgent"
