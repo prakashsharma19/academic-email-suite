@@ -36,15 +36,25 @@ from urllib.parse import urlencode, urlsplit
 
 
 webhook_app = Flask(__name__)
+from flask_cors import CORS
+CORS(
+    webhook_app,
+    resources={
+        r"/*": {
+            "origins": [
+                "https://pphmjopenaccess.com",
+                "https://www.pphmjopenaccess.com",
+            ]
+        }
+    },
+    supports_credentials=True,
+)
 
 # ---------------------------
 # Start Flask webhook server
 # ---------------------------
 from threading import Thread
-from flask_cors import CORS
 from waitress import serve
-
-CORS(webhook_app, resources={r"/*": {"origins": "*"}})
 
 def start_webhook():
     try:
