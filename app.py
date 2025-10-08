@@ -488,19 +488,49 @@ def _normalize_unsubscribe_action(raw_action):
 
 
 def _corsify_unsubscribe_response(response):
-    origin = request.headers.get("Origin")
-    allowed_origin = None
-    if origin and origin in ALLOWED_UNSUBSCRIBE_ORIGINS:
-        allowed_origin = origin
+    """Apply CORS headers for unsubscribe API responses."""
 
-    if not allowed_origin:
-        allowed_origin = EXTERNAL_UNSUBSCRIBE_PAGE_ORIGIN
+    origin = request.headers.get("Origin") or ""
+    allowed_origin = EXTERNAL_UNSUBSCRIBE_PAGE_ORIGIN
+
+    if origin:
+        # Allow any explicitly whitelisted origins, but gracefully fall back to
+        # the configured unsubscribe page origin so that the response always
+        # contains a valid header even when the origin does not match the list
+        # exactly (for example, due to a trailing slash or differing scheme).
+        if origin in ALLOWED_UNSUBSCRIBE_ORIGINS:
+            allowed_origin = origin
+        elif "*" in ALLOWED_UNSUBSCRIBE_ORIGINS:
+            allowed_origin = origin
 
     response.headers["Access-Control-Allow-Origin"] = allowed_origin
     response.headers["Vary"] = "Origin"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
-    response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+
+    requested_headers = request.headers.get("Access-Control-Request-Headers")
+    if requested_headers:
+        response.headers["Access-Control-Allow-Headers"] = requested_headers
+    else:
+        response.headers["Access-Control-Allow-Headers"] = (
+            "Content-Type, Authorization, X-Requested-With"
+        )
+
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     response.headers["Access-Control-Max-Age"] = "86400"
+    return response
+
+
+@webhook_app.after_request
+def _add_unsubscribe_cors_headers(response):
+    """Ensure CORS headers are added for unsubscribe endpoints automatically."""
+
+    try:
+        request_path = request.path or ""
+    except RuntimeError:
+        # Request context might not be available during app start-up.
+        return response
+
+    if request_path.startswith("/api/unsubscribe") or request_path.startswith("/unsubscribe"):
+        return _corsify_unsubscribe_response(response)
     return response
 
 
