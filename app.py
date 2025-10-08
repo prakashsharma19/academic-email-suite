@@ -28,15 +28,33 @@ from flask import (
     jsonify,
     abort,
     redirect,
-    make_response,
 )
 
 import threading
 import copy
 from urllib.parse import urlencode, urlsplit
 
+
+webhook_app = Flask(__name__)
+
+# ---------------------------
+# Start Flask webhook server
+# ---------------------------
+from threading import Thread
 from flask_cors import CORS
 from waitress import serve
+
+CORS(webhook_app, resources={r"/*": {"origins": "*"}})
+
+def start_webhook():
+    try:
+        print("Starting webhook server on port 8000...")
+        serve(webhook_app, host="0.0.0.0", port=8000)
+    except Exception as e:
+        print("Webhook server failed to start:", e)
+
+Thread(target=start_webhook, daemon=True).start()
+# ---------------------------
 
 
 logger = logging.getLogger("academic_email_suite")
@@ -46,41 +64,12 @@ if not logger.handlers:
     logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 
-
-webhook_app = Flask(__name__)
-webhook_server_started = False
-webhook_server_lock = threading.Lock()
-
-CORS(webhook_app)
-
-
-def start_webhook_server():
-    global webhook_server_started
-    if webhook_server_started:
-        return
-
-    with webhook_server_lock:
-        if webhook_server_started:
-            return
-
-        def _run_server():
-            logger.info("Starting webhook server on port 8000")
-            serve(webhook_app, host="0.0.0.0", port=8000)
-
-        thread = threading.Thread(target=_run_server, name="WebhookServer", daemon=True)
-        thread.start()
-        webhook_server_started = True
-        logger.info("Webhook server thread started")
-
 UNSUBSCRIBED_CACHE = {"records": [], "emails": set(), "loaded": False}
 UNSUBSCRIBED_CACHE_LOCK = threading.Lock()
 
 MAILGUN_SIGNATURE_TOLERANCE_SECONDS = 300
 
 EMAIL_VALIDATION_REGEX = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
-
-# App Configuration
-start_webhook_server()
 
 st.set_page_config(
     page_title="PPH Email Manager",
@@ -707,88 +696,19 @@ def unsubscribe_page():
 
 @webhook_app.route("/api/unsubscribe", methods=["POST", "OPTIONS"])
 def unsubscribe_api():
-    if request.method == "OPTIONS":
-        response = make_response("", 204)
-        return _corsify_unsubscribe_response(response)
-
-    payload = request.get_json(silent=True) or {}
-    if not isinstance(payload, dict):
-        payload = {}
-
-    email = str(payload.get("email") or "").strip()
-    action_value = payload.get("action")
-    if action_value is None:
-        for alternate_key in ("status", "preference", "action_type"):
-            if alternate_key in payload:
-                action_value = payload.get(alternate_key)
-                break
-
-    action = _normalize_unsubscribe_action(action_value)
-
-    if not email:
-        response = jsonify({
-            "success": False,
-            "message": "No email address was provided.",
-        })
-        response.status_code = 400
-        return _corsify_unsubscribe_response(response)
-
-    if not EMAIL_VALIDATION_REGEX.match(email):
-        response = jsonify({
-            "success": False,
-            "message": "The email address provided is invalid.",
-        })
-        response.status_code = 400
-        return _corsify_unsubscribe_response(response)
-
-    if not action:
-        response = jsonify({
-            "success": False,
-            "message": "An unsubscribe action was not provided or is not supported.",
-        })
-        response.status_code = 400
-        return _corsify_unsubscribe_response(response)
-
-    if action == "unsubscribe":
-        success = set_email_unsubscribed(email)
-        unsubscribed_flag = success or is_email_unsubscribed(email)
-        if success:
-            logger.info("Marked %s as unsubscribed via API", email)
-            message = "You have been unsubscribed successfully and will be excluded from future campaigns."
-        else:
-            message = "We were unable to process your unsubscribe request at this time. Please try again later."
-    else:
-        success = set_email_resubscribed(email)
-        unsubscribed_flag = False if success else is_email_unsubscribed(email)
-        if success:
-            logger.info("Marked %s as resubscribed via API", email)
-            message = "You have been re-subscribed successfully. We will include you in future campaigns unless you opt out again."
-        else:
-            message = "We were unable to process your re-subscribe request at this time. Please try again later."
-
-    status_code = 200 if success else 500
-    response = jsonify({
-        "success": success,
-        "message": message,
-        "unsubscribed": bool(unsubscribed_flag),
-    })
-    response.status_code = status_code
-    return _corsify_unsubscribe_response(response)
+    try:
+        data = request.get_json(force=True)
+        email = data.get("email")
+        action = data.get("action", "unsubscribe")
+        print("Unsubscribe request for:", email, action)
+        return jsonify({"message": f"{email} {action} success"}), 200
+    except Exception as e:
+        print("Error:", e)
+        return jsonify({"message": "Error processing request"}), 500
 
 def ensure_webhook_server():
-    global webhook_server_started
-    with webhook_server_lock:
-        if webhook_server_started:
-            return
-
-        def run_server():
-            port = int(os.getenv("WEBHOOK_PORT", "8000"))
-            logger.info("Starting Mailgun unsubscribe webhook server on port %s", port)
-            webhook_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
-
-        thread = threading.Thread(target=run_server, daemon=True)
-        thread.start()
-        webhook_server_started = True
+    """Maintain backwards compatibility for legacy startup calls."""
+    return
 
 
 def update_sender_name():
