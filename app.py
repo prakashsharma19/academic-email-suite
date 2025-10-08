@@ -27,14 +27,13 @@ from flask import (
     request,
     jsonify,
     abort,
-    render_template,
     redirect,
-    url_for,
+    make_response,
 )
 
 import threading
 import copy
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 
 logger = logging.getLogger("academic_email_suite")
@@ -450,6 +449,46 @@ def set_email_resubscribed(email):
     return set_email_subscription_status(email, False)
 
 
+def _build_external_unsubscribe_url(email="", extra_params=None):
+    params = {}
+    if extra_params:
+        params.update({key: value for key, value in extra_params.items() if value})
+
+    email_clean = (email or "").strip()
+    if email_clean:
+        params.setdefault("email", email_clean)
+
+    if params:
+        return f"{EXTERNAL_UNSUBSCRIBE_PAGE_URL}?{urlencode(params)}"
+    return EXTERNAL_UNSUBSCRIBE_PAGE_URL
+
+
+def _normalize_unsubscribe_action(raw_action):
+    action = (raw_action or "").strip().lower()
+    if action in {"unsubscribe", "unsub", "optout", "opt-out"}:
+        return "unsubscribe"
+    if action in {"resubscribe", "subscribe", "resub", "optin", "opt-in"}:
+        return "resubscribe"
+    return ""
+
+
+def _corsify_unsubscribe_response(response):
+    origin = request.headers.get("Origin")
+    allowed_origin = None
+    if origin and origin in ALLOWED_UNSUBSCRIBE_ORIGINS:
+        allowed_origin = origin
+
+    if not allowed_origin:
+        allowed_origin = EXTERNAL_UNSUBSCRIBE_PAGE_ORIGIN
+
+    response.headers["Access-Control-Allow-Origin"] = allowed_origin
+    response.headers["Vary"] = "Origin"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+    response.headers["Access-Control-Max-Age"] = "86400"
+    return response
+
+
 def load_unsubscribed_users(force_refresh=False):
     if force_refresh:
         invalidate_unsubscribed_cache()
@@ -524,114 +563,58 @@ def is_email_unsubscribed(email):
 
 @webhook_app.route("/unsubscribe", methods=["GET", "POST"])
 def unsubscribe_webhook():
-    def render_preference_page(email, message, status, unsubscribed, show_actions):
-        query_params = {
-            "email": email,
-            "message": message or "",
-            "status": status or "info",
-            "unsubscribed": "true" if unsubscribed else "false",
-            "show_actions": "true" if show_actions else "false",
-            "excluded": "true" if unsubscribed else "false",
-        }
-        redirect_url = url_for("unsubscribe_page")
-        if query_params:
-            redirect_url = f"{redirect_url}?{urlencode(query_params)}"
+    if request.method == "GET":
+        email = (request.args.get("email") or "").strip()
+        redirect_url = _build_external_unsubscribe_url(email)
         response = redirect(redirect_url)
         response.headers["Cache-Control"] = "no-store"
         return response
 
-    if request.method == "GET":
-        email = request.args.get("email", "").strip()
-        if not email:
-            return render_preference_page(
-                email="",
-                message="No email address was provided for unsubscribe.",
-                status="warning",
-                unsubscribed=False,
-                show_actions=False,
-            )
+    if request.is_json:
+        return unsubscribe_api()
 
-        if not EMAIL_VALIDATION_REGEX.match(email):
-            return render_preference_page(
-                email=email,
-                message="The email address provided is invalid.",
-                status="error",
-                unsubscribed=False,
-                show_actions=False,
-            )
-
-        if set_email_unsubscribed(email):
-            return render_preference_page(
-                email=email,
-                message="You have been unsubscribed successfully and will be excluded from future campaigns.",
-                status="success",
-                unsubscribed=True,
-                show_actions=True,
-            )
-
-        return render_preference_page(
-            email=email,
-            message="We were unable to process your unsubscribe request at this time. Please try again later.",
-            status="error",
-            unsubscribed=False,
-            show_actions=True,
-        )
-
-    form_action = (request.form.get("action") or "").lower()
-    if form_action in {"unsubscribe", "resubscribe"}:
+    form_action = _normalize_unsubscribe_action(request.form.get("action"))
+    if form_action:
         email = (request.form.get("email") or "").strip()
         if not email:
-            return render_preference_page(
-                email="",
-                message="No email address was provided.",
-                status="warning",
-                unsubscribed=False,
-                show_actions=False,
-            )
+            response = jsonify({
+                "success": False,
+                "message": "No email address was provided.",
+            })
+            response.status_code = 400
+            return response
 
         if not EMAIL_VALIDATION_REGEX.match(email):
-            return render_preference_page(
-                email=email,
-                message="The email address provided is invalid.",
-                status="error",
-                unsubscribed=False,
-                show_actions=False,
-            )
+            response = jsonify({
+                "success": False,
+                "message": "The email address provided is invalid.",
+            })
+            response.status_code = 400
+            return response
 
         if form_action == "unsubscribe":
             success = set_email_unsubscribed(email)
             if success:
-                return render_preference_page(
-                    email=email,
-                    message="You have been unsubscribed successfully and will be excluded from future campaigns.",
-                    status="success",
-                    unsubscribed=True,
-                    show_actions=True,
-                )
-            return render_preference_page(
-                email=email,
-                message="We were unable to process your unsubscribe request at this time. Please try again later.",
-                status="error",
-                unsubscribed=False,
-                show_actions=True,
-            )
+                message = "You have been unsubscribed successfully and will be excluded from future campaigns."
+            else:
+                message = "We were unable to process your unsubscribe request at this time. Please try again later."
+            unsubscribed = success
+        else:
+            success = set_email_resubscribed(email)
+            if success:
+                message = "You have been re-subscribed successfully. We will include you in future campaigns unless you opt out again."
+            else:
+                message = "We were unable to process your re-subscribe request at this time. Please try again later."
+            unsubscribed = not success and is_email_unsubscribed(email)
 
-        success = set_email_resubscribed(email)
-        if success:
-            return render_preference_page(
-                email=email,
-                message="You have been re-subscribed successfully. We will include you in future campaigns unless you opt out again.",
-                status="success",
-                unsubscribed=False,
-                show_actions=True,
-            )
-        return render_preference_page(
-            email=email,
-            message="We were unable to process your re-subscribe request at this time. Please try again later.",
-            status="error",
-            unsubscribed=False,
-            show_actions=True,
-        )
+        status_code = 200 if success else 500
+        response = jsonify({
+            "success": success,
+            "message": message,
+            "unsubscribed": bool(unsubscribed),
+        })
+        response.status_code = status_code
+        return response
 
     signing_key = config.get("mailgun", {}).get("signing_key") or config.get("mailgun", {}).get("api_key")
     if not signing_key:
@@ -691,101 +674,80 @@ def _coerce_bool(value, default=False):
 @webhook_app.route("/unsubscribe/page", methods=["GET"])
 def unsubscribe_page():
     email = (request.args.get("email") or "").strip()
-    message = request.args.get("message") or ""
-    status = request.args.get("status") or "info"
-    unsubscribed = _coerce_bool(request.args.get("unsubscribed"), False)
-    show_actions = _coerce_bool(request.args.get("show_actions"), False)
-    excluded = _coerce_bool(request.args.get("excluded"), unsubscribed)
-    action = (request.args.get("action") or "").strip().lower()
+    redirect_url = _build_external_unsubscribe_url(email)
+    response = redirect(redirect_url)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
-    if action in {"unsubscribe", "resubscribe"}:
-        if not email:
-            message = "No email address was provided."
-            status = "warning"
-            unsubscribed = False
-            show_actions = False
-            excluded = False
-        elif not EMAIL_VALIDATION_REGEX.match(email):
-            message = "The email address provided is invalid."
-            status = "error"
-            unsubscribed = False
-            show_actions = False
-            excluded = False
+@webhook_app.route("/api/unsubscribe", methods=["POST", "OPTIONS"])
+def unsubscribe_api():
+    if request.method == "OPTIONS":
+        response = make_response("", 204)
+        return _corsify_unsubscribe_response(response)
+
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        payload = {}
+
+    email = str(payload.get("email") or "").strip()
+    action_value = payload.get("action")
+    if action_value is None:
+        for alternate_key in ("status", "preference", "action_type"):
+            if alternate_key in payload:
+                action_value = payload.get(alternate_key)
+                break
+
+    action = _normalize_unsubscribe_action(action_value)
+
+    if not email:
+        response = jsonify({
+            "success": False,
+            "message": "No email address was provided.",
+        })
+        response.status_code = 400
+        return _corsify_unsubscribe_response(response)
+
+    if not EMAIL_VALIDATION_REGEX.match(email):
+        response = jsonify({
+            "success": False,
+            "message": "The email address provided is invalid.",
+        })
+        response.status_code = 400
+        return _corsify_unsubscribe_response(response)
+
+    if not action:
+        response = jsonify({
+            "success": False,
+            "message": "An unsubscribe action was not provided or is not supported.",
+        })
+        response.status_code = 400
+        return _corsify_unsubscribe_response(response)
+
+    if action == "unsubscribe":
+        success = set_email_unsubscribed(email)
+        unsubscribed_flag = success or is_email_unsubscribed(email)
+        if success:
+            logger.info("Marked %s as unsubscribed via API", email)
+            message = "You have been unsubscribed successfully and will be excluded from future campaigns."
         else:
-            if action == "unsubscribe":
-                success = set_email_unsubscribed(email)
-                if success:
-                    message = (
-                        "You have been unsubscribed successfully and will be excluded from future campaigns."
-                    )
-                    status = "success"
-                    unsubscribed = True
-                else:
-                    message = (
-                        "We were unable to process your unsubscribe request at this time. Please try again later."
-                    )
-                    status = "error"
-                    unsubscribed = False
-            else:
-                success = set_email_resubscribed(email)
-                if success:
-                    message = (
-                        "You have been re-subscribed successfully. We will include you in future campaigns unless you opt out again."
-                    )
-                    status = "success"
-                    unsubscribed = False
-                else:
-                    message = (
-                        "We were unable to process your re-subscribe request at this time. Please try again later."
-                    )
-                    status = "error"
-                    unsubscribed = False
+            message = "We were unable to process your unsubscribe request at this time. Please try again later."
+    else:
+        success = set_email_resubscribed(email)
+        unsubscribed_flag = False if success else is_email_unsubscribed(email)
+        if success:
+            logger.info("Marked %s as resubscribed via API", email)
+            message = "You have been re-subscribed successfully. We will include you in future campaigns unless you opt out again."
+        else:
+            message = "We were unable to process your re-subscribe request at this time. Please try again later."
 
-            show_actions = True
-            excluded = unsubscribed
-
-        redirect_params = {
-            "email": email,
-            "message": message,
-            "status": status,
-            "unsubscribed": "true" if unsubscribed else "false",
-            "show_actions": "true" if show_actions else "false",
-            "excluded": "true" if excluded else "false",
-        }
-        return redirect(url_for("unsubscribe_page", **redirect_params), code=303)
-
-    base_action_params = {"email": email} if email else {}
-    unsubscribe_action_url = (
-        url_for("unsubscribe_page", **{**base_action_params, "action": "unsubscribe"})
-        if show_actions and email
-        else ""
-    )
-    resubscribe_action_url = (
-        url_for("unsubscribe_page", **{**base_action_params, "action": "resubscribe"})
-        if show_actions and email
-        else ""
-    )
-
-    return (
-        render_template(
-            "unsubscribe.html",
-            email=email,
-            status=status,
-            message=message,
-            unsubscribed=unsubscribed,
-            excluded_from_future_sends=excluded,
-            show_actions=show_actions,
-            current_year=datetime.utcnow().year,
-            form_action_url=url_for("unsubscribe_webhook"),
-            form_method="post",
-            use_links_for_actions=show_actions,
-            link_target="_self",
-            unsubscribe_action_url=unsubscribe_action_url,
-            resubscribe_action_url=resubscribe_action_url,
-        ),
-        200,
-        {"Content-Type": "text/html; charset=utf-8"},
-    )
+    status_code = 200 if success else 500
+    response = jsonify({
+        "success": success,
+        "message": message,
+        "unsubscribed": bool(unsubscribed_flag),
+    })
+    response.status_code = status_code
+    return _corsify_unsubscribe_response(response)
 
 def ensure_webhook_server():
     global webhook_server_started
@@ -1130,9 +1092,29 @@ def load_config():
     return config
 
 config = load_config()
-DEFAULT_UNSUBSCRIBE_BASE_URL = (
-    "https://hooks.pphmjopenaccess.com/unsubscribe?email="
+EXTERNAL_UNSUBSCRIBE_PAGE_URL = "https://pphmjopenaccess.com/unsubscribe.html"
+_external_unsubscribe_origin_parts = urlsplit(EXTERNAL_UNSUBSCRIBE_PAGE_URL)
+EXTERNAL_UNSUBSCRIBE_PAGE_ORIGIN = (
+    f"{_external_unsubscribe_origin_parts.scheme}://{_external_unsubscribe_origin_parts.netloc}"
+    if _external_unsubscribe_origin_parts.scheme and _external_unsubscribe_origin_parts.netloc
+    else "https://pphmjopenaccess.com"
 )
+
+ALLOWED_UNSUBSCRIBE_ORIGINS = {
+    origin.strip()
+    for origin in (
+        EXTERNAL_UNSUBSCRIBE_PAGE_ORIGIN,
+        *[
+            value.strip()
+            for value in os.getenv("UNSUBSCRIBE_ALLOWED_ORIGINS", "").split(",")
+            if value.strip()
+        ],
+    )
+}
+if not ALLOWED_UNSUBSCRIBE_ORIGINS:
+    ALLOWED_UNSUBSCRIBE_ORIGINS = {EXTERNAL_UNSUBSCRIBE_PAGE_ORIGIN}
+
+DEFAULT_UNSUBSCRIBE_BASE_URL = f"{EXTERNAL_UNSUBSCRIBE_PAGE_URL}?email="
 SPAMMY_WORDS = [
     "offer", "discount", "free", "win", "winner", "cash", "prize",
     "buy now", "cheap", "limited time", "money", "urgent"
