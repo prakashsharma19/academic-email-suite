@@ -8,3 +8,5 @@ matplotlib==3.8.2
 streamlit-ace==0.1.1
 firebase-functions
 Flask==2.3.3
+Flask-Cors==4.0.0
+waitress==3.0.0

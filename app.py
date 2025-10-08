@@ -35,6 +35,9 @@ import threading
 import copy
 from urllib.parse import urlencode, urlsplit
 
+from flask_cors import CORS
+from waitress import serve
+
 
 logger = logging.getLogger("academic_email_suite")
 if not logger.handlers:
@@ -48,6 +51,27 @@ webhook_app = Flask(__name__)
 webhook_server_started = False
 webhook_server_lock = threading.Lock()
 
+CORS(webhook_app)
+
+
+def start_webhook_server():
+    global webhook_server_started
+    if webhook_server_started:
+        return
+
+    with webhook_server_lock:
+        if webhook_server_started:
+            return
+
+        def _run_server():
+            logger.info("Starting webhook server on port 8000")
+            serve(webhook_app, host="0.0.0.0", port=8000)
+
+        thread = threading.Thread(target=_run_server, name="WebhookServer", daemon=True)
+        thread.start()
+        webhook_server_started = True
+        logger.info("Webhook server thread started")
+
 UNSUBSCRIBED_CACHE = {"records": [], "emails": set(), "loaded": False}
 UNSUBSCRIBED_CACHE_LOCK = threading.Lock()
 
@@ -56,6 +80,8 @@ MAILGUN_SIGNATURE_TOLERANCE_SECONDS = 300
 EMAIL_VALIDATION_REGEX = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 
 # App Configuration
+start_webhook_server()
+
 st.set_page_config(
     page_title="PPH Email Manager",
     layout="wide",
