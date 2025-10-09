@@ -4571,7 +4571,7 @@ def main():
         app_mode = st.selectbox("Select Mode", ["Email Campaign", "Editor Invitation", "Verify Emails", "Analytics"])
         st.markdown("---")
         st.markdown("### Quick Links")
-        st.markdown("[📊 Email Reports](https://app-us.smtp2go.com/reports/activity/)", unsafe_allow_html=True)
+        st.markdown("[📊 Email Reports](https://app.mailgun.com/mg/reporting/metrics/)", unsafe_allow_html=True)
         st.markdown("[📝 Entry Manager](https://pphentry.onrender.com)", unsafe_allow_html=True)
         check_incomplete_operations()
     
