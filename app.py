@@ -35,10 +35,13 @@ import re
 import hashlib
 import hmac
 import logging
+import smtplib
 from datetime import datetime, timedelta
-from io import StringIO, BytesIO
+from email.message import EmailMessage
+from email.utils import formataddr, formatdate, make_msgid
+from io import StringIO
 import base64
-import math
+import html
 from google.cloud import storage
 from google.oauth2 import service_account
 from streamlit_ace import st_ace
@@ -81,107 +84,141 @@ def set_light_theme():
     light_theme = """
     <style>
     :root {
-        --primary-color: #0d6efd;
-        --background-color: #ffffff;
-        --secondary-background-color: #f8f9fa;
-        --text-color: #212529;
-        --font: 'Roboto', sans-serif;
+        --primary-color: #4C6FFF;
+        --primary-color-dark: #3a59d6;
+        --accent-color: #7A5AF8;
+        --background-color: #f5f7fb;
+        --card-background: #ffffff;
+        --text-color: #1f2933;
+        --muted-text: #5f6c7b;
+        --success-color: #1FAA59;
+        --warning-color: #F4A259;
+        --danger-color: #F25F5C;
+        --radius-lg: 18px;
+        --radius-md: 14px;
+        --shadow-sm: 0 10px 30px rgba(15, 23, 42, 0.08);
+        --shadow-lg: 0 25px 60px rgba(15, 23, 42, 0.15);
+        --font-family: 'Inter', 'Segoe UI', sans-serif;
     }
+
     .stApp {
-        background-color: var(--background-color);
+        background: linear-gradient(180deg, rgba(76,111,255,0.08) 0%, rgba(245,247,251,1) 60%);
+        font-family: var(--font-family);
     }
-    .css-1d391kg, .css-1y4p8pa {
-        background-color: var(--secondary-background-color);
+
+    .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
+        color: var(--text-color);
+        font-weight: 700;
     }
-    .css-1aumxhk {
+
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, rgba(122,90,248,0.18) 0%, rgba(76,111,255,0.12) 100%);
+        color: var(--text-color);
+        border-right: 1px solid rgba(148, 163, 184, 0.2);
+    }
+
+    section[data-testid="stSidebar"] .css-1v0mbdj, section[data-testid="stSidebar"] .stSelectbox {
         color: var(--text-color);
     }
+
+    .stButton>button, .stDownloadButton>button {
+        background: linear-gradient(135deg, var(--primary-color) 0%, var(--accent-color) 100%) !important;
+        color: #ffffff !important;
+        border: none !important;
+        border-radius: var(--radius-md) !important;
+        padding: 0.6rem 1.3rem !important;
+        font-weight: 600 !important;
+        box-shadow: var(--shadow-sm);
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .stButton>button:hover, .stDownloadButton>button:hover {
+        transform: translateY(-1px) scale(1.01);
+        box-shadow: var(--shadow-lg);
+    }
+
+    .stButton>button:active, .stDownloadButton>button:active {
+        transform: scale(0.98);
+    }
+
+    .stTabs [data-baseweb="tab"] {
+        font-weight: 600;
+        padding: 1rem 1.5rem;
+    }
+
+    .stTabs [data-baseweb="tab"]:hover {
+        color: var(--primary-color);
+    }
+
+    div[data-testid="stMetricValue"] {
+        color: var(--primary-color);
+        font-weight: 700;
+    }
+
+    .modern-card {
+        background: var(--card-background);
+        border-radius: var(--radius-lg);
+        padding: 1.5rem;
+        box-shadow: var(--shadow-sm);
+        border: 1px solid rgba(15, 23, 42, 0.03);
+        backdrop-filter: blur(12px);
+    }
+
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-weight: 600;
+        border-radius: 999px;
+        padding: 0.35rem 1rem;
+        font-size: 0.85rem;
+        background: rgba(76, 111, 255, 0.12);
+        color: var(--primary-color);
+        border: 1px solid rgba(76, 111, 255, 0.2);
+    }
+
+    .subtle-text {
+        color: var(--muted-text);
+    }
+
+    .highlight-panel {
+        background: linear-gradient(135deg, rgba(76,111,255,0.16) 0%, rgba(122,90,248,0.2) 100%);
+        border-radius: var(--radius-lg);
+        padding: 1rem 1.5rem;
+        color: var(--text-color);
+        box-shadow: var(--shadow-sm);
+    }
+
+    div[data-testid="stForm"] {
+        background: var(--card-background);
+        padding: 1.5rem;
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-sm);
+    }
+
+    div[role="listbox"], .stSelectbox, .stTextInput, .stTextArea {
+        border-radius: var(--radius-md) !important;
+    }
+
     .footer {
-        position: fixed;
-        left: 0;
-        bottom: 0;
-        width: 100%;
-        background-color: var(--secondary-background-color);
-        color: var(--text-color);
+        margin-top: 3rem;
+        padding: 1rem 0;
         text-align: center;
-        padding: 10px;
-        font-size: 0.8em;
-        border-top: 1px solid #ddd;
+        color: var(--muted-text);
     }
+
     .footer a {
         color: var(--primary-color);
+        font-weight: 600;
         text-decoration: none;
-        font-weight: bold;
     }
-    /* Button Colors */
-    .stButton button,
-    .stDownloadButton button,
-    .bad-email-btn button,
-    .good-email-btn button,
-    .risky-email-btn button {
-        background-color: #007bff !important;
-        border-color: #007bff !important;
-        color: white !important;
-        transition: transform 0.05s ease;
-    }
-    .stButton button:hover,
-    .stDownloadButton button:hover,
-    .bad-email-btn button:hover,
-    .good-email-btn button:hover,
-    .risky-email-btn button:hover {
-        background-color: #0069d9 !important;
-        border-color: #0069d9 !important;
-    }
-    /* Send Ads button */
-    .send-ads-btn button {
-        background-color: #4CAF50 !important;
-        color: white !important;
-        border-color: #4CAF50 !important;
-        transition: background-color 0.3s ease;
-    }
-    .send-ads-btn button:hover {
-        background-color: #45a049 !important;
-    }
-    /* Resume icon button */
-    .resume-btn button {
-        background: url('https://github.com/prakashsharma19/academic-email-suite/blob/main/resumeicon.png?raw=true') no-repeat center center !important;
-        background-size: contain !important;
-        width: 40px !important;
-        height: 40px !important;
-        padding: 0 !important;
-        color: transparent !important;
-    }
-    .resume-btn button:hover {
-        background-color: transparent !important;
-    }
-    .stButton button:active,
-    .stDownloadButton button:active,
-    .bad-email-btn button:active,
-    .good-email-btn button:active,
-    .risky-email-btn button:active {
-        transform: scale(0.97);
-    }
-    /* Sidebar appearance */
-    section[data-testid="stSidebar"] {
-        background-color: #e6f0ff;
-        width: 200px !important;
-    }
-    /* App title positioning */
-    .app-title {
-        position: absolute;
-        top: 10px;
-        left: 10px;
-        font-size: 1.5rem !important;
-        margin: 0;
-    }
-    /* Multiselect tags wrap text */
+
     div[data-baseweb="tag"] span {
         white-space: normal !important;
     }
     </style>
     <div class="footer">
-        This app is made by <a href="https://www.cpsharma.com" target="_blank">Prakash</a>. 
-        Contact for any help at <a href="https://www.cpsharma.com" target="_blank">cpsharma.com</a>
+        Designed with ❤ for streamlined academic outreach. Crafted by <a href="https://www.cpsharma.com" target="_blank">Prakash</a>.
     </div>
     """
     st.markdown(light_theme, unsafe_allow_html=True)
@@ -288,6 +325,10 @@ def init_session_state():
         st.session_state.template_content = {}
     if 'journal_subjects' not in st.session_state:
         st.session_state.journal_subjects = {}
+    if 'requested_mode' not in st.session_state:
+        st.session_state.requested_mode = None
+    if 'active_app_mode' not in st.session_state:
+        st.session_state.active_app_mode = "Email Campaign"
     if 'sender_email' not in st.session_state:
         st.session_state.sender_email = (
             config.get('mailgun', {}).get('sender')
@@ -299,6 +340,16 @@ def init_session_state():
         st.session_state.sender_base_name = config['sender_name']
     if 'sender_name_loaded' not in st.session_state:
         st.session_state.sender_name_loaded = False
+    if 'sender_email_loaded' not in st.session_state:
+        st.session_state.sender_email_loaded = False
+    if 'kvn_smtp_settings' not in st.session_state:
+        st.session_state.kvn_smtp_settings = {}
+    if 'kvn_settings_loaded' not in st.session_state:
+        st.session_state.kvn_settings_loaded = False
+    if 'default_email_service_loaded' not in st.session_state:
+        st.session_state.default_email_service_loaded = False
+    if 'reply_addresses_loaded' not in st.session_state:
+        st.session_state.reply_addresses_loaded = False
     if 'blocked_domains' not in st.session_state:
         st.session_state.blocked_domains = []
     if 'blocked_emails' not in st.session_state:
@@ -889,78 +940,6 @@ def sanitize_author_name(name: str) -> str:
     return ""
 
 
-def generate_clock_image(tz: str) -> str:
-    """Return base64 encoded analog clock image for the given timezone."""
-    now = datetime.now(pytz.timezone(tz))
-    fig, ax = plt.subplots(figsize=(1.2, 1.2))
-    ax.axis("off")
-    circle = plt.Circle((0, 0), 1, fill=False, linewidth=2, color="black")
-    ax.add_artist(circle)
-    for i in range(12):
-        angle = math.radians(i * 30)
-        x_out, y_out = math.sin(angle), math.cos(angle)
-        ax.plot([0.9 * x_out, x_out], [0.9 * y_out, y_out], color="black", lw=1)
-    hour = (now.hour % 12) + now.minute / 60.0
-    minute = now.minute + now.second / 60.0
-    h_angle = math.radians(hour * 30)
-    m_angle = math.radians(minute * 6)
-    ax.plot([0, 0.5 * math.sin(h_angle)], [0, 0.5 * math.cos(h_angle)], color="black", lw=2)
-    ax.plot([0, 0.8 * math.sin(m_angle)], [0, 0.8 * math.cos(m_angle)], color="black", lw=1)
-    ax.set_xlim(-1, 1)
-    ax.set_ylim(-1, 1)
-    ax.set_aspect("equal")
-    buf = BytesIO()
-    plt.tight_layout(pad=0.1)
-    fig.savefig(buf, format="png", transparent=True, bbox_inches='tight', pad_inches=0.05)
-    plt.close(fig)
-    return base64.b64encode(buf.getvalue()).decode("utf-8")
-
-
-def display_world_clocks():
-    """Show analog and digital clocks for common time zones using HTML/CSS."""
-    zones = [
-        ("USA", "America/New_York"),
-        ("Indonesia", "Asia/Jakarta"),
-        ("United Kingdom", "Europe/London"),
-        ("Germany", "Europe/Berlin"),
-        ("UAE", "Asia/Dubai"),
-        ("China", "Asia/Shanghai"),
-        ("Japan", "Asia/Tokyo"),
-        ("Australia", "Australia/Sydney"),
-        ("Brazil", "America/Sao_Paulo"),
-        ("South Africa", "Africa/Johannesburg"),
-    ]
-
-    style = """
-    <style>
-    .aes-clock-container {display:flex;gap:10px;flex-wrap:wrap;}
-    .aes-clock {position:relative;width:60px;height:60px;border:2px solid #000;border-radius:50%;margin:auto;}
-    .aes-hour {position:absolute;top:50%;left:50%;width:20px;height:3px;background:#000;transform-origin:0% 50%;}
-    .aes-minute {position:absolute;top:50%;left:50%;width:28px;height:2px;background:#000;transform-origin:0% 50%;}
-    </style>
-    """
-
-    html = f"{style}<div class='aes-clock-container'>"
-    for label, tz in zones:
-        now = datetime.now(pytz.timezone(tz))
-        digital = now.strftime("%I:%M %p")
-        color = "green" if 7 <= now.hour < 20 else "black"
-        hour_angle = (now.hour % 12 + now.minute / 60) * 30 - 90
-        minute_angle = now.minute * 6 - 90
-        html += (
-            "<div style='text-align:center;'>"
-            "<div class='aes-clock'>"
-            f"<div class='aes-hour' style='transform:rotate({hour_angle}deg)'></div>"
-            f"<div class='aes-minute' style='transform:rotate({minute_angle}deg)'></div>"
-            "</div>"
-            f"<div style='font-size:12px'>{label}</div>"
-            f"<div style='font-size:12px;color:{color}'>{digital}</div>"
-            "</div>"
-        )
-    html += "</div><div style='font-size:14px;margin-top:4px;color:red;'>Note: Sending emails in working hours improves read rate.</div>"
-    st.markdown(html, unsafe_allow_html=True)
-
-
 def parse_email_entries(file_content: str) -> pd.DataFrame:
     """Return DataFrame of email entries allowing variable address lengths."""
     entries = []
@@ -1159,6 +1138,14 @@ def load_config():
             'domain': os.getenv("MAILGUN_DOMAIN", ""),
             'sender': os.getenv("MAILGUN_SENDER_EMAIL", ""),
             'signing_key': os.getenv("MAILGUN_SIGNING_KEY", "")
+        },
+        'kvn_smtp': {
+            'host': os.getenv("KVN_SMTP_HOST", ""),
+            'port': int(os.getenv("KVN_SMTP_PORT", "587") or 587),
+            'username': os.getenv("KVN_SMTP_USERNAME", ""),
+            'password': os.getenv("KVN_SMTP_PASSWORD", ""),
+            'sender': os.getenv("KVN_SMTP_SENDER_EMAIL", ""),
+            'use_tls': os.getenv("KVN_SMTP_USE_TLS", "true").lower() != "false",
         },
         'sender_name': os.getenv("SENDER_NAME", "Pushpa Publishing House"),
         'webhook': {
@@ -1404,6 +1391,60 @@ def send_email_via_mailgun(recipient, subject, body_html, body_text, unsubscribe
         return False, None
     except Exception as e:
         st.error(f"Failed to send email via Mailgun: {str(e)}")
+        return False, None
+
+
+def send_email_via_kvn(recipient, subject, body_html, body_text, unsubscribe_link, reply_to=None):
+    settings = get_effective_kvn_settings()
+    host = settings.get('host')
+    port = settings.get('port', 587)
+    username = settings.get('username')
+    password = settings.get('password')
+    sender_email = settings.get('sender') or st.session_state.sender_email
+    use_tls = settings.get('use_tls', True)
+
+    missing = [key for key, value in (
+        ('host', host),
+        ('port', port),
+        ('username', username),
+        ('password', password),
+        ('sender', sender_email),
+    ) if not value and value != 0]
+
+    if missing:
+        st.error(
+            "KVN SMTP configuration incomplete. Please update the settings for: "
+            + ", ".join(missing)
+        )
+        return False, None
+
+    try:
+        message = EmailMessage()
+        message['Subject'] = subject
+        message['From'] = formataddr((st.session_state.sender_name, sender_email))
+        message['To'] = recipient
+        message['Date'] = formatdate(localtime=True)
+        message['Message-ID'] = make_msgid()
+        message['List-Unsubscribe'] = f"<{unsubscribe_link}>"
+        message['List-Unsubscribe-Post'] = "List-Unsubscribe=One-Click"
+        if reply_to:
+            message['Reply-To'] = reply_to
+
+        message.set_content(body_text)
+        message.add_alternative(body_html, subtype="html")
+
+        with smtplib.SMTP(host, port, timeout=30) as server:
+            server.ehlo()
+            if use_tls:
+                server.starttls()
+                server.ehlo()
+            server.login(username, password)
+            server.send_message(message)
+
+        return True, message['Message-ID']
+    except Exception as e:
+        st.error(f"Failed to send email via KVN SMTP: {str(e)}")
+        logger.exception("KVN SMTP send failure")
         return False, None
 
 
@@ -2199,6 +2240,214 @@ def load_sender_name():
         st.error(f"Failed to load sender name: {str(e)}")
         return None
 
+
+def save_sender_email(sender_email):
+    """Persist the default sender email address to Firestore."""
+    try:
+        db = get_firestore_db()
+        if not db:
+            return False
+
+        doc_ref = db.collection("settings").document("sender_email")
+        doc_ref.set({
+            "value": sender_email,
+            "last_updated": datetime.now(),
+            "updated_by": st.session_state.get("username", "admin"),
+        })
+        return True
+    except Exception as e:
+        st.error(f"Failed to save sender email: {str(e)}")
+        return False
+
+
+def load_sender_email():
+    """Retrieve the default sender email address from Firestore."""
+    try:
+        db = get_firestore_db()
+        if not db:
+            return None
+
+        doc_ref = db.collection("settings").document("sender_email")
+        doc = doc_ref.get()
+        if doc.exists:
+            return doc.to_dict().get("value", None)
+        return None
+    except Exception as e:
+        st.error(f"Failed to load sender email: {str(e)}")
+        return None
+
+
+def save_reply_address(journal_name, address):
+    """Save reply-to address for a journal to Firestore."""
+    try:
+        db = get_firestore_db()
+        if not db:
+            return False
+
+        doc_ref = db.collection("reply_addresses").document(journal_name)
+        doc_ref.set({
+            "email": address,
+            "updated_at": datetime.now(),
+            "updated_by": st.session_state.get("username", "admin"),
+        })
+        st.session_state.journal_reply_addresses[journal_name] = address
+        return True
+    except Exception as e:
+        st.error(f"Failed to save reply-to address: {str(e)}")
+        return False
+
+
+def load_reply_addresses():
+    """Load all reply-to addresses from Firestore into session state."""
+    try:
+        db = get_firestore_db()
+        if not db:
+            return False
+
+        docs = db.collection("reply_addresses").stream()
+        for doc in docs:
+            data = doc.to_dict() or {}
+            st.session_state.journal_reply_addresses[doc.id] = data.get("email", "")
+        return True
+    except Exception as e:
+        st.error(f"Failed to load reply-to addresses: {str(e)}")
+        return False
+
+
+def save_default_email_service(service_name):
+    """Persist the preferred email service so the choice sticks across sessions."""
+    try:
+        db = get_firestore_db()
+        if not db:
+            return False
+
+        normalized = (service_name or "MAILGUN").upper()
+        doc_ref = db.collection("settings").document("default_email_service")
+        doc_ref.set({
+            "value": normalized,
+            "last_updated": datetime.now(),
+            "updated_by": st.session_state.get("username", "admin"),
+        })
+        return True
+    except Exception as e:
+        st.error(f"Failed to save default email service: {str(e)}")
+        return False
+
+
+def load_default_email_service():
+    """Return the persisted default email service if available."""
+    try:
+        db = get_firestore_db()
+        if not db:
+            return None
+
+        doc_ref = db.collection("settings").document("default_email_service")
+        doc = doc_ref.get()
+        if doc.exists:
+            return doc.to_dict().get("value", None)
+        return None
+    except Exception as e:
+        st.error(f"Failed to load default email service: {str(e)}")
+        return None
+
+
+def get_effective_kvn_settings():
+    """Merge environment defaults with any saved KVN SMTP overrides."""
+    base = copy.deepcopy(config.get('kvn_smtp', {}))
+    overrides = st.session_state.get('kvn_smtp_settings', {}) or {}
+    for key, value in overrides.items():
+        if value not in (None, ""):
+            base[key] = value
+    # Ensure port is always an integer
+    if 'port' in base:
+        try:
+            base['port'] = int(base['port'])
+        except (TypeError, ValueError):
+            base['port'] = 587
+    else:
+        base['port'] = 587
+    base['use_tls'] = bool(base.get('use_tls', True))
+    return base
+
+
+def save_kvn_smtp_settings(settings):
+    """Persist KVN SMTP credentials/settings to Firestore."""
+    try:
+        db = get_firestore_db()
+        if not db:
+            return False
+
+        sanitized = {
+            'host': settings.get('host', ''),
+            'port': int(settings.get('port', 587) or 587),
+            'username': settings.get('username', ''),
+            'password': settings.get('password', ''),
+            'sender': settings.get('sender', ''),
+            'use_tls': bool(settings.get('use_tls', True)),
+            'updated_at': datetime.now(),
+            'updated_by': st.session_state.get('username', 'admin'),
+        }
+
+        db.collection('settings').document('kvn_smtp').set(sanitized)
+        st.session_state.kvn_smtp_settings = sanitized
+        config['kvn_smtp'].update({
+            'host': sanitized['host'],
+            'port': sanitized['port'],
+            'username': sanitized['username'],
+            'password': sanitized['password'],
+            'sender': sanitized['sender'],
+            'use_tls': sanitized['use_tls'],
+        })
+        return True
+    except Exception as e:
+        st.error(f"Failed to save KVN SMTP settings: {str(e)}")
+        return False
+
+
+def load_kvn_smtp_settings():
+    """Load KVN SMTP settings from Firestore into session state."""
+    try:
+        db = get_firestore_db()
+        if not db:
+            return None
+
+        doc_ref = db.collection('settings').document('kvn_smtp')
+        doc = doc_ref.get()
+        if doc.exists:
+            data = doc.to_dict() or {}
+            st.session_state.kvn_smtp_settings = data
+            config['kvn_smtp'].update({
+                'host': data.get('host', ''),
+                'port': int(data.get('port', config['kvn_smtp'].get('port', 587) or 587)),
+                'username': data.get('username', ''),
+                'password': data.get('password', ''),
+                'sender': data.get('sender', ''),
+                'use_tls': bool(data.get('use_tls', True)),
+            })
+            return data
+        return None
+    except Exception as e:
+        st.error(f"Failed to load KVN SMTP settings: {str(e)}")
+        return None
+
+
+def is_kvn_smtp_configured():
+    """Quick helper to verify KVN SMTP settings are complete."""
+    settings = get_effective_kvn_settings()
+    required_fields = ['host', 'port', 'username', 'password', 'sender']
+    return all(settings.get(field) for field in required_fields)
+
+
+def get_service_display_name(service_key):
+    mapping = {
+        'SMTP2GO': 'SMTP2GO',
+        'MAILGUN': 'Mailgun',
+        'KVN SMTP': 'KVN SMTP',
+        'KVN': 'KVN SMTP',
+    }
+    normalized = (service_key or 'MAILGUN').upper()
+    return mapping.get(normalized, normalized.title())
+
 def is_email_blocked(email):
     email_lower = email.lower()
     domain = email_lower.split('@')[-1]
@@ -2220,8 +2469,6 @@ def highlight_spam_words(text):
     return words_found, highlighted
 
 # Check template spam score using Postmark Spamcheck API
-from email.utils import formataddr, formatdate, make_msgid
-
 def check_postmark_spam(template_html, subject="Test"):
     try:
         headers = [
@@ -2380,6 +2627,9 @@ def execute_campaign(campaign_data):
     # ensure newly unsubscribed users are respected immediately.
     load_unsubscribed_users(force_refresh=True)
 
+    service = (st.session_state.email_service or "MAILGUN").upper()
+    service_display = get_service_display_name(service)
+
     for i in range(current_index, total_emails):
         if st.session_state.campaign_cancelled:
             break
@@ -2390,7 +2640,7 @@ def execute_campaign(campaign_data):
             progress = (i + 1) / total_emails
             progress_bar.progress(progress)
             status_text.text(
-                f"Skipping {i+1} of {total_emails}: {recipient_email} (unsubscribed)"
+                f"{service_display} · Skipping {i+1} of {total_emails}: {recipient_email} (unsubscribed)"
             )
             update_campaign_progress(campaign_id, i + 1, success_count)
             if log_id:
@@ -2399,7 +2649,9 @@ def execute_campaign(campaign_data):
         if is_email_blocked(recipient_email):
             progress = (i + 1) / total_emails
             progress_bar.progress(progress)
-            status_text.text(f"Skipping {i+1} of {total_emails}: {recipient_email} (blocked)")
+            status_text.text(
+                f"{service_display} · Skipping {i+1} of {total_emails}: {recipient_email} (blocked)"
+            )
             update_campaign_progress(campaign_id, i + 1, success_count)
             if log_id:
                 update_operation_log(log_id, progress=progress)
@@ -2469,9 +2721,17 @@ def execute_campaign(campaign_data):
         subject = subject_cycle[i % len(subject_cycle)]
         subject = subject.replace("$$AuthorLastname$$", last_name)
 
-        service = (st.session_state.email_service or "MAILGUN").upper()
         if service == "SMTP2GO":
             success, email_id = send_email_via_smtp2go(
+                recipient_email,
+                subject,
+                email_content,
+                plain_text,
+                unsubscribe_link,
+                reply_to,
+            )
+        elif service == "KVN SMTP" or service == "KVN":
+            success, email_id = send_email_via_kvn(
                 recipient_email,
                 subject,
                 email_content,
@@ -2496,7 +2756,9 @@ def execute_campaign(campaign_data):
 
         progress = (i + 1) / total_emails
         progress_bar.progress(progress)
-        status_text.text(f"Processing {i+1} of {total_emails}: {recipient_email}")
+        status_text.text(
+            f"{service_display} · Processing {i+1} of {total_emails}: {recipient_email}"
+        )
         update_campaign_progress(campaign_id, i + 1, success_count)
         if log_id:
             update_operation_log(log_id, progress=progress)
@@ -2535,13 +2797,17 @@ def execute_campaign(campaign_data):
         save_campaign_history(record)
 
         progress_bar.progress(1.0)
-        status_text.text("Campaign completed")
-        st.success(f"Campaign completed! {success_count} of {total_emails} emails sent successfully.")
+        status_text.text(f"{service_display} · Campaign completed")
+        st.success(
+            f"Campaign completed via {service_display}! {success_count} of {total_emails} emails sent successfully."
+        )
         if log_id:
             update_operation_log(log_id, status="completed", progress=1.0)
         delete_campaign(campaign_id)
     else:
-        st.warning(f"Campaign cancelled. {success_count} of {total_emails} emails were sent.")
+        st.warning(
+            f"Campaign cancelled while using {service_display}. {success_count} of {total_emails} emails were sent."
+        )
         if log_id:
             update_operation_log(log_id, status="failed", progress=(success_count / total_emails if total_emails else 0))
 
@@ -2848,61 +3114,44 @@ def email_campaign_section():
                 st.session_state.show_journal_details = True
             st.experimental_rerun()
 
-    
-    
-    # Campaign settings in the sidebar
-    with st.sidebar.expander("Campaign Settings", expanded=False):
-        service_options = ["SMTP2GO", "MAILGUN"]
+    with st.container():
+        st.markdown("<div class='modern-card'>", unsafe_allow_html=True)
+        st.markdown("#### Delivery Controls")
+        col_service, col_status, col_settings = st.columns([3, 2, 1])
+
+        service_options = ["SMTP2GO", "MAILGUN", "KVN SMTP"]
         current_service = (st.session_state.email_service or "MAILGUN").upper()
-        default_index = service_options.index("MAILGUN")
-        if current_service in service_options:
-            default_index = service_options.index(current_service)
-        st.session_state.email_service = st.selectbox(
-            "Select Email Service",
-            service_options,
-            index=default_index,
-            key="email_service_select"
-        )
+        if current_service not in service_options:
+            current_service = "MAILGUN"
 
-        reply_address = st.text_input(
-            f"Reply-to Address for {selected_journal}",
-            value=st.session_state.journal_reply_addresses.get(selected_journal, ""),
-            key=f"reply_{selected_journal}"
-        )
-        if st.button("Save Reply Address", key="save_reply_address"):
-            st.session_state.journal_reply_addresses[selected_journal] = reply_address
-            st.success("Reply address saved!")
+        with col_service:
+            selected_service = st.selectbox(
+                "Active Email Service",
+                service_options,
+                index=service_options.index(current_service),
+                key="campaign_service_select",
+            )
+            st.session_state.email_service = selected_service
 
-        st.text_input(
-            "Sender Email",
-            value=st.session_state.sender_email,
-            key="sender_email"
-        )
-        st.text_input(
-            "Sender Name",
-            value=st.session_state.sender_base_name,
-            key="sender_base_name"
-        )
-        if st.button("Save Sender Name", key="save_sender_name"):
-            if save_sender_name(st.session_state.sender_base_name):
-                update_sender_name()
-                st.success("Sender name saved!")
+        with col_status:
+            display_name = get_service_display_name(selected_service)
+            st.markdown(
+                f"<span class='status-badge'>Active: {display_name}</span>",
+                unsafe_allow_html=True,
+            )
+            if selected_service == "KVN SMTP" and not is_kvn_smtp_configured():
+                st.warning("KVN SMTP needs configuration in Settings.", icon="⚠️")
 
-        blocked_domains_text = st.text_area(
-            "Blocked Domains (one per line)",
-            "\n".join(st.session_state.blocked_domains),
-            key="blocked_domains_text"
-        )
-        blocked_emails_text = st.text_area(
-            "Blocked Emails (one per line)",
-            "\n".join(st.session_state.blocked_emails),
-            key="blocked_emails_text"
-        )
-        if st.button("Save Block Settings", key="save_block_settings"):
-            st.session_state.blocked_domains = [d.strip() for d in blocked_domains_text.splitlines() if d.strip()]
-            st.session_state.blocked_emails = [e.strip() for e in blocked_emails_text.splitlines() if e.strip()]
-            if save_block_settings():
-                st.success("Block settings saved!")
+        with col_settings:
+            if st.button("Open Settings", key="open_settings_from_campaign"):
+                st.session_state.requested_mode = "Settings"
+                st.experimental_rerun()
+
+        reply_to_value = st.session_state.journal_reply_addresses.get(selected_journal, "")
+        escaped_reply = html.escape(reply_to_value) if reply_to_value else "Not set"
+        st.caption(f"Reply-to for {selected_journal}: {escaped_reply}")
+        st.caption("Manage sender identity, reply-to addresses, and suppression lists from the Settings tab.")
+        st.markdown("</div>", unsafe_allow_html=True)
 
     if st.session_state.show_journal_details:
         # Journal Subject Management
@@ -3071,8 +3320,10 @@ def email_campaign_section():
                 key="recipient_file_source",
             )
         with col_clock:
-            display_world_clocks()
-
+            st.markdown(
+                f"<div class='highlight-panel'><strong>Active Service:</strong> {get_service_display_name(st.session_state.email_service)}</div>",
+                unsafe_allow_html=True,
+            )
         unsubscribed_lookup = st.session_state.get("unsubscribed_email_lookup", set())
 
         if file_source == "Local Upload":
@@ -3414,6 +3665,10 @@ def email_campaign_section():
                 if not config['smtp2go']['api_key']:
                     st.error("SMTP2GO API key not configured")
                     return
+            elif service == "KVN SMTP" or service == "KVN":
+                if not is_kvn_smtp_configured():
+                    st.error("Please configure KVN SMTP credentials in Settings before sending.")
+                    return
             else:
                 mailgun_config = config.get('mailgun', {})
                 if not (
@@ -3528,59 +3783,45 @@ def editor_invitation_section():
             st.experimental_rerun()
 
 
-    # Campaign settings in the sidebar
-    with st.sidebar.expander("Campaign Settings", expanded=False):
-        service_options = ["SMTP2GO", "MAILGUN"]
+    with st.container():
+        st.markdown("<div class='modern-card'>", unsafe_allow_html=True)
+        st.markdown("#### Delivery Controls")
+        col_service, col_status, col_settings = st.columns([3, 2, 1])
+
+        service_options = ["SMTP2GO", "MAILGUN", "KVN SMTP"]
         current_service = (st.session_state.email_service or "MAILGUN").upper()
-        default_index = service_options.index("MAILGUN")
-        if current_service in service_options:
-            default_index = service_options.index(current_service)
-        st.session_state.email_service = st.selectbox(
-            "Select Email Service",
-            service_options,
-            index=default_index,
-            key="email_service_select_editor",
-        )
+        if current_service not in service_options:
+            current_service = "MAILGUN"
 
-        reply_address = st.text_input(
-            f"Reply-to Address for {selected_editor_journal}",
-            value=st.session_state.journal_reply_addresses.get(selected_editor_journal, ""),
-            key=f"reply_editor_{selected_editor_journal}"
-        )
-        if st.button("Save Reply Address", key="save_reply_address_editor"):
-            st.session_state.journal_reply_addresses[selected_editor_journal] = reply_address
-            st.success("Reply address saved!")
+        with col_service:
+            selected_service = st.selectbox(
+                "Active Email Service",
+                service_options,
+                index=service_options.index(current_service),
+                key="editor_service_select",
+            )
+            st.session_state.email_service = selected_service
 
-        st.text_input(
-            "Sender Email",
-            value=st.session_state.sender_email,
-            key="sender_email"
-        )
-        st.text_input(
-            "Sender Name",
-            value=st.session_state.sender_base_name,
-            key="sender_base_name"
-        )
-        if st.button("Save Sender Name", key="save_sender_name_editor"):
-            if save_sender_name(st.session_state.sender_base_name):
-                update_editor_sender_name()
-                st.success("Sender name saved!")
+        with col_status:
+            display_name = get_service_display_name(selected_service)
+            st.markdown(
+                f"<span class='status-badge'>Active: {display_name}</span>",
+                unsafe_allow_html=True,
+            )
+            if selected_service == "KVN SMTP" and not is_kvn_smtp_configured():
+                st.warning("KVN SMTP needs configuration in Settings.", icon="⚠️")
 
-        blocked_domains_text = st.text_area(
-            "Blocked Domains (one per line)",
-            "\n".join(st.session_state.blocked_domains),
-            key="blocked_domains_text_editor"
-        )
-        blocked_emails_text = st.text_area(
-            "Blocked Emails (one per line)",
-            "\n".join(st.session_state.blocked_emails),
-            key="blocked_emails_text_editor"
-        )
-        if st.button("Save Block Settings", key="save_block_settings_editor"):
-            st.session_state.blocked_domains = [d.strip() for d in blocked_domains_text.splitlines() if d.strip()]
-            st.session_state.blocked_emails = [e.strip() for e in blocked_emails_text.splitlines() if e.strip()]
-            if save_block_settings():
-                st.success("Block settings saved!")
+        with col_settings:
+            if st.button("Open Settings", key="open_settings_from_editor"):
+                st.session_state.requested_mode = "Settings"
+                st.experimental_rerun()
+
+        reply_to_value = st.session_state.journal_reply_addresses.get(selected_editor_journal, "")
+        escaped_reply = html.escape(reply_to_value) if reply_to_value else "Not set"
+        st.caption(f"Reply-to for {selected_editor_journal}: {escaped_reply}")
+        st.caption("Manage global sender settings from the Settings tab.")
+        st.markdown("</div>", unsafe_allow_html=True)
+
 
     if st.session_state.editor_show_journal_details:
         st.subheader("Journal Subjects")
@@ -3734,7 +3975,10 @@ def editor_invitation_section():
     with col_src:
         file_source = st.radio("Select file source", ["Local Upload", "Cloud Storage"], key="recipient_source_editor")
     with col_clock:
-        display_world_clocks()
+        st.markdown(
+            f"<div class='highlight-panel'><strong>Active Service:</strong> {get_service_display_name(st.session_state.email_service)}</div>",
+            unsafe_allow_html=True,
+        )
 
     if file_source == "Local Upload":
         uploaded_file = st.file_uploader("Upload recipient list (CSV or TXT)", type=["csv", "txt"], key="recipient_upload_editor")
@@ -3822,6 +4066,10 @@ def editor_invitation_section():
             if service == "SMTP2GO":
                 if not config['smtp2go']['api_key']:
                     st.error("SMTP2GO API key not configured")
+                    return
+            elif service == "KVN SMTP" or service == "KVN":
+                if not is_kvn_smtp_configured():
+                    st.error("Please configure KVN SMTP credentials in Settings before sending.")
                     return
             else:
                 mailgun_config = config.get('mailgun', {})
@@ -4166,10 +4414,198 @@ def email_verification_section():
                 use_container_width=True
             )
 
+def settings_section():
+    st.header("Settings & Preferences")
+    st.caption("All changes are securely saved to Firestore so they persist across sessions.")
+
+    if not st.session_state.block_settings_loaded:
+        load_block_settings()
+        st.session_state.block_settings_loaded = True
+    if not st.session_state.journals_loaded:
+        load_journals_from_firebase()
+        st.session_state.journals_loaded = True
+    if not st.session_state.editor_journals_loaded:
+        load_editor_journals_from_firebase()
+        st.session_state.editor_journals_loaded = True
+    if not st.session_state.reply_addresses_loaded:
+        load_reply_addresses()
+        st.session_state.reply_addresses_loaded = True
+
+    general_tab, services_tab, compliance_tab = st.tabs([
+        "General",
+        "Email Services",
+        "Compliance & Safety",
+    ])
+
+    with general_tab:
+        st.subheader("Sender Identity")
+        with st.form("sender_identity_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                sender_name_input = st.text_input(
+                    "Sender display name",
+                    st.session_state.sender_base_name,
+                    key="settings_sender_name_input",
+                )
+            with col2:
+                sender_email_input = st.text_input(
+                    "Default sender email",
+                    st.session_state.sender_email,
+                    key="settings_sender_email_input",
+                )
+            submitted_identity = st.form_submit_button("Save Sender Identity")
+
+        if submitted_identity:
+            updates = []
+            if sender_name_input and sender_name_input != st.session_state.sender_base_name:
+                st.session_state.sender_base_name = sender_name_input
+                st.session_state.sender_name = sender_name_input
+                if save_sender_name(sender_name_input):
+                    update_sender_name()
+                    updates.append("display name")
+                else:
+                    st.error("Failed to update sender name.")
+            if sender_email_input and sender_email_input != st.session_state.sender_email:
+                st.session_state.sender_email = sender_email_input
+                if save_sender_email(sender_email_input):
+                    config['mailgun']['sender'] = sender_email_input
+                    config['kvn_smtp']['sender'] = sender_email_input
+                    updates.append("sender email")
+                else:
+                    st.error("Failed to update sender email.")
+            if updates:
+                st.success(f"Updated {', '.join(updates)} successfully.")
+            else:
+                st.info("No changes detected.")
+
+        st.subheader("Reply-to Addresses")
+        reply_targets = sorted(set(JOURNALS + EDITOR_JOURNALS))
+        if reply_targets:
+            default_journal = st.session_state.selected_journal if st.session_state.selected_journal in reply_targets else reply_targets[0]
+            with st.form("reply_to_form"):
+                reply_choice = st.selectbox(
+                    "Select journal",
+                    reply_targets,
+                    index=reply_targets.index(default_journal),
+                    key="settings_reply_choice",
+                )
+                reply_value = st.text_input(
+                    "Reply-to email",
+                    st.session_state.journal_reply_addresses.get(reply_choice, ""),
+                    key="settings_reply_value",
+                )
+                submitted_reply = st.form_submit_button("Save Reply-to")
+
+            if submitted_reply:
+                if save_reply_address(reply_choice, reply_value):
+                    st.success(f"Reply-to address for {reply_choice} saved.")
+                else:
+                    st.error("Failed to save reply-to address.")
+        else:
+            st.info("No journals available yet. Add journals to configure reply-to addresses.")
+
+        if st.session_state.journal_reply_addresses:
+            display_rows = [
+                {"Journal": name, "Reply-To": addr or "Not set"}
+                for name, addr in sorted(st.session_state.journal_reply_addresses.items())
+            ]
+            st.dataframe(pd.DataFrame(display_rows))
+        else:
+            st.info("No reply-to addresses saved yet.")
+
+    with services_tab:
+        st.subheader("Email Service Preferences")
+        service_options = ["SMTP2GO", "MAILGUN", "KVN SMTP"]
+        current_service = (st.session_state.email_service or "MAILGUN").upper()
+        if current_service not in service_options:
+            current_service = "MAILGUN"
+
+        with st.form("default_service_form"):
+            default_service = st.selectbox(
+                "Default email service",
+                service_options,
+                index=service_options.index(current_service),
+                key="settings_default_service",
+            )
+            submitted_service = st.form_submit_button("Save Default Service")
+
+        if submitted_service:
+            st.session_state.email_service = default_service
+            if save_default_email_service(default_service):
+                st.success(f"Default service set to {get_service_display_name(default_service)}.")
+            else:
+                st.error("Failed to update default service.")
+
+        st.markdown("---")
+        st.subheader("KVN SMTP Configuration")
+        kvn_settings = get_effective_kvn_settings()
+        with st.form("kvn_smtp_form"):
+            host_input = st.text_input("SMTP host", kvn_settings.get('host', ''), key="kvn_host")
+            port_input = st.number_input("Port", min_value=1, max_value=65535, value=int(kvn_settings.get('port', 587)), key="kvn_port")
+            username_input = st.text_input("Username", kvn_settings.get('username', ''), key="kvn_username")
+            password_input = st.text_input("Password", kvn_settings.get('password', ''), type="password", key="kvn_password")
+            sender_input = st.text_input("Sender email", kvn_settings.get('sender', st.session_state.sender_email), key="kvn_sender")
+            use_tls_input = st.checkbox("Use TLS", value=bool(kvn_settings.get('use_tls', True)), key="kvn_use_tls")
+            submitted_kvn = st.form_submit_button("Save KVN SMTP Settings")
+
+        if submitted_kvn:
+            settings_payload = {
+                'host': host_input,
+                'port': port_input,
+                'username': username_input,
+                'password': password_input,
+                'sender': sender_input,
+                'use_tls': use_tls_input,
+            }
+            if save_kvn_smtp_settings(settings_payload):
+                st.success("KVN SMTP settings updated successfully.")
+            else:
+                st.error("Failed to update KVN SMTP settings.")
+
+        if is_kvn_smtp_configured():
+            st.caption("KVN SMTP is ready to send campaigns.")
+        else:
+            st.warning("KVN SMTP settings are incomplete. Fill in all fields to enable this service.")
+
+    with compliance_tab:
+        st.subheader("Suppression & Safety")
+        with st.form("compliance_form"):
+            blocked_domains_text = st.text_area(
+                "Blocked domains",
+                "\n".join(st.session_state.blocked_domains),
+                key="settings_blocked_domains",
+            )
+            blocked_emails_text = st.text_area(
+                "Blocked email addresses",
+                "\n".join(st.session_state.blocked_emails),
+                key="settings_blocked_emails",
+            )
+            submitted_compliance = st.form_submit_button("Save Suppression Lists")
+
+        if submitted_compliance:
+            st.session_state.blocked_domains = [d.strip() for d in blocked_domains_text.splitlines() if d.strip()]
+            st.session_state.blocked_emails = [e.strip() for e in blocked_emails_text.splitlines() if e.strip()]
+            if save_block_settings():
+                st.success("Suppression lists updated successfully.")
+            else:
+                st.error("Failed to update suppression lists.")
+
+        st.caption("Contacts in these lists will never receive campaign emails.")
+
+
 def analytics_section():
     st.header("Comprehensive Email Analytics")
 
     service = (st.session_state.email_service or "MAILGUN").upper()
+    display_name = get_service_display_name(service)
+    st.markdown(
+        f"<div class='modern-card'><span class='status-badge'>Reporting Source: {display_name}</span></div>",
+        unsafe_allow_html=True,
+    )
+
+    if service == "KVN SMTP" or service == "KVN":
+        st.info("KVN SMTP does not expose analytics via API. Please review statistics from your provider dashboard.")
+        return
 
     if service == "SMTP2GO":
         st.info("SMTP2GO Analytics Dashboard")
@@ -4333,15 +4769,17 @@ def analytics_section():
 
                 # Prepare display dataframe in desired order
                 display_df = campaign_df[
-                    ['journal', 'timestamp', 'total_emails', 'emails_sent', 'delivery_rate', 'subject']
+                    ['journal', 'timestamp', 'total_emails', 'emails_sent', 'delivery_rate', 'subject', 'service']
                 ].copy()
+                display_df['service'] = display_df['service'].fillna('MAILGUN').apply(get_service_display_name)
                 display_df.rename(columns={
                     'journal': 'Journal Name',
                     'timestamp': 'Date',
                     'total_emails': 'Total',
                     'emails_sent': 'Sent',
                     'delivery_rate': 'Delivery Rate',
-                    'subject': 'Subject'
+                    'subject': 'Subject',
+                    'service': 'Service'
                 }, inplace=True)
 
                 st.dataframe(
@@ -4385,7 +4823,7 @@ def analytics_section():
         else:
             st.info("No analytics data available yet. Please send some emails first.")
     else:
-        st.info("Mailgun analytics are not available in this dashboard yet.")
+        st.info(f"{display_name} analytics are not available in this dashboard yet.")
 
 def fetch_smtp2go_analytics():
     """Retrieve analytics details from SMTP2GO using POST requests."""
@@ -4436,6 +4874,13 @@ def show_email_analytics():
     st.subheader("Email Campaign Analytics Dashboard")
 
     service = (st.session_state.email_service or "MAILGUN").upper()
+
+    display_name = get_service_display_name(service)
+    st.caption(f"Viewing data for {display_name}")
+
+    if service == "KVN SMTP" or service == "KVN":
+        st.info("KVN SMTP does not expose analytics via API. Please review statistics from the SMTP console.")
+        return
 
     if service == "SMTP2GO":
         analytics_data = fetch_smtp2go_analytics()
@@ -4557,7 +5002,7 @@ def show_email_analytics():
         else:
             st.info("No analytics data available yet. Please send some emails first.")
     else:
-        st.info("Mailgun analytics are not available in this dashboard yet.")
+        st.info(f"{display_name} analytics are not available in this dashboard yet.")
 
 def main():
     # Check authentication
@@ -4568,11 +5013,27 @@ def main():
     # Navigation with additional links and heading in the sidebar
     with st.sidebar:
         st.markdown("## PPH Email Manager")
-        app_mode = st.selectbox("Select Mode", ["Email Campaign", "Editor Invitation", "Verify Emails", "Analytics"])
+        sidebar_modes = ["Email Campaign", "Editor Invitation", "Verify Emails", "Analytics", "Settings"]
+        if st.session_state.requested_mode and st.session_state.requested_mode in sidebar_modes:
+            st.session_state.active_app_mode = st.session_state.requested_mode
+            st.session_state.requested_mode = None
+        default_index = sidebar_modes.index(st.session_state.active_app_mode) if st.session_state.active_app_mode in sidebar_modes else 0
+        app_mode = st.selectbox(
+            "Select Mode",
+            sidebar_modes,
+            index=default_index,
+            key="app_mode_select",
+        )
+        st.session_state.active_app_mode = app_mode
+
         st.markdown("---")
         st.markdown("### Quick Links")
         st.markdown("[📊 Email Reports](https://app.mailgun.com/mg/reporting/metrics/)", unsafe_allow_html=True)
         st.markdown("[📝 Entry Manager](https://pphentry.onrender.com)", unsafe_allow_html=True)
+        st.markdown(
+            f"<span class='status-badge'>Service: {get_service_display_name(st.session_state.email_service)}</span>",
+            unsafe_allow_html=True,
+        )
         check_incomplete_operations()
     
     # Initialize services
@@ -4580,6 +5041,26 @@ def main():
         initialize_firebase()
 
     ensure_webhook_server()
+
+    if st.session_state.firebase_initialized:
+        if not st.session_state.kvn_settings_loaded:
+            load_kvn_smtp_settings()
+            st.session_state.kvn_settings_loaded = True
+        if not st.session_state.reply_addresses_loaded:
+            load_reply_addresses()
+            st.session_state.reply_addresses_loaded = True
+        if not st.session_state.default_email_service_loaded:
+            stored_service = load_default_email_service()
+            if stored_service:
+                st.session_state.email_service = stored_service.upper()
+            st.session_state.default_email_service_loaded = True
+        if not st.session_state.sender_email_loaded:
+            stored_sender_email = load_sender_email()
+            if stored_sender_email:
+                st.session_state.sender_email = stored_sender_email
+                config['mailgun']['sender'] = stored_sender_email
+                config['kvn_smtp']['sender'] = stored_sender_email
+            st.session_state.sender_email_loaded = True
 
     if not st.session_state.unsubscribed_users_loaded:
         load_unsubscribed_users()
@@ -4590,6 +5071,8 @@ def main():
         editor_invitation_section()
     elif app_mode == "Verify Emails":
         email_verification_section()
+    elif app_mode == "Settings":
+        settings_section()
     else:
         analytics_section()
 
