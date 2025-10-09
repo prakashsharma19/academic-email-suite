@@ -1186,13 +1186,13 @@ else:
     if base_url:
         UNSUBSCRIBE_PAGE_URL = f"{base_url}/unsubscribe"
     else:
-        UNSUBSCRIBE_PAGE_URL = "https://pphmjopenaccess.com/unsubscribe"
+        UNSUBSCRIBE_PAGE_URL = "https://hooks.pphmjopenaccess.com/unsubscribe"
 
 _unsubscribe_origin_parts = urlsplit(UNSUBSCRIBE_PAGE_URL)
 UNSUBSCRIBE_PAGE_ORIGIN = (
     f"{_unsubscribe_origin_parts.scheme}://{_unsubscribe_origin_parts.netloc}"
     if _unsubscribe_origin_parts.scheme and _unsubscribe_origin_parts.netloc
-    else "https://pphmjopenaccess.com"
+    else "https://hooks.pphmjopenaccess.com"
 )
 
 ALLOWED_UNSUBSCRIBE_ORIGINS = {
