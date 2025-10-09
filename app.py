@@ -101,9 +101,25 @@ def set_light_theme():
         --font-family: 'Inter', 'Segoe UI', sans-serif;
     }
 
+    html, body {
+        margin: 0;
+        padding: 0;
+        background-color: var(--background-color);
+    }
+
     .stApp {
         background: linear-gradient(180deg, rgba(76,111,255,0.08) 0%, rgba(245,247,251,1) 60%);
         font-family: var(--font-family);
+        padding: 0;
+    }
+
+    [data-testid="stAppViewContainer"] {
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    .main .block-container {
+        padding: 1.5rem 2rem 2.5rem 2rem;
     }
 
     .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
@@ -201,10 +217,12 @@ def set_light_theme():
     }
 
     .footer {
-        margin-top: 3rem;
-        padding: 1rem 0;
-        text-align: center;
+        position: fixed;
+        bottom: 0.75rem;
+        right: 1.5rem;
         color: var(--muted-text);
+        font-size: 0.75rem;
+        text-align: right;
     }
 
     .footer a {
@@ -218,7 +236,7 @@ def set_light_theme():
     }
     </style>
     <div class="footer">
-        Designed with ❤ for streamlined academic outreach. Crafted by <a href="https://www.cpsharma.com" target="_blank">Prakash</a>.
+        built by <a href="https://www.cpsharma.com" target="_blank">Prakash</a>
     </div>
     """
     st.markdown(light_theme, unsafe_allow_html=True)
