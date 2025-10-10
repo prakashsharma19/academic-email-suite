@@ -75,7 +75,7 @@ st.set_page_config(
     page_icon="📧",
     initial_sidebar_state="collapsed",
     menu_items={
-        'About': "### Academic Email Management Suite\n\nDeveloped by Prakash (contact@cpsharma.com)"
+        'About': "### Academic Email Management Suite\n\nFor assistance please contact publication@pphmj.com"
     }
 )
 
@@ -84,10 +84,10 @@ def set_light_theme():
     light_theme = """
     <style>
     :root {
-        --primary-color: #4C6FFF;
-        --primary-color-dark: #3a59d6;
-        --accent-color: #7A5AF8;
-        --background-color: #f5f7fb;
+        --primary-color: #194e9c;
+        --primary-color-dark: #123a73;
+        --accent-color: #0f4aa8;
+        --background-color: #ffffff;
         --card-background: #ffffff;
         --text-color: #1f2933;
         --muted-text: #5f6c7b;
@@ -96,8 +96,8 @@ def set_light_theme():
         --danger-color: #F25F5C;
         --radius-lg: 18px;
         --radius-md: 14px;
-        --shadow-sm: 0 10px 30px rgba(15, 23, 42, 0.08);
-        --shadow-lg: 0 25px 60px rgba(15, 23, 42, 0.15);
+        --shadow-sm: 0 8px 24px rgba(15, 23, 42, 0.08);
+        --shadow-lg: 0 20px 48px rgba(15, 23, 42, 0.12);
         --font-family: 'Inter', 'Segoe UI', sans-serif;
     }
 
@@ -108,7 +108,7 @@ def set_light_theme():
     }
 
     .stApp {
-        background: linear-gradient(180deg, rgba(76,111,255,0.08) 0%, rgba(245,247,251,1) 60%);
+        background: var(--background-color);
         font-family: var(--font-family);
         padding: 0;
     }
@@ -128,13 +128,24 @@ def set_light_theme():
     }
 
     section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, rgba(122,90,248,0.18) 0%, rgba(76,111,255,0.12) 100%);
-        color: var(--text-color);
-        border-right: 1px solid rgba(148, 163, 184, 0.2);
+        background: linear-gradient(180deg, rgba(18,58,115,0.98) 0%, rgba(25,78,156,0.95) 100%);
+        color: #f8fafc;
+        border-right: 1px solid rgba(255, 255, 255, 0.12);
     }
 
     section[data-testid="stSidebar"] .css-1v0mbdj, section[data-testid="stSidebar"] .stSelectbox {
-        color: var(--text-color);
+        color: #f8fafc;
+    }
+
+    section[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] span,
+    section[data-testid="stSidebar"] label,
+    section[data-testid="stSidebar"] a {
+        color: #f8fafc !important;
+    }
+
+    section[data-testid="stSidebar"] .stMarkdown h2,
+    section[data-testid="stSidebar"] .stMarkdown h3 {
+        color: #ffffff;
     }
 
     .stButton>button, .stDownloadButton>button {
@@ -173,12 +184,11 @@ def set_light_theme():
     }
 
     .modern-card {
-        background: linear-gradient(159deg, rgba(255,255,255,0.85) 0%, rgba(219,231,248,0.9) 100%);
+        background: var(--card-background);
         border-radius: var(--radius-lg);
         padding: 1.5rem;
         box-shadow: var(--shadow-sm);
-        border: 1px solid rgba(15, 23, 42, 0.03);
-        backdrop-filter: blur(12px);
+        border: 1px solid rgba(15, 23, 42, 0.06);
     }
 
     .dual-panel {
@@ -249,32 +259,119 @@ def set_light_theme():
         margin-top: 0.75rem;
     }
 
-    .footer {
-        position: fixed;
-        bottom: 0.75rem;
-        right: 1.5rem;
-        color: var(--muted-text);
-        font-size: 0.75rem;
-        text-align: right;
-    }
-
-    .footer a {
-        color: var(--primary-color);
-        font-weight: 600;
-        text-decoration: none;
-    }
-
     div[data-baseweb="tag"] span {
         white-space: normal !important;
     }
+
+    .progress-wrapper {
+        display: flex;
+        align-items: center;
+        gap: 1.25rem;
+        margin: 1rem 0 0.5rem;
+    }
+
+    .progress-circle {
+        width: 72px;
+        height: 72px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: conic-gradient(var(--primary-color) 0deg, rgba(226, 232, 240, 0.6) 0deg);
+        position: relative;
+        box-shadow: inset 0 0 12px rgba(15, 23, 42, 0.08);
+    }
+
+    .progress-circle::after {
+        content: "";
+        position: absolute;
+        width: 54px;
+        height: 54px;
+        border-radius: 50%;
+        background: #ffffff;
+        box-shadow: inset 0 0 6px rgba(15, 23, 42, 0.05);
+    }
+
+    .progress-value {
+        position: relative;
+        font-weight: 700;
+        font-size: 1rem;
+        color: var(--primary-color-dark);
+    }
+
+    .progress-details {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+    }
+
+    .progress-label {
+        font-weight: 600;
+        color: var(--text-color);
+    }
+
+    .progress-eta {
+        color: var(--muted-text);
+        font-size: 0.9rem;
+    }
     </style>
-    <div class="footer">
-        built by <a href="https://www.cpsharma.com" target="_blank">Prakash</a>
-    </div>
     """
     st.markdown(light_theme, unsafe_allow_html=True)
 
 set_light_theme()
+
+def format_duration(seconds):
+    """Format a duration in seconds into a short human readable string."""
+    if seconds is None:
+        return ""
+    if seconds <= 0:
+        return "Less than a second"
+
+    seconds = int(seconds)
+    minutes, sec = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+
+    if hours:
+        return f"{hours}h {minutes}m"
+    if minutes:
+        return f"{minutes}m {sec}s"
+    return f"{sec}s"
+
+
+def render_progress_indicator(placeholder, label, progress, eta_seconds=None):
+    """Render a circular progress indicator alongside descriptive text."""
+    if placeholder is None:
+        return
+
+    safe_label = html.escape(label or "")
+    bounded_progress = min(max(progress or 0, 0.0), 1.0)
+    percent_complete = int(round(bounded_progress * 100))
+    sweep_angle = bounded_progress * 360
+
+    if eta_seconds is None and bounded_progress > 0:
+        eta_text = "Estimating remaining time..."
+    elif eta_seconds is None or eta_seconds <= 0:
+        eta_text = ""
+    else:
+        eta_text = f"Estimated time remaining: {format_duration(eta_seconds)}"
+
+    eta_html = (
+        f"<span class='progress-eta'>{html.escape(eta_text)}</span>" if eta_text else ""
+    )
+
+    html_markup = f"""
+    <div class="progress-wrapper">
+        <div class="progress-circle" style="background: conic-gradient(var(--primary-color) {sweep_angle:.2f}deg, rgba(226, 232, 240, 0.6) {sweep_angle:.2f}deg);">
+            <div class="progress-value">{percent_complete}%</div>
+        </div>
+        <div class="progress-details">
+            <div class="progress-label">{safe_label}</div>
+            {eta_html}
+        </div>
+    </div>
+    """
+
+    placeholder.markdown(html_markup, unsafe_allow_html=True)
 
 # Authentication System
 def check_auth():
@@ -282,6 +379,7 @@ def check_auth():
         st.session_state.authenticated = False
 
     if not st.session_state.authenticated:
+        st.image("PPHLogo_en.png", width=180)
         st.title("PPH Email Manager - Login")
         with st.form("login_form"):
             username = st.text_input("Username")
@@ -1611,8 +1709,9 @@ def process_email_list(file_content, api_key, log_id=None, resume_data=None):
         total_emails = len(df)
         st.session_state.verification_start_time = time.time()
 
-        progress_bar = st.progress(0)
-        status_text = st.empty()
+        progress_container = st.container()
+        progress_indicator = progress_container.empty()
+        progress_bar = progress_container.progress(0 if total_emails else 0)
 
         start_index = 0
         if resume_data:
@@ -1622,8 +1721,17 @@ def process_email_list(file_content, api_key, log_id=None, resume_data=None):
                 if idx < len(df):
                     df.loc[idx, 'verification_result'] = res
                     results.append({'result': res})
-            progress_bar.progress(start_index / total_emails)
-            st.session_state.verification_progress = start_index / total_emails
+            initial_progress = start_index / total_emails if total_emails else 0
+            progress_bar.progress(initial_progress)
+            st.session_state.verification_progress = initial_progress
+        else:
+            initial_progress = 0
+
+        render_progress_indicator(
+            progress_indicator,
+            "Preparing verification...",
+            initial_progress,
+        )
 
         for i in range(start_index, total_emails):
             email = df.loc[i, 'email']
@@ -1637,6 +1745,17 @@ def process_email_list(file_content, api_key, log_id=None, resume_data=None):
             progress = (i + 1) / total_emails
             st.session_state.verification_progress = progress
             progress_bar.progress(progress)
+            elapsed_time = time.time() - st.session_state.verification_start_time
+            remaining_time = None
+            if progress > 0:
+                estimated_total_time = elapsed_time / progress
+                remaining_time = max(0, estimated_total_time - elapsed_time)
+            render_progress_indicator(
+                progress_indicator,
+                f"Verifying {i+1} of {total_emails} emails",
+                progress,
+                remaining_time,
+            )
             if log_id:
                 update_operation_log(log_id, progress=progress)
                 save_verification_progress(
@@ -1646,17 +1765,17 @@ def process_email_list(file_content, api_key, log_id=None, resume_data=None):
                     i + 1,
                     total_emails,
                 )
-            
-            # Calculate estimated time remaining
-            elapsed_time = time.time() - st.session_state.verification_start_time
-            if i > 0:
-                estimated_total_time = elapsed_time / progress
-                remaining_time = estimated_total_time - elapsed_time
-                status_text.text(f"Processing {i+1} of {total_emails} emails. Estimated time remaining: {int(remaining_time)} seconds")
-            
+
             time.sleep(0.1)  # Rate limiting
-        
+
         df['verification_result'] = [r.get('result', 'error') if r else 'error' for r in results]
+
+        render_progress_indicator(
+            progress_indicator,
+            "Verification complete",
+            1.0 if total_emails else 0,
+            0,
+        )
         
         # Calculate verification stats
         results_lower = df['verification_result'].astype(str).str.lower()
@@ -2718,8 +2837,19 @@ def execute_campaign(campaign_data):
     campaign_id = campaign_data.get("campaign_id")
     log_id = campaign_data.get("log_id")
 
-    progress_bar = st.progress(current_index / total_emails if total_emails else 0)
-    status_text = st.empty()
+    service = (st.session_state.email_service or "MAILGUN").upper()
+    service_display = get_service_display_name(service)
+
+    progress_container = st.container()
+    progress_indicator = progress_container.empty()
+    initial_progress = current_index / total_emails if total_emails else 0
+    progress_bar = progress_container.progress(initial_progress)
+    render_progress_indicator(
+        progress_indicator,
+        f"{service_display} · Preparing campaign",
+        initial_progress,
+    )
+    start_time = time.time()
     cancel_button = st.button("Cancel Campaign")
 
     reply_to = get_reply_to_for_journal(journal)
@@ -2728,9 +2858,6 @@ def execute_campaign(campaign_data):
     # Always refresh the unsubscribe cache at the start of a campaign run to
     # ensure newly unsubscribed users are respected immediately.
     load_unsubscribed_users(force_refresh=True)
-
-    service = (st.session_state.email_service or "MAILGUN").upper()
-    service_display = get_service_display_name(service)
 
     for i in range(current_index, total_emails):
         if st.session_state.campaign_cancelled:
@@ -2741,8 +2868,15 @@ def execute_campaign(campaign_data):
         if is_email_unsubscribed(recipient_email):
             progress = (i + 1) / total_emails
             progress_bar.progress(progress)
-            status_text.text(
-                f"{service_display} · Skipping {i+1} of {total_emails}: {recipient_email} (unsubscribed)"
+            elapsed = time.time() - start_time
+            remaining = None
+            if progress > 0:
+                remaining = max(0, (elapsed / progress) - elapsed)
+            render_progress_indicator(
+                progress_indicator,
+                f"{service_display} · Skipping {i+1} of {total_emails}: {recipient_email} (unsubscribed)",
+                progress,
+                remaining,
             )
             update_campaign_progress(campaign_id, i + 1, success_count)
             if log_id:
@@ -2751,8 +2885,15 @@ def execute_campaign(campaign_data):
         if is_email_blocked(recipient_email):
             progress = (i + 1) / total_emails
             progress_bar.progress(progress)
-            status_text.text(
-                f"{service_display} · Skipping {i+1} of {total_emails}: {recipient_email} (blocked)"
+            elapsed = time.time() - start_time
+            remaining = None
+            if progress > 0:
+                remaining = max(0, (elapsed / progress) - elapsed)
+            render_progress_indicator(
+                progress_indicator,
+                f"{service_display} · Skipping {i+1} of {total_emails}: {recipient_email} (blocked)",
+                progress,
+                remaining,
             )
             update_campaign_progress(campaign_id, i + 1, success_count)
             if log_id:
@@ -2858,8 +2999,15 @@ def execute_campaign(campaign_data):
 
         progress = (i + 1) / total_emails
         progress_bar.progress(progress)
-        status_text.text(
-            f"{service_display} · Processing {i+1} of {total_emails}: {recipient_email}"
+        elapsed = time.time() - start_time
+        remaining = None
+        if progress > 0:
+            remaining = max(0, (elapsed / progress) - elapsed)
+        render_progress_indicator(
+            progress_indicator,
+            f"{service_display} · Sending {i+1} of {total_emails}: {recipient_email}",
+            progress,
+            remaining,
         )
         update_campaign_progress(campaign_id, i + 1, success_count)
         if log_id:
@@ -2899,7 +3047,12 @@ def execute_campaign(campaign_data):
         save_campaign_history(record)
 
         progress_bar.progress(1.0)
-        status_text.text(f"{service_display} · Campaign completed")
+        render_progress_indicator(
+            progress_indicator,
+            f"{service_display} · Campaign completed",
+            1.0,
+            0,
+        )
         st.success(
             f"Campaign completed via {service_display}! {success_count} of {total_emails} emails sent successfully."
         )
@@ -3724,6 +3877,38 @@ def email_campaign_section():
             unsubscribed_df = pd.DataFrame(display_rows)
             st.metric("Total unsubscribed", len(unsubscribed_df))
             st.dataframe(unsubscribed_df)
+
+            removal_emails = [
+                email for email in unsubscribed_df["Email"].astype(str).tolist() if email
+            ]
+            if removal_emails:
+                with st.form("remove_suppression_form"):
+                    emails_to_remove = st.multiselect(
+                        "Select email(s) to remove from suppression",
+                        removal_emails,
+                        key="suppression_remove_select",
+                    )
+                    remove_submit = st.form_submit_button("Remove Selected Emails")
+
+                if remove_submit:
+                    removed = []
+                    failed = []
+                    for email in emails_to_remove:
+                        if set_email_resubscribed(email):
+                            removed.append(email)
+                        else:
+                            failed.append(email)
+
+                    if removed:
+                        load_unsubscribed_users(force_refresh=True)
+                        st.success(f"Removed {len(removed)} email(s) from the suppression list.")
+                        st.experimental_rerun()
+                    if failed:
+                        st.error(
+                            f"Unable to remove {len(failed)} email(s) from the suppression list."
+                        )
+                    if not removed and not failed:
+                        st.info("Please select at least one email to remove.")
 
             csv_buffer = StringIO()
             unsubscribed_df.to_csv(csv_buffer, index=False)
@@ -5160,6 +5345,7 @@ def main():
 
     # Navigation with additional links and heading in the sidebar
     with st.sidebar:
+        st.image("PPHLogo_en.png", use_column_width=True)
         st.markdown("## PPH Email Manager")
         sidebar_modes = ["Email Campaign", "Editor Invitation", "Verify Emails", "Analytics", "Settings"]
         if st.session_state.requested_mode and st.session_state.requested_mode in sidebar_modes:

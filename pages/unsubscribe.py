@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict
+import base64
 
 import sys
 
@@ -35,6 +36,18 @@ def _load_unsubscribe_template():
         autoescape=select_autoescape(["html", "xml"]),
     )
     return env.get_template("unsubscribe.html")
+
+
+@st.cache_data(show_spinner=False)
+def _load_logo_data() -> str:
+    logo_path = PROJECT_ROOT / "PPHLogo_en.png"
+    if not logo_path.exists():
+        return ""
+    try:
+        encoded = base64.b64encode(logo_path.read_bytes()).decode("utf-8")
+    except Exception:
+        return ""
+    return f"data:image/png;base64,{encoded}"
 
 
 def _get_query_params() -> Dict[str, str]:
@@ -75,6 +88,16 @@ def main():
     except StreamlitAPIException:
         # The host app (app.py) sets page config already when running in multipage mode.
         pass
+
+    st.markdown(
+        """
+        <style>
+        header, footer, #MainMenu {visibility: hidden !important;}
+        [data-testid="stSidebar"] {display: none !important;}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
     params = _get_query_params()
     email = (params.get("email") or "").strip()
@@ -117,6 +140,7 @@ def main():
         "unsubscribed": unsubscribed,
         "heading": heading,
         "current_year": datetime.now(timezone.utc).year,
+        "logo_data": _load_logo_data(),
     }
 
     _render_template(**context)

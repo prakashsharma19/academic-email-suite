@@ -7,7 +7,7 @@
     <style>
       :root {
         color-scheme: light dark;
-        --background: #f5f6fa;
+        --background: #ffffff;
         --card-background: #ffffff;
         --text-color: #1f2933;
         --muted-text: #52606d;
@@ -28,7 +28,7 @@
 
       body {
         margin: 0;
-        background: radial-gradient(circle at top, rgba(37, 99, 235, 0.08), transparent), var(--background);
+        background: var(--background);
         color: var(--text-color);
       }
 
@@ -49,6 +49,12 @@
         box-shadow: 0 40px 80px rgba(15, 23, 42, 0.12);
         text-align: center;
         box-sizing: border-box;
+      }
+
+      .brand-logo {
+        width: 160px;
+        margin: 0 auto 24px;
+        display: block;
       }
 
       .icon-circle {
@@ -103,10 +109,16 @@
         font-size: 0.95rem;
       }
 
-      footer {
-        margin-top: 36px;
-        font-size: 0.85rem;
+      .contact-note {
+        margin-top: 24px;
+        font-size: 0.95rem;
         color: var(--muted-text);
+      }
+
+      .contact-note a {
+        color: var(--info-color);
+        font-weight: 600;
+        text-decoration: none;
       }
 
       @media (max-width: 480px) {
@@ -123,6 +135,9 @@
   <body>
     <main class="layout">
       <section class="card" role="status" aria-live="polite">
+        {% if logo_data %}
+        <img src="{{ logo_data }}" alt="PPH Journals logo" class="brand-logo" />
+        {% endif %}
         <div
           class="icon-circle {% if status == 'success' %}success{% elif status == 'error' %}error{% endif %}"
           aria-hidden="true"
@@ -140,7 +155,10 @@
           If you need further assistance, simply reply to any of our emails and a
           team member will help you.
         </p>
-        <footer>&copy; {{ current_year }} Academic Email Suite. All rights reserved.</footer>
+        <p class="contact-note">
+          For Any future communication please contact
+          <a href="mailto:publication@pphmj.com">publication@pphmj.com</a>
+        </p>
       </section>
     </main>
   </body>
