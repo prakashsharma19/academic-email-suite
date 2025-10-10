@@ -128,29 +128,31 @@ def set_light_theme():
     }
 
     section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, rgba(18,58,115,0.98) 0%, rgba(25,78,156,0.95) 100%);
-        color: #f8fafc;
-        border-right: 1px solid rgba(255, 255, 255, 0.12);
+        background: #f8fafc;
+        color: #0f172a;
+        border-right: 1px solid #e2e8f0;
     }
 
     section[data-testid="stSidebar"] .css-1v0mbdj, section[data-testid="stSidebar"] .stSelectbox {
-        color: #f8fafc;
+        color: #0f172a;
     }
 
     section[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] span,
-    section[data-testid="stSidebar"] label,
+    section[data-testid="stSidebar"] label {
+        color: #0f172a !important;
+    }
+
     section[data-testid="stSidebar"] a {
-        color: #f8fafc !important;
+        color: #1d4ed8 !important;
     }
 
     section[data-testid="stSidebar"] .stMarkdown h2,
     section[data-testid="stSidebar"] .stMarkdown h3 {
-        color: #ffffff;
+        color: #0f172a;
     }
 
     .stButton>button, .stDownloadButton>button {
-        background: rgb(30,144,255) !important;
-        background: linear-gradient(159deg, rgba(30,144,255,1) 0%, rgba(153,186,221,1) 100%) !important;
+        background: var(--primary-color) !important;
         color: #ffffff !important;
         border: none !important;
         border-radius: var(--radius-md) !important;
@@ -436,6 +438,10 @@ def init_session_state():
         st.session_state.unsubscribed_email_lookup = set()
     if 'unsubscribed_users_loaded' not in st.session_state:
         st.session_state.unsubscribed_users_loaded = False
+    if 'suppression_remove_success' not in st.session_state:
+        st.session_state.suppression_remove_success = None
+    if 'suppression_remove_failed' not in st.session_state:
+        st.session_state.suppression_remove_failed = None
     if 'current_verification_list' not in st.session_state:
         st.session_state.current_verification_list = None
     if 'verification_stats' not in st.session_state:
@@ -3882,6 +3888,20 @@ def email_campaign_section():
                 email for email in unsubscribed_df["Email"].astype(str).tolist() if email
             ]
             if removal_emails:
+                success_count = st.session_state.get("suppression_remove_success")
+                if success_count:
+                    st.success(
+                        f"Removed {success_count} email(s) from the suppression list."
+                    )
+                    st.session_state.suppression_remove_success = None
+
+                failure_count = st.session_state.get("suppression_remove_failed")
+                if failure_count:
+                    st.error(
+                        f"Unable to remove {failure_count} email(s) from the suppression list."
+                    )
+                    st.session_state.suppression_remove_failed = None
+
                 with st.form("remove_suppression_form"):
                     emails_to_remove = st.multiselect(
                         "Select email(s) to remove from suppression",
@@ -3891,24 +3911,32 @@ def email_campaign_section():
                     remove_submit = st.form_submit_button("Remove Selected Emails")
 
                 if remove_submit:
-                    removed = []
-                    failed = []
-                    for email in emails_to_remove:
-                        if set_email_resubscribed(email):
-                            removed.append(email)
-                        else:
-                            failed.append(email)
-
-                    if removed:
-                        load_unsubscribed_users(force_refresh=True)
-                        st.success(f"Removed {len(removed)} email(s) from the suppression list.")
-                        st.experimental_rerun()
-                    if failed:
-                        st.error(
-                            f"Unable to remove {len(failed)} email(s) from the suppression list."
-                        )
-                    if not removed and not failed:
+                    if not emails_to_remove:
                         st.info("Please select at least one email to remove.")
+                    else:
+                        removed = []
+                        failed = []
+                        for email in emails_to_remove:
+                            if set_email_resubscribed(email):
+                                removed.append(email)
+                            else:
+                                failed.append(email)
+
+                        if removed:
+                            load_unsubscribed_users(force_refresh=True)
+                            st.session_state.suppression_remove_success = len(removed)
+                        else:
+                            st.session_state.suppression_remove_success = None
+
+                        if failed:
+                            st.session_state.suppression_remove_failed = len(failed)
+                        else:
+                            st.session_state.suppression_remove_failed = None
+
+                        if removed or failed:
+                            st.experimental_rerun()
+                        else:
+                            st.info("Please select at least one email to remove.")
 
             csv_buffer = StringIO()
             unsubscribed_df.to_csv(csv_buffer, index=False)
@@ -4036,6 +4064,10 @@ def editor_invitation_section():
     if not st.session_state.block_settings_loaded:
         load_block_settings()
         st.session_state.block_settings_loaded = True
+
+    if not st.session_state.reply_addresses_loaded:
+        load_reply_addresses()
+        st.session_state.reply_addresses_loaded = True
 
     if not st.session_state.sender_name_loaded:
         stored_name = load_sender_name()
@@ -5345,7 +5377,6 @@ def main():
 
     # Navigation with additional links and heading in the sidebar
     with st.sidebar:
-        st.image("PPHLogo_en.png", use_column_width=True)
         st.markdown("## PPH Email Manager")
         sidebar_modes = ["Email Campaign", "Editor Invitation", "Verify Emails", "Analytics", "Settings"]
         if st.session_state.requested_mode and st.session_state.requested_mode in sidebar_modes:
