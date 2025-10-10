@@ -138,7 +138,8 @@ def set_light_theme():
     }
 
     .stButton>button, .stDownloadButton>button {
-        background: linear-gradient(135deg, var(--primary-color) 0%, var(--accent-color) 100%) !important;
+        background: rgb(30,144,255) !important;
+        background: linear-gradient(159deg, rgba(30,144,255,1) 0%, rgba(153,186,221,1) 100%) !important;
         color: #ffffff !important;
         border: none !important;
         border-radius: var(--radius-md) !important;
@@ -172,12 +173,35 @@ def set_light_theme():
     }
 
     .modern-card {
-        background: var(--card-background);
+        background: linear-gradient(159deg, rgba(255,255,255,0.85) 0%, rgba(219,231,248,0.9) 100%);
         border-radius: var(--radius-lg);
         padding: 1.5rem;
         box-shadow: var(--shadow-sm);
         border: 1px solid rgba(15, 23, 42, 0.03);
         backdrop-filter: blur(12px);
+    }
+
+    .dual-panel {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 1.5rem;
+        align-items: stretch;
+    }
+
+    .journal-card h4, .journal-card h3 {
+        margin-top: 0;
+    }
+
+    .compact-select div[data-baseweb="select"] {
+        min-width: 0 !important;
+    }
+
+    .compact-select .stSelectbox, .compact-select div[data-baseweb="select"] > div {
+        max-width: 260px;
+    }
+
+    .highlight-panel {
+        background: linear-gradient(159deg, rgba(30,144,255,0.12) 0%, rgba(153,186,221,0.18) 100%);
     }
 
     .status-badge {
@@ -197,14 +221,6 @@ def set_light_theme():
         color: var(--muted-text);
     }
 
-    .highlight-panel {
-        background: linear-gradient(135deg, rgba(76,111,255,0.16) 0%, rgba(122,90,248,0.2) 100%);
-        border-radius: var(--radius-lg);
-        padding: 1rem 1.5rem;
-        color: var(--text-color);
-        box-shadow: var(--shadow-sm);
-    }
-
     div[data-testid="stForm"] {
         background: var(--card-background);
         padding: 1.5rem;
@@ -214,6 +230,23 @@ def set_light_theme():
 
     div[role="listbox"], .stSelectbox, .stTextInput, .stTextArea {
         border-radius: var(--radius-md) !important;
+    }
+
+    .stFileUploader div[data-testid="stFileUploaderDropzone"] {
+        border-radius: var(--radius-lg);
+        border: 1px dashed rgba(30,144,255,0.45);
+        background: linear-gradient(159deg, rgba(30,144,255,0.08) 0%, rgba(153,186,221,0.18) 100%);
+        padding: 1.75rem;
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.4);
+    }
+
+    .stFileUploader div[data-testid="stFileUploaderDropzone"] p {
+        color: var(--text-color);
+        font-weight: 500;
+    }
+
+    .stFileUploader button {
+        margin-top: 0.75rem;
     }
 
     .footer {
@@ -289,6 +322,8 @@ def init_session_state():
         st.session_state.campaign_history = []
     if 'journal_reply_addresses' not in st.session_state:
         st.session_state.journal_reply_addresses = {}
+    if 'default_reply_to' not in st.session_state:
+        st.session_state.default_reply_to = ""
     if 'verified_emails' not in st.session_state:
         st.session_state.verified_emails = pd.DataFrame()
     if 'verified_txt_content' not in st.session_state:
@@ -2315,6 +2350,26 @@ def save_reply_address(journal_name, address):
         return False
 
 
+def save_default_reply_address(address):
+    """Persist a global reply-to email used when a journal-specific one is absent."""
+    try:
+        db = get_firestore_db()
+        if not db:
+            return False
+
+        doc_ref = db.collection("settings").document("default_reply_to")
+        doc_ref.set({
+            "value": address,
+            "updated_at": datetime.now(),
+            "updated_by": st.session_state.get("username", "admin"),
+        })
+        st.session_state.default_reply_to = address or ""
+        return True
+    except Exception as e:
+        st.error(f"Failed to save default reply-to address: {str(e)}")
+        return False
+
+
 def load_reply_addresses():
     """Load all reply-to addresses from Firestore into session state."""
     try:
@@ -2326,10 +2381,39 @@ def load_reply_addresses():
         for doc in docs:
             data = doc.to_dict() or {}
             st.session_state.journal_reply_addresses[doc.id] = data.get("email", "")
+        load_default_reply_address()
         return True
     except Exception as e:
         st.error(f"Failed to load reply-to addresses: {str(e)}")
         return False
+
+
+def load_default_reply_address():
+    """Fetch the default reply-to email from Firestore."""
+    try:
+        db = get_firestore_db()
+        if not db:
+            return None
+
+        doc = db.collection("settings").document("default_reply_to").get()
+        if doc.exists:
+            value = (doc.to_dict() or {}).get("value", "")
+            st.session_state.default_reply_to = value or ""
+            return value
+        return None
+    except Exception as e:
+        st.error(f"Failed to load default reply-to address: {str(e)}")
+        return None
+
+
+def get_reply_to_for_journal(journal_name):
+    """Return the reply-to email for a journal or fall back to the default."""
+    if journal_name:
+        reply = st.session_state.journal_reply_addresses.get(journal_name)
+        if reply:
+            return reply
+    default_reply = st.session_state.get("default_reply_to", "")
+    return default_reply or None
 
 
 def save_default_email_service(service_name):
@@ -2638,7 +2722,7 @@ def execute_campaign(campaign_data):
     status_text = st.empty()
     cancel_button = st.button("Cancel Campaign")
 
-    reply_to = st.session_state.journal_reply_addresses.get(journal, None)
+    reply_to = get_reply_to_for_journal(journal)
     email_ids = []
 
     # Always refresh the unsubscribe cache at the start of a campaign run to
@@ -3112,9 +3196,11 @@ def email_campaign_section():
         st.session_state.show_journal_details = False
         update_sender_name()
 
-    # Journal Selection
-    col1 = st.columns(1)[0]
-    with col1:
+    selection_col, delivery_col = st.columns([3, 2], gap="large")
+
+    with selection_col:
+        st.markdown("<div class='modern-card journal-card'>", unsafe_allow_html=True)
+        st.markdown("#### Journal Selection")
         selected_journal = st.selectbox(
             "Select Journal",
             JOURNALS,
@@ -3123,19 +3209,18 @@ def email_campaign_section():
             on_change=update_sender_name,
             key="selected_journal",
         )
-        button_label = "Hide Subjects & Templete" if st.session_state.show_journal_details else "Load Subjects & Templete"
-        if st.button(button_label):
+        toggle_label = "Hide Subjects & Template" if st.session_state.show_journal_details else "Load Subjects & Template"
+        if st.button(toggle_label, key="toggle_journal_details"):
+            st.session_state.show_journal_details = not st.session_state.show_journal_details
             if st.session_state.show_journal_details:
-                st.session_state.show_journal_details = False
-            else:
                 refresh_journal_data()
-                st.session_state.show_journal_details = True
             st.experimental_rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    with st.container():
+    with delivery_col:
         st.markdown("<div class='modern-card'>", unsafe_allow_html=True)
         st.markdown("#### Delivery Controls")
-        col_service, col_status, col_settings = st.columns([3, 2, 1])
+        col_service, col_status, col_settings = st.columns([2, 1.5, 1])
 
         service_options = ["SMTP2GO", "MAILGUN", "KVN SMTP"]
         current_service = (st.session_state.email_service or "MAILGUN").upper()
@@ -3143,12 +3228,14 @@ def email_campaign_section():
             current_service = "MAILGUN"
 
         with col_service:
+            st.markdown("<div class='compact-select'>", unsafe_allow_html=True)
             selected_service = st.selectbox(
                 "Active Email Service",
                 service_options,
                 index=service_options.index(current_service),
                 key="campaign_service_select",
             )
+            st.markdown("</div>", unsafe_allow_html=True)
             st.session_state.email_service = selected_service
 
         with col_status:
@@ -3165,9 +3252,16 @@ def email_campaign_section():
                 st.session_state.requested_mode = "Settings"
                 st.experimental_rerun()
 
-        reply_to_value = st.session_state.journal_reply_addresses.get(selected_journal, "")
-        escaped_reply = html.escape(reply_to_value) if reply_to_value else "Not set"
-        st.caption(f"Reply-to for {selected_journal}: {escaped_reply}")
+        reply_to_value = get_reply_to_for_journal(selected_journal)
+        default_reply = st.session_state.get("default_reply_to", "")
+        if reply_to_value:
+            escaped_reply = html.escape(reply_to_value)
+            st.caption(f"Reply-to for {selected_journal}: {escaped_reply}")
+        elif default_reply:
+            escaped_default = html.escape(default_reply)
+            st.caption(f"Reply-to for {selected_journal}: inherits default {escaped_default}")
+        else:
+            st.caption(f"Reply-to for {selected_journal}: Not configured")
         st.caption("Manage sender identity, reply-to addresses, and suppression lists from the Settings tab.")
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -3608,12 +3702,6 @@ def email_campaign_section():
         if webhook_base_url:
             webhook_endpoint = webhook_base_url.rstrip('/') + "/unsubscribe"
             st.markdown(f"**Webhook Endpoint:** `{webhook_endpoint}`")
-        else:
-            port = os.getenv("WEBHOOK_PORT", "8000")
-            st.markdown(
-                f"Webhook server listening on `/unsubscribe` (local port {port}). "
-                "Expose this URL publicly and set WEBHOOK_URL for Mailgun notifications."
-            )
 
         if unsubscribe_records:
             display_rows = []
@@ -3719,7 +3807,7 @@ def email_campaign_section():
                 'email_body': email_body,
                 'email_service': st.session_state.email_service,
                 'sender_email': st.session_state.sender_email,
-                'reply_to': st.session_state.journal_reply_addresses.get(selected_journal, None),
+                'reply_to': get_reply_to_for_journal(selected_journal),
                 'recipient_list': df.to_dict('records'),
                 'total_emails': total_emails,
                 'current_index': 0,
@@ -3780,9 +3868,11 @@ def editor_invitation_section():
         st.session_state.editor_show_journal_details = False
         update_editor_sender_name()
 
-    # Journal Selection
-    col1 = st.columns(1)[0]
-    with col1:
+    selection_col, delivery_col = st.columns([3, 2], gap="large")
+
+    with selection_col:
+        st.markdown("<div class='modern-card journal-card'>", unsafe_allow_html=True)
+        st.markdown("#### Journal Selection")
         selected_editor_journal = st.selectbox(
             "Select Journal",
             EDITOR_JOURNALS,
@@ -3791,20 +3881,18 @@ def editor_invitation_section():
             on_change=update_editor_sender_name,
             key="selected_editor_journal",
         )
-        button_label = "Hide Subjects & Templete" if st.session_state.editor_show_journal_details else "Load Subjects & Templete"
-        if st.button(button_label):
+        toggle_label = "Hide Subjects & Template" if st.session_state.editor_show_journal_details else "Load Subjects & Template"
+        if st.button(toggle_label, key="toggle_editor_journal_details"):
+            st.session_state.editor_show_journal_details = not st.session_state.editor_show_journal_details
             if st.session_state.editor_show_journal_details:
-                st.session_state.editor_show_journal_details = False
-            else:
                 refresh_editor_journal_data()
-                st.session_state.editor_show_journal_details = True
             st.experimental_rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
 
-
-    with st.container():
+    with delivery_col:
         st.markdown("<div class='modern-card'>", unsafe_allow_html=True)
         st.markdown("#### Delivery Controls")
-        col_service, col_status, col_settings = st.columns([3, 2, 1])
+        col_service, col_status, col_settings = st.columns([2, 1.5, 1])
 
         service_options = ["SMTP2GO", "MAILGUN", "KVN SMTP"]
         current_service = (st.session_state.email_service or "MAILGUN").upper()
@@ -3812,12 +3900,14 @@ def editor_invitation_section():
             current_service = "MAILGUN"
 
         with col_service:
+            st.markdown("<div class='compact-select'>", unsafe_allow_html=True)
             selected_service = st.selectbox(
                 "Active Email Service",
                 service_options,
                 index=service_options.index(current_service),
                 key="editor_service_select",
             )
+            st.markdown("</div>", unsafe_allow_html=True)
             st.session_state.email_service = selected_service
 
         with col_status:
@@ -3834,9 +3924,16 @@ def editor_invitation_section():
                 st.session_state.requested_mode = "Settings"
                 st.experimental_rerun()
 
-        reply_to_value = st.session_state.journal_reply_addresses.get(selected_editor_journal, "")
-        escaped_reply = html.escape(reply_to_value) if reply_to_value else "Not set"
-        st.caption(f"Reply-to for {selected_editor_journal}: {escaped_reply}")
+        reply_to_value = get_reply_to_for_journal(selected_editor_journal)
+        default_reply = st.session_state.get("default_reply_to", "")
+        if reply_to_value:
+            escaped_reply = html.escape(reply_to_value)
+            st.caption(f"Reply-to for {selected_editor_journal}: {escaped_reply}")
+        elif default_reply:
+            escaped_default = html.escape(default_reply)
+            st.caption(f"Reply-to for {selected_editor_journal}: inherits default {escaped_default}")
+        else:
+            st.caption(f"Reply-to for {selected_editor_journal}: Not configured")
         st.caption("Manage global sender settings from the Settings tab.")
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -4121,7 +4218,7 @@ def editor_invitation_section():
                 'email_body': email_body,
                 'email_service': st.session_state.email_service,
                 'sender_email': st.session_state.sender_email,
-                'reply_to': st.session_state.journal_reply_addresses.get(selected_editor_journal, None),
+                'reply_to': get_reply_to_for_journal(selected_editor_journal),
                 'recipient_list': df.to_dict('records'),
                 'total_emails': total_emails,
                 'current_index': 0,
@@ -4456,50 +4553,79 @@ def settings_section():
     ])
 
     with general_tab:
-        st.subheader("Sender Identity")
-        with st.form("sender_identity_form"):
-            col1, col2 = st.columns(2)
-            with col1:
-                sender_name_input = st.text_input(
-                    "Sender display name",
-                    st.session_state.sender_base_name,
-                    key="settings_sender_name_input",
-                )
-            with col2:
-                sender_email_input = st.text_input(
-                    "Default sender email",
-                    st.session_state.sender_email,
-                    key="settings_sender_email_input",
-                )
-            submitted_identity = st.form_submit_button("Save Sender Identity")
+        top_left, top_right = st.columns([1, 1], gap="large")
 
-        if submitted_identity:
-            updates = []
-            if sender_name_input and sender_name_input != st.session_state.sender_base_name:
-                st.session_state.sender_base_name = sender_name_input
-                st.session_state.sender_name = sender_name_input
-                if save_sender_name(sender_name_input):
-                    update_sender_name()
-                    updates.append("display name")
-                else:
-                    st.error("Failed to update sender name.")
-            if sender_email_input and sender_email_input != st.session_state.sender_email:
-                st.session_state.sender_email = sender_email_input
-                if save_sender_email(sender_email_input):
-                    config['mailgun']['sender'] = sender_email_input
-                    config['kvn_smtp']['sender'] = sender_email_input
-                    updates.append("sender email")
-                else:
-                    st.error("Failed to update sender email.")
-            if updates:
-                st.success(f"Updated {', '.join(updates)} successfully.")
-            else:
-                st.info("No changes detected.")
+        with top_left:
+            st.markdown("<div class='modern-card journal-card'>", unsafe_allow_html=True)
+            st.subheader("Sender Identity")
+            with st.form("sender_identity_form"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    sender_name_input = st.text_input(
+                        "Sender display name",
+                        st.session_state.sender_base_name,
+                        key="settings_sender_name_input",
+                    )
+                with col2:
+                    sender_email_input = st.text_input(
+                        "Default sender email",
+                        st.session_state.sender_email,
+                        key="settings_sender_email_input",
+                    )
+                submitted_identity = st.form_submit_button("Save Sender Identity")
 
+            if submitted_identity:
+                updates = []
+                if sender_name_input and sender_name_input != st.session_state.sender_base_name:
+                    st.session_state.sender_base_name = sender_name_input
+                    st.session_state.sender_name = sender_name_input
+                    if save_sender_name(sender_name_input):
+                        update_sender_name()
+                        updates.append("display name")
+                    else:
+                        st.error("Failed to update sender name.")
+                if sender_email_input and sender_email_input != st.session_state.sender_email:
+                    st.session_state.sender_email = sender_email_input
+                    if save_sender_email(sender_email_input):
+                        config['mailgun']['sender'] = sender_email_input
+                        config['kvn_smtp']['sender'] = sender_email_input
+                        updates.append("sender email")
+                    else:
+                        st.error("Failed to update sender email.")
+                if updates:
+                    st.success(f"Updated {', '.join(updates)} successfully.")
+                else:
+                    st.info("No changes detected.")
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        with top_right:
+            st.markdown("<div class='modern-card'>", unsafe_allow_html=True)
+            st.subheader("Global Reply-to")
+            st.caption("Used whenever a journal specific reply-to is not configured.")
+            with st.form("default_reply_form"):
+                default_reply_to_input = st.text_input(
+                    "Default reply-to email",
+                    st.session_state.get("default_reply_to", ""),
+                    key="settings_default_reply_input",
+                )
+                submitted_default_reply = st.form_submit_button("Save Default Reply-to")
+
+            if submitted_default_reply:
+                if save_default_reply_address(default_reply_to_input):
+                    st.success("Default reply-to email saved.")
+                else:
+                    st.error("Unable to store default reply-to email.")
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown("<div class='modern-card'>", unsafe_allow_html=True)
         st.subheader("Reply-to Addresses")
         reply_targets = sorted(set(JOURNALS + EDITOR_JOURNALS))
         if reply_targets:
-            default_journal = st.session_state.selected_journal if st.session_state.selected_journal in reply_targets else reply_targets[0]
+            default_journal = (
+                st.session_state.selected_journal
+                if st.session_state.selected_journal in reply_targets
+                else reply_targets[0]
+            )
             with st.form("reply_to_form"):
                 reply_choice = st.selectbox(
                     "Select journal",
@@ -4509,7 +4635,7 @@ def settings_section():
                 )
                 reply_value = st.text_input(
                     "Reply-to email",
-                    st.session_state.journal_reply_addresses.get(reply_choice, ""),
+                    st.session_state.journal_reply_addresses.get(reply_choice, "") or st.session_state.default_reply_to,
                     key="settings_reply_value",
                 )
                 submitted_reply = st.form_submit_button("Save Reply-to")
@@ -4524,12 +4650,16 @@ def settings_section():
 
         if st.session_state.journal_reply_addresses:
             display_rows = [
-                {"Journal": name, "Reply-To": addr or "Not set"}
+                {
+                    "Journal": name,
+                    "Reply-To": addr or st.session_state.default_reply_to or "Not set",
+                }
                 for name, addr in sorted(st.session_state.journal_reply_addresses.items())
             ]
             st.dataframe(pd.DataFrame(display_rows))
         else:
             st.info("No reply-to addresses saved yet.")
+        st.markdown("</div>", unsafe_allow_html=True)
 
     with services_tab:
         st.subheader("Email Service Preferences")
