@@ -381,8 +381,14 @@ def check_auth():
         st.session_state.authenticated = False
 
     if not st.session_state.authenticated:
-        st.image("PPHLogo_en.png", width=180)
-        st.title("PPH Email Manager - Login")
+        header_cols = st.columns([1, 6])
+        with header_cols[0]:
+            st.image("PPHLogo_en.png", width=80)
+        with header_cols[1]:
+            st.markdown(
+                "<h1 style='margin-bottom: 0.5rem;'>PPH Email Manager - Login</h1>",
+                unsafe_allow_html=True,
+            )
         with st.form("login_form"):
             username = st.text_input("Username")
             password = st.text_input("Password", type="password")
@@ -2818,11 +2824,12 @@ def update_campaign_progress(campaign_id, current_index, emails_sent):
             return False
             
         doc_ref = db.collection("active_campaigns").document(str(campaign_id))
-        doc_ref.update({
+        update_payload = {
             "current_index": current_index,
             "emails_sent": emails_sent,
-            "last_updated": datetime.now()
-        })
+            "last_updated": datetime.now(),
+        }
+        doc_ref.set(update_payload, merge=True)
         return True
     except Exception as e:
         st.error(f"Failed to update campaign progress: {str(e)}")
@@ -3038,7 +3045,7 @@ def execute_campaign(campaign_data):
         db = get_firestore_db()
         if db:
             doc_ref = db.collection("active_campaigns").document(str(campaign_id))
-            doc_ref.update(campaign_data)
+            doc_ref.set(campaign_data, merge=True)
 
         record = {
             'timestamp': datetime.now(),
@@ -3177,7 +3184,7 @@ def check_incomplete_operations():
                         st.session_state.verification_resume_log_id = log_id
                         st.session_state.current_verification_file = file_name
                         st.experimental_rerun()
-                st.sidebar.markdown("</div>", unsafe_allow_html=True)
+                st.sidebar.markdown("<span></span></div>", unsafe_allow_html=True)
             if st.sidebar.button("View Results", key=f"view_sb_{log_id}"):
                 result = load_verification_results(log_id)
                 if result:
@@ -3239,7 +3246,7 @@ def display_pending_operations(operation_type):
                         st.session_state.verification_resume_log_id = log_id
                         st.session_state.current_verification_file = file_name
                         st.experimental_rerun()
-                cols[idx].markdown("</div>", unsafe_allow_html=True)
+                cols[idx].markdown("<span></span></div>", unsafe_allow_html=True)
                 idx += 1
             if cols[idx].button("View Results", key=f"view_{log_id}"):
                 result = load_verification_results(log_id)
@@ -3374,7 +3381,7 @@ def email_campaign_section():
             if st.session_state.show_journal_details:
                 refresh_journal_data()
             st.experimental_rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("<span></span></div>", unsafe_allow_html=True)
 
     with delivery_col:
         st.markdown("<div class='modern-card'>", unsafe_allow_html=True)
@@ -3394,7 +3401,7 @@ def email_campaign_section():
                 index=service_options.index(current_service),
                 key="campaign_service_select",
             )
-            st.markdown("</div>", unsafe_allow_html=True)
+            st.markdown("<span></span></div>", unsafe_allow_html=True)
             st.session_state.email_service = selected_service
 
         with col_status:
@@ -3422,7 +3429,7 @@ def email_campaign_section():
         else:
             st.caption(f"Reply-to for {selected_journal}: Not configured")
         st.caption("Manage sender identity, reply-to addresses, and suppression lists from the Settings tab.")
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("<span></span></div>", unsafe_allow_html=True)
 
     if st.session_state.show_journal_details:
         # Journal Subject Management
@@ -3971,7 +3978,7 @@ def email_campaign_section():
 
         st.markdown("<div class='send-ads-btn'>", unsafe_allow_html=True)
         send_ads_clicked = st.button("Send Ads", key="send_ads")
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("<span></span></div>", unsafe_allow_html=True)
         if send_ads_clicked:
             if file_source == "Local Upload" and uploaded_file:
                 if uploaded_file.name.endswith('.txt'):
@@ -4104,7 +4111,7 @@ def editor_invitation_section():
             if st.session_state.editor_show_journal_details:
                 refresh_editor_journal_data()
             st.experimental_rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("<span></span></div>", unsafe_allow_html=True)
 
     with delivery_col:
         st.markdown("<div class='modern-card'>", unsafe_allow_html=True)
@@ -4124,7 +4131,7 @@ def editor_invitation_section():
                 index=service_options.index(current_service),
                 key="editor_service_select",
             )
-            st.markdown("</div>", unsafe_allow_html=True)
+            st.markdown("<span></span></div>", unsafe_allow_html=True)
             st.session_state.email_service = selected_service
 
         with col_status:
@@ -4152,7 +4159,7 @@ def editor_invitation_section():
         else:
             st.caption(f"Reply-to for {selected_editor_journal}: Not configured")
         st.caption("Manage global sender settings from the Settings tab.")
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("<span></span></div>", unsafe_allow_html=True)
 
 
     if st.session_state.editor_show_journal_details:
@@ -4386,7 +4393,7 @@ def editor_invitation_section():
 
         st.markdown("<div class='send-ads-btn'>", unsafe_allow_html=True)
         send_invitation_clicked = st.button("Send Invitation", key="send_invitation")
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("<span></span></div>", unsafe_allow_html=True)
         if send_invitation_clicked:
             if file_source == "Local Upload" and uploaded_file:
                 if uploaded_file.name.endswith('.txt'):
@@ -4813,7 +4820,7 @@ def settings_section():
                     st.success(f"Updated {', '.join(updates)} successfully.")
                 else:
                     st.info("No changes detected.")
-            st.markdown("</div>", unsafe_allow_html=True)
+            st.markdown("<span></span></div>", unsafe_allow_html=True)
 
         with top_right:
             st.markdown("<div class='modern-card'>", unsafe_allow_html=True)
@@ -4832,7 +4839,7 @@ def settings_section():
                     st.success("Default reply-to email saved.")
                 else:
                     st.error("Unable to store default reply-to email.")
-            st.markdown("</div>", unsafe_allow_html=True)
+            st.markdown("<span></span></div>", unsafe_allow_html=True)
 
         st.markdown("<div class='modern-card'>", unsafe_allow_html=True)
         st.subheader("Reply-to Addresses")
@@ -4876,7 +4883,7 @@ def settings_section():
             st.dataframe(pd.DataFrame(display_rows))
         else:
             st.info("No reply-to addresses saved yet.")
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("<span></span></div>", unsafe_allow_html=True)
 
     with services_tab:
         st.subheader("Email Service Preferences")
