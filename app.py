@@ -42,7 +42,6 @@ from email.utils import formataddr, formatdate, make_msgid
 from io import StringIO
 import base64
 import html
-from pathlib import Path
 from google.cloud import storage
 from google.oauth2 import service_account
 from streamlit_ace import st_ace
@@ -85,18 +84,18 @@ def set_light_theme():
     light_theme = """
     <style>
     :root {
-        --primary-color: #1d4ed8;
-        --primary-color-dark: #1e40af;
-        --primary-soft: rgba(29, 78, 216, 0.12);
-        --background-color: #f5f7fb;
+        --primary-color: #194e9c;
+        --primary-color-dark: #123a73;
+        --accent-color: #0f4aa8;
+        --background-color: #ffffff;
         --card-background: #ffffff;
-        --text-color: #0f172a;
-        --muted-text: #475569;
-        --success-color: #16a34a;
-        --warning-color: #f97316;
-        --danger-color: #ef4444;
+        --text-color: #1f2933;
+        --muted-text: #5f6c7b;
+        --success-color: #1FAA59;
+        --warning-color: #F4A259;
+        --danger-color: #F25F5C;
         --radius-lg: 18px;
-        --radius-md: 12px;
+        --radius-md: 14px;
         --shadow-sm: 0 8px 24px rgba(15, 23, 42, 0.08);
         --shadow-lg: 0 20px 48px rgba(15, 23, 42, 0.12);
         --font-family: 'Inter', 'Segoe UI', sans-serif;
@@ -105,24 +104,22 @@ def set_light_theme():
     html, body {
         margin: 0;
         padding: 0;
-        background: var(--background-color);
+        background-color: var(--background-color);
     }
 
     .stApp {
         background: var(--background-color);
         font-family: var(--font-family);
-    }
-
-    header[data-testid="stHeader"] {
-        background: transparent;
+        padding: 0;
     }
 
     [data-testid="stAppViewContainer"] {
+        margin: 0 !important;
         padding: 0 !important;
     }
 
     .main .block-container {
-        padding: 1.5rem 2rem 3rem 2rem;
+        padding: 1.5rem 2rem 2.5rem 2rem;
     }
 
     .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
@@ -131,56 +128,45 @@ def set_light_theme():
     }
 
     section[data-testid="stSidebar"] {
-        background: #0f172a;
-        color: #e2e8f0;
-        border-right: 1px solid rgba(148, 163, 184, 0.25);
-        min-width: 230px;
-        max-width: 230px;
+        background: linear-gradient(180deg, rgba(18,58,115,0.98) 0%, rgba(25,78,156,0.95) 100%);
+        color: #f8fafc;
+        border-right: 1px solid rgba(255, 255, 255, 0.12);
     }
 
-    section[data-testid="stSidebar"] [data-testid="stMarkdown"],
+    section[data-testid="stSidebar"] .css-1v0mbdj, section[data-testid="stSidebar"] .stSelectbox {
+        color: #f8fafc;
+    }
+
+    section[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] span,
     section[data-testid="stSidebar"] label,
-    section[data-testid="stSidebar"] span,
     section[data-testid="stSidebar"] a {
-        color: #e2e8f0 !important;
-    }
-
-    section[data-testid="stSidebar"] .stButton>button {
-        background: rgba(51, 65, 85, 0.45) !important;
         color: #f8fafc !important;
-        border-radius: 999px !important;
     }
 
-    section[data-testid="stSidebar"] .stButton>button:hover {
-        background: rgba(71, 85, 105, 0.9) !important;
-    }
-
-    section[data-testid="stSidebar"] .status-badge {
-        background: rgba(51, 65, 85, 0.6);
-        color: #e2e8f0;
-        border-color: rgba(148, 163, 184, 0.4);
+    section[data-testid="stSidebar"] .stMarkdown h2,
+    section[data-testid="stSidebar"] .stMarkdown h3 {
+        color: #ffffff;
     }
 
     .stButton>button, .stDownloadButton>button {
-        background: var(--primary-color) !important;
+        background: rgb(30,144,255) !important;
+        background: linear-gradient(159deg, rgba(30,144,255,1) 0%, rgba(153,186,221,1) 100%) !important;
         color: #ffffff !important;
         border: none !important;
         border-radius: var(--radius-md) !important;
-        padding: 0.6rem 1.4rem !important;
+        padding: 0.6rem 1.3rem !important;
         font-weight: 600 !important;
         box-shadow: var(--shadow-sm);
         transition: transform 0.15s ease, box-shadow 0.15s ease;
     }
 
     .stButton>button:hover, .stDownloadButton>button:hover {
-        transform: translateY(-1px);
+        transform: translateY(-1px) scale(1.01);
         box-shadow: var(--shadow-lg);
-        background: var(--primary-color-dark) !important;
     }
 
-    .stButton>button:focus, .stDownloadButton>button:focus {
-        box-shadow: 0 0 0 4px rgba(29, 78, 216, 0.25);
-        outline: none;
+    .stButton>button:active, .stDownloadButton>button:active {
+        transform: scale(0.98);
     }
 
     .stTabs [data-baseweb="tab"] {
@@ -225,11 +211,7 @@ def set_light_theme():
     }
 
     .highlight-panel {
-        background: rgba(15, 23, 42, 0.05);
-        border-radius: var(--radius-md);
-        padding: 0.9rem 1.1rem;
-        color: var(--text-color);
-        border: 1px solid rgba(148, 163, 184, 0.3);
+        background: linear-gradient(159deg, rgba(30,144,255,0.12) 0%, rgba(153,186,221,0.18) 100%);
     }
 
     .status-badge {
@@ -240,9 +222,9 @@ def set_light_theme():
         border-radius: 999px;
         padding: 0.35rem 1rem;
         font-size: 0.85rem;
-        background: var(--primary-soft);
+        background: rgba(76, 111, 255, 0.12);
         color: var(--primary-color);
-        border: 1px solid rgba(29, 78, 216, 0.25);
+        border: 1px solid rgba(76, 111, 255, 0.2);
     }
 
     .subtle-text {
@@ -262,9 +244,10 @@ def set_light_theme():
 
     .stFileUploader div[data-testid="stFileUploaderDropzone"] {
         border-radius: var(--radius-lg);
-        border: 1px dashed rgba(29, 78, 216, 0.35);
-        background: rgba(29, 78, 216, 0.06);
+        border: 1px dashed rgba(30,144,255,0.45);
+        background: linear-gradient(159deg, rgba(30,144,255,0.08) 0%, rgba(153,186,221,0.18) 100%);
         padding: 1.75rem;
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.4);
     }
 
     .stFileUploader div[data-testid="stFileUploaderDropzone"] p {
@@ -331,240 +314,11 @@ def set_light_theme():
         color: var(--muted-text);
         font-size: 0.9rem;
     }
-
-    .send-ads-btn, .resume-btn {
-        display: flex;
-        justify-content: flex-end;
-        margin-top: 1rem;
-    }
-
-    .send-ads-btn .stButton>button {
-        min-width: 200px;
-    }
-
-    .resume-btn .stButton>button {
-        min-width: 160px;
-    }
-
-    .logo-title {
-        display: flex;
-        align-items: center;
-        gap: 0.85rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .logo-title img {
-        width: 56px;
-        height: auto;
-    }
-
-    .logo-title h1 {
-        margin: 0;
-        font-size: 1.85rem;
-        color: var(--text-color);
-    }
-
-    .logo-title span {
-        display: block;
-        color: var(--muted-text);
-        font-size: 0.95rem;
-    }
-
-    .email-count-card {
-        margin: 1rem 0 0.5rem;
-        padding: 1rem 1.25rem;
-        border-radius: var(--radius-lg);
-        background: #ffffff;
-        border: 1px solid rgba(29, 78, 216, 0.18);
-        box-shadow: var(--shadow-sm);
-        display: inline-flex;
-        align-items: baseline;
-        gap: 1rem;
-    }
-
-    .email-count-card .count {
-        font-size: 2.4rem;
-        font-weight: 700;
-        color: var(--primary-color);
-    }
-
-    .email-count-card .label {
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        color: var(--muted-text);
-        font-size: 0.85rem;
-        font-weight: 600;
-    }
-
-    .login-page {
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 3rem 1.5rem;
-        background: var(--background-color);
-    }
-
-    .login-shell {
-        width: 100%;
-        max-width: 420px;
-    }
-
-    .login-card {
-        background: #ffffff;
-        border-radius: 24px;
-        padding: 2.5rem 2.25rem;
-        box-shadow: 0 24px 64px rgba(15, 23, 42, 0.12);
-        border: 1px solid rgba(148, 163, 184, 0.15);
-    }
-
-    .login-card .stForm {
-        padding: 0 !important;
-        box-shadow: none !important;
-        background: transparent !important;
-    }
-
-    .app-footer {
-        position: fixed;
-        right: 24px;
-        bottom: 16px;
-        font-size: 0.8rem;
-        color: var(--muted-text);
-        z-index: 999;
-    }
-
-    .app-footer a {
-        color: var(--primary-color);
-        text-decoration: none;
-        font-weight: 600;
-    }
-
-    .loading-banner {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        padding: 0.85rem 1.2rem;
-        border-radius: var(--radius-md);
-        background: rgba(29, 78, 216, 0.08);
-        border: 1px solid rgba(29, 78, 216, 0.18);
-        margin-bottom: 1rem;
-        color: var(--primary-color);
-        font-weight: 600;
-    }
-
-    @media (max-width: 992px) {
-        section[data-testid="stSidebar"] {
-            min-width: 200px;
-            max-width: 200px;
-        }
-
-        .main .block-container {
-            padding: 1.25rem 1.4rem 2.5rem;
-        }
-
-        .logo-title h1 {
-            font-size: 1.6rem;
-        }
-
-        .email-count-card {
-            width: 100%;
-            justify-content: space-between;
-        }
-    }
     </style>
     """
     st.markdown(light_theme, unsafe_allow_html=True)
 
 set_light_theme()
-
-@st.cache_data(show_spinner=False)
-def load_logo_base64() -> str:
-    """Return the base64 encoded logo so it can be embedded inline."""
-
-    logo_path = Path(__file__).resolve().parent / "PPHLogo_en.png"
-    if not logo_path.exists():
-        return ""
-    try:
-        return base64.b64encode(logo_path.read_bytes()).decode("utf-8")
-    except Exception:
-        return ""
-
-
-def render_logo_heading(title: str, subtitle: str | None = None, align: str = "left"):
-    """Render a heading that pairs the application logo with contextual text."""
-
-    logo_data = load_logo_base64()
-    subtitle_html = f"<span>{html.escape(subtitle)}</span>" if subtitle else ""
-    if logo_data:
-        st.markdown(
-            f"""
-            <div class="logo-title" style="justify-content: {align};">
-                <img src="data:image/png;base64,{logo_data}" alt="PPH Logo" />
-                <div>
-                    <h1>{html.escape(title)}</h1>
-                    {subtitle_html}
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    else:
-        st.header(title)
-        if subtitle:
-            st.caption(subtitle)
-
-
-def render_email_count(count: int, label: str = "Email addresses detected"):
-    """Display an email count badge with large typography."""
-
-    st.markdown(
-        f"""
-        <div class="email-count-card">
-            <span class="count">{count:,}</span>
-            <span class="label">{html.escape(label)}</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def count_emails_in_text_blob(blob: str) -> int:
-    """Count the number of valid email addresses inside a text blob."""
-
-    if not blob:
-        return 0
-
-    total = 0
-    for line in blob.splitlines():
-        candidate = line.strip()
-        if candidate and EMAIL_VALIDATION_REGEX.match(candidate):
-            total += 1
-    return total
-
-
-def handle_app_mode_change():
-    """Persist sidebar mode selection and trigger auto-collapse."""
-
-    selected_mode = st.session_state.get("app_mode_select")
-    if selected_mode:
-        st.session_state.active_app_mode = selected_mode
-    else:
-        st.session_state.app_mode_select = st.session_state.active_app_mode
-    st.session_state.sidebar_should_close = True
-
-
-def render_footer():
-    """Render the persistent footer branding for app users."""
-
-    st.markdown(
-        """
-        <div class="app-footer">
-            Built by <a href="https://www.cpsharma.com" target="_blank" rel="noopener noreferrer">Prakash</a>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
 
 def format_duration(seconds):
     """Format a duration in seconds into a short human readable string."""
@@ -625,33 +379,22 @@ def check_auth():
         st.session_state.authenticated = False
 
     if not st.session_state.authenticated:
-        st.markdown("<div class='login-page'><div class='login-shell'>", unsafe_allow_html=True)
-        st.markdown("<div class='login-card'>", unsafe_allow_html=True)
-        render_logo_heading("PPH Email Manager - Login", align="center")
-        st.caption("Welcome back! Sign in to manage campaigns, invitations, and verifications.")
-
+        st.image("PPHLogo_en.png", width=180)
+        st.title("PPH Email Manager - Login")
         with st.form("login_form"):
-            username = st.text_input("Username", key="login_username")
-            password = st.text_input("Password", type="password", key="login_password")
-            submit = st.form_submit_button("Sign In")
-
-        if submit:
-            if username == "admin" and password == "prakash123@":
-                st.session_state.authenticated = True
-                st.session_state.username = username
-                st.session_state.just_logged_in = True
-                st.session_state.sidebar_should_close = True
-                st.session_state.pop("login_error", None)
-                st.rerun()
-            else:
-                st.session_state.login_error = "Invalid credentials. Please try again."
-
-        if st.session_state.get("login_error"):
-            st.error(st.session_state.login_error)
-
-        st.markdown("</div></div></div>", unsafe_allow_html=True)
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            
+            if st.form_submit_button("Login"):
+                if username == "admin" and password == "prakash123@":
+                    st.session_state.authenticated = True
+                    st.session_state.username = username
+                    st.rerun()
+                else:
+                    st.error("Invalid credentials")
+        
         st.stop()
-
+    
     logout_label = "Logout"
     if 'username' in st.session_state:
         logout_label += f" ({st.session_state.username})"
@@ -679,8 +422,6 @@ def init_session_state():
         st.session_state.journal_reply_addresses = {}
     if 'default_reply_to' not in st.session_state:
         st.session_state.default_reply_to = ""
-    if 'default_editor_reply_to' not in st.session_state:
-        st.session_state.default_editor_reply_to = ""
     if 'verified_emails' not in st.session_state:
         st.session_state.verified_emails = pd.DataFrame()
     if 'verified_txt_content' not in st.session_state:
@@ -725,16 +466,12 @@ def init_session_state():
         st.session_state.current_recipient_file = None
     if 'current_verification_file' not in st.session_state:
         st.session_state.current_verification_file = None
-    if 'current_verification_count' not in st.session_state:
-        st.session_state.current_verification_count = 0
     if 'active_campaign' not in st.session_state:
         st.session_state.active_campaign = None
     if 'campaign_paused' not in st.session_state:
         st.session_state.campaign_paused = False
     if 'campaign_cancelled' not in st.session_state:
         st.session_state.campaign_cancelled = False
-    if 'sidebar_should_close' not in st.session_state:
-        st.session_state.sidebar_should_close = False
     if 'template_content' not in st.session_state:
         st.session_state.template_content = {}
     if 'journal_subjects' not in st.session_state:
@@ -774,18 +511,12 @@ def init_session_state():
         st.session_state.journals_loaded = False
     if 'editor_journals_loaded' not in st.session_state:
         st.session_state.editor_journals_loaded = False
-    if 'editor_default_reply_loaded' not in st.session_state:
-        st.session_state.editor_default_reply_loaded = False
     if 'template_spam_score' not in st.session_state:
         st.session_state.template_spam_score = {}
     if 'template_spam_report' not in st.session_state:
         st.session_state.template_spam_report = {}
     if 'template_spam_summary' not in st.session_state:
         st.session_state.template_spam_summary = {}
-    if 'login_error' not in st.session_state:
-        st.session_state.login_error = None
-    if 'just_logged_in' not in st.session_state:
-        st.session_state.just_logged_in = False
     if 'spam_check_cache' not in st.session_state:
         st.session_state.spam_check_cache = {}
     if 'last_refreshed_journal' not in st.session_state:
@@ -1045,8 +776,8 @@ def load_unsubscribed_users(force_refresh=False):
                 "reason": data.get("reason"),
                 "tags": data.get("tags"),
             }
+            records.append(record)
             if unsubscribed_flag:
-                records.append(record)
                 email_lookup.add(email_value)
 
         records.sort(
@@ -1666,28 +1397,11 @@ if not st.session_state.get("firebase_initialized"):
     initialize_firebase()
 ensure_webhook_server()
 
-
-def _firestore_cache_key():
-    firebase_cfg = config.get("firebase", {})
-    return (
-        firebase_cfg.get("project_id"),
-        firebase_cfg.get("client_email"),
-        firebase_cfg.get("private_key_id"),
-    )
-
-
-@st.cache_resource(show_spinner=False)
-def _get_cached_firestore_client(cache_key):
+def get_firestore_db():
     if not initialize_firebase():
+        st.error("Firebase initialization failed")
         return None
     return firestore.client()
-
-
-def get_firestore_db():
-    client = _get_cached_firestore_client(_firestore_cache_key())
-    if client is None:
-        st.error("Firebase initialization failed")
-    return client
 
 # Initialize SES Client with better error handling
 def initialize_ses():
@@ -2735,46 +2449,6 @@ def load_sender_email():
         return None
 
 
-@st.cache_data(ttl=300, show_spinner=False)
-def fetch_reply_settings():
-    """Retrieve reply-to mappings and defaults with lightweight caching."""
-
-    db = get_firestore_db()
-    if not db:
-        return {}, "", ""
-
-    mapping = {}
-    try:
-        docs = db.collection("reply_addresses").stream()
-        for doc in docs:
-            data = doc.to_dict() or {}
-            mapping[str(doc.id)] = data.get("email", "")
-    except Exception as exc:
-        logger.exception("Failed to stream reply addresses: %s", exc)
-
-    default_reply = ""
-    default_editor_reply = ""
-    try:
-        settings_collection = db.collection("settings")
-        default_doc = settings_collection.document("default_reply_to").get()
-        if default_doc.exists:
-            default_reply = (default_doc.to_dict() or {}).get("value", "")
-        editor_doc = settings_collection.document("default_editor_reply_to").get()
-        if editor_doc.exists:
-            default_editor_reply = (editor_doc.to_dict() or {}).get("value", "")
-    except Exception as exc:
-        logger.exception("Failed to fetch default reply-to settings: %s", exc)
-
-    return mapping, default_reply, default_editor_reply
-
-
-def _refresh_reply_settings_cache():
-    try:
-        fetch_reply_settings.clear()
-    except Exception:
-        pass
-
-
 def save_reply_address(journal_name, address):
     """Save reply-to address for a journal to Firestore."""
     try:
@@ -2789,7 +2463,6 @@ def save_reply_address(journal_name, address):
             "updated_by": st.session_state.get("username", "admin"),
         })
         st.session_state.journal_reply_addresses[journal_name] = address
-        _refresh_reply_settings_cache()
         return True
     except Exception as e:
         st.error(f"Failed to save reply-to address: {str(e)}")
@@ -2810,73 +2483,54 @@ def save_default_reply_address(address):
             "updated_by": st.session_state.get("username", "admin"),
         })
         st.session_state.default_reply_to = address or ""
-        _refresh_reply_settings_cache()
         return True
     except Exception as e:
         st.error(f"Failed to save default reply-to address: {str(e)}")
         return False
 
 
-def save_default_editor_reply_address(address):
-    """Store the default reply-to email specifically for editor invitations."""
-
+def load_reply_addresses():
+    """Load all reply-to addresses from Firestore into session state."""
     try:
         db = get_firestore_db()
         if not db:
             return False
 
-        doc_ref = db.collection("settings").document("default_editor_reply_to")
-        doc_ref.set({
-            "value": address,
-            "updated_at": datetime.now(),
-            "updated_by": st.session_state.get("username", "admin"),
-        })
-        st.session_state.default_editor_reply_to = address or ""
-        _refresh_reply_settings_cache()
-        return True
-    except Exception as e:
-        st.error(f"Failed to save editor invitation default reply-to: {str(e)}")
-        return False
-
-
-def load_reply_addresses(force_refresh=False):
-    """Load all reply-to addresses from Firestore into session state."""
-
-    if force_refresh:
-        _refresh_reply_settings_cache()
-
-    try:
-        mapping, default_reply, default_editor_reply = fetch_reply_settings()
-        st.session_state.journal_reply_addresses = mapping
-        st.session_state.default_reply_to = default_reply or ""
-        st.session_state.default_editor_reply_to = default_editor_reply or ""
+        docs = db.collection("reply_addresses").stream()
+        for doc in docs:
+            data = doc.to_dict() or {}
+            st.session_state.journal_reply_addresses[doc.id] = data.get("email", "")
+        load_default_reply_address()
         return True
     except Exception as e:
         st.error(f"Failed to load reply-to addresses: {str(e)}")
         return False
 
 
-def load_default_reply_address(force_refresh=False):
+def load_default_reply_address():
     """Fetch the default reply-to email from Firestore."""
+    try:
+        db = get_firestore_db()
+        if not db:
+            return None
 
-    if load_reply_addresses(force_refresh=force_refresh):
-        return st.session_state.default_reply_to
-    return None
+        doc = db.collection("settings").document("default_reply_to").get()
+        if doc.exists:
+            value = (doc.to_dict() or {}).get("value", "")
+            st.session_state.default_reply_to = value or ""
+            return value
+        return None
+    except Exception as e:
+        st.error(f"Failed to load default reply-to address: {str(e)}")
+        return None
 
 
 def get_reply_to_for_journal(journal_name):
-    """Return the reply-to email for a journal or fall back to the relevant default."""
-
+    """Return the reply-to email for a journal or fall back to the default."""
     if journal_name:
         reply = st.session_state.journal_reply_addresses.get(journal_name)
         if reply:
             return reply
-
-    if journal_name in EDITOR_JOURNALS:
-        editor_default = st.session_state.get("default_editor_reply_to", "")
-        if editor_default:
-            return editor_default
-
     default_reply = st.session_state.get("default_reply_to", "")
     return default_reply or None
 
@@ -3496,15 +3150,15 @@ def check_incomplete_operations():
                 campaign = get_campaign_state(cid)
                 if campaign:
                     st.session_state.active_campaign = campaign
-                    st.rerun()
+                    st.experimental_rerun()
             if st.sidebar.button("Mark as Complete", key=f"complete_sb_{log_id}"):
                 update_operation_log(log_id, status="completed", progress=1.0)
                 delete_campaign(cid)
-                st.rerun()
+                st.experimental_rerun()
             if st.sidebar.button("Delete", key=f"delete_sb_{cid}"):
                 delete_campaign(cid)
                 update_operation_log(log_id, status="completed", progress=1.0)
-                st.rerun()
+                st.experimental_rerun()
         elif op_type == "verification":
             file_name = meta.get("file_name", meta.get("source", ""))
             st.sidebar.write(f"{file_name} - {status} ({int(progress*100)}%)")
@@ -3516,7 +3170,7 @@ def check_incomplete_operations():
                         st.session_state.verification_resume_data = pdata
                         st.session_state.verification_resume_log_id = log_id
                         st.session_state.current_verification_file = file_name
-                        st.rerun()
+                        st.experimental_rerun()
                 st.sidebar.markdown("</div>", unsafe_allow_html=True)
             if st.sidebar.button("View Results", key=f"view_sb_{log_id}"):
                 result = load_verification_results(log_id)
@@ -3525,12 +3179,12 @@ def check_incomplete_operations():
                     st.session_state.verified_emails = df
                     st.session_state.verification_stats = stats
                     st.session_state.current_verification_file = fname
-                    st.rerun()
+                    st.experimental_rerun()
                 else:
                     st.sidebar.write("Results not available")
             if st.sidebar.button("Mark as Complete", key=f"complete_sb_{log_id}"):
                 update_operation_log(log_id, status="completed", progress=1.0)
-                st.rerun()
+                st.experimental_rerun()
 
 def display_pending_operations(operation_type):
     """Display incomplete operations of a specific type on the main page."""
@@ -3555,15 +3209,15 @@ def display_pending_operations(operation_type):
                 campaign = get_campaign_state(cid)
                 if campaign:
                     st.session_state.active_campaign = campaign
-                    st.rerun()
+                    st.experimental_rerun()
             if cols[1].button("Mark as Complete", key=f"complete_{log_id}"):
                 update_operation_log(log_id, status="completed", progress=1.0)
                 delete_campaign(cid)
-                st.rerun()
+                st.experimental_rerun()
             if cols[2].button("Delete", key=f"delete_{cid}"):
                 delete_campaign(cid)
                 update_operation_log(log_id, status="completed", progress=1.0)
-                st.rerun()
+                st.experimental_rerun()
         elif operation_type == "verification":
             file_name = meta.get("file_name", meta.get("source", ""))
             st.write(f"{file_name} - {status} ({int(progress*100)}%)")
@@ -3578,7 +3232,7 @@ def display_pending_operations(operation_type):
                         st.session_state.verification_resume_data = pdata
                         st.session_state.verification_resume_log_id = log_id
                         st.session_state.current_verification_file = file_name
-                        st.rerun()
+                        st.experimental_rerun()
                 cols[idx].markdown("</div>", unsafe_allow_html=True)
                 idx += 1
             if cols[idx].button("View Results", key=f"view_{log_id}"):
@@ -3588,12 +3242,12 @@ def display_pending_operations(operation_type):
                     st.session_state.verified_emails = df
                     st.session_state.verification_stats = stats
                     st.session_state.current_verification_file = fname
-                    st.rerun()
+                    st.experimental_rerun()
                 else:
                     st.warning("Results not available")
             if cols[idx+1].button("Mark as Complete", key=f"complete_{log_id}"):
                 update_operation_log(log_id, status="completed", progress=1.0)
-                st.rerun()
+                st.experimental_rerun()
 
 # Persist completed campaign details to Firestore
 def save_campaign_history(campaign_data):
@@ -3663,7 +3317,7 @@ def refresh_editor_journal_data():
 
 # Email Campaign Section
 def email_campaign_section():
-    render_logo_heading("Email Campaign Management")
+    st.header("Email Campaign Management")
     display_pending_operations("campaign")
 
     if st.session_state.active_campaign and not st.session_state.campaign_paused:
@@ -3713,7 +3367,7 @@ def email_campaign_section():
             st.session_state.show_journal_details = not st.session_state.show_journal_details
             if st.session_state.show_journal_details:
                 refresh_journal_data()
-            st.rerun()
+            st.experimental_rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
     with delivery_col:
@@ -3749,12 +3403,12 @@ def email_campaign_section():
         with col_settings:
             if st.button("Open Settings", key="open_settings_from_campaign"):
                 st.session_state.requested_mode = "Settings"
-                st.rerun()
+                st.experimental_rerun()
 
-        explicit_reply = st.session_state.journal_reply_addresses.get(selected_journal)
+        reply_to_value = get_reply_to_for_journal(selected_journal)
         default_reply = st.session_state.get("default_reply_to", "")
-        if explicit_reply:
-            escaped_reply = html.escape(explicit_reply)
+        if reply_to_value:
+            escaped_reply = html.escape(reply_to_value)
             st.caption(f"Reply-to for {selected_journal}: {escaped_reply}")
         elif default_reply:
             escaped_default = html.escape(default_reply)
@@ -3785,11 +3439,11 @@ def email_campaign_section():
                     if edited and edited != subj:
                         if update_subject_in_firebase(selected_journal, subj, edited):
                             st.success("Subject updated!")
-                            st.rerun()
+                            st.experimental_rerun()
                 if col3.button("Delete", key=f"delete_subj_{selected_journal}_{idx}"):
                     if delete_subject_from_firebase(selected_journal, subj):
                         st.success("Subject deleted!")
-                        st.rerun()
+                        st.experimental_rerun()
         else:
             st.write("No subjects added yet")
 
@@ -3952,8 +3606,8 @@ def email_campaign_section():
                     df = pd.read_csv(uploaded_file)
 
                 st.session_state.current_recipient_list = df
-                render_email_count(len(df), "Email addresses detected")
                 st.dataframe(df.head())
+                st.info(f"Total emails loaded: {len(df)}")
 
                 if unsubscribed_lookup and 'email' in df.columns:
                     unsubscribed_matches = (
@@ -3994,7 +3648,7 @@ def email_campaign_section():
                     if delete_firebase_file(selected_file):
                         st.session_state.firebase_files.remove(selected_file)
                         st.success(f"{selected_file} deleted!")
-                        st.rerun()
+                        st.experimental_rerun()
 
                 col_load, _ = st.columns([1, 1])
                 if col_load.button("Load File", key="load_file_campaign"):
@@ -4007,8 +3661,8 @@ def email_campaign_section():
                             df = pd.read_csv(StringIO(file_content))
 
                         st.session_state.current_recipient_list = df
-                        render_email_count(len(df), "Email addresses detected")
                         st.dataframe(df.head())
+                        st.info(f"Total emails loaded: {len(df)}")
 
                         if unsubscribed_lookup and 'email' in df.columns:
                             unsubscribed_matches = (
@@ -4248,7 +3902,7 @@ def email_campaign_section():
                     if removed:
                         load_unsubscribed_users(force_refresh=True)
                         st.success(f"Removed {len(removed)} email(s) from the suppression list.")
-                        st.rerun()
+                        st.experimental_rerun()
                     if failed:
                         st.error(
                             f"Unable to remove {len(failed)} email(s) from the suppression list."
@@ -4417,7 +4071,7 @@ def editor_invitation_section():
             st.session_state.editor_show_journal_details = not st.session_state.editor_show_journal_details
             if st.session_state.editor_show_journal_details:
                 refresh_editor_journal_data()
-            st.rerun()
+            st.experimental_rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
     with delivery_col:
@@ -4453,25 +4107,16 @@ def editor_invitation_section():
         with col_settings:
             if st.button("Open Settings", key="open_settings_from_editor"):
                 st.session_state.requested_mode = "Settings"
-                st.rerun()
+                st.experimental_rerun()
 
-        explicit_reply = st.session_state.journal_reply_addresses.get(selected_editor_journal)
-        editor_default = st.session_state.get("default_editor_reply_to", "")
-        global_default = st.session_state.get("default_reply_to", "")
-
-        if explicit_reply:
-            escaped_reply = html.escape(explicit_reply)
+        reply_to_value = get_reply_to_for_journal(selected_editor_journal)
+        default_reply = st.session_state.get("default_reply_to", "")
+        if reply_to_value:
+            escaped_reply = html.escape(reply_to_value)
             st.caption(f"Reply-to for {selected_editor_journal}: {escaped_reply}")
-        elif editor_default:
-            escaped_editor_default = html.escape(editor_default)
-            st.caption(
-                f"Reply-to for {selected_editor_journal}: inherits editor default {escaped_editor_default}"
-            )
-        elif global_default:
-            escaped_default = html.escape(global_default)
-            st.caption(
-                f"Reply-to for {selected_editor_journal}: inherits global default {escaped_default}"
-            )
+        elif default_reply:
+            escaped_default = html.escape(default_reply)
+            st.caption(f"Reply-to for {selected_editor_journal}: inherits default {escaped_default}")
         else:
             st.caption(f"Reply-to for {selected_editor_journal}: Not configured")
         st.caption("Manage global sender settings from the Settings tab.")
@@ -4498,11 +4143,11 @@ def editor_invitation_section():
                     if edited and edited != subj:
                         if update_subject_in_firebase(selected_editor_journal, subj, edited):
                             st.success("Subject updated!")
-                            st.rerun()
+                            st.experimental_rerun()
                 if col3.button("Delete", key=f"delete_subj_editor_{selected_editor_journal}_{idx}"):
                     if delete_subject_from_firebase(selected_editor_journal, subj):
                         st.success("Subject deleted!")
-                        st.rerun()
+                        st.experimental_rerun()
         else:
             st.write("No subjects added yet")
 
@@ -4646,8 +4291,8 @@ def editor_invitation_section():
                 df = pd.read_csv(uploaded_file)
 
             st.session_state.current_recipient_list = df
-            render_email_count(len(df), "Email addresses detected")
             st.dataframe(df.head())
+            st.info(f"Total emails loaded: {len(df)}")
             refresh_editor_journal_data()
 
             if st.button("Save to Cloud", key="save_recipient_editor"):
@@ -4673,7 +4318,7 @@ def editor_invitation_section():
                 if delete_firebase_file(selected_file):
                     st.session_state.firebase_files.remove(selected_file)
                     st.success(f"{selected_file} deleted!")
-                    st.rerun()
+                    st.experimental_rerun()
 
             col_load, _ = st.columns([1, 1])
             if col_load.button("Load File", key="load_file_editor"):
@@ -4686,8 +4331,8 @@ def editor_invitation_section():
                         df = pd.read_csv(StringIO(file_content))
 
                     st.session_state.current_recipient_list = df
-                    render_email_count(len(df), "Email addresses detected")
                     st.dataframe(df.head())
+                    st.info(f"Total emails loaded: {len(df)}")
                     refresh_editor_journal_data()
 
         else:
@@ -4830,11 +4475,8 @@ def email_verification_section():
         if uploaded_file:
             st.session_state.current_verification_file = uploaded_file.name
             file_content = read_uploaded_text(uploaded_file)
-            total_emails = count_emails_in_text_blob(file_content)
-            st.session_state.current_verification_count = total_emails
-            render_email_count(total_emails, "Email addresses detected")
             st.text_area("File Content Preview", file_content, height=150)
-
+            
             if st.button("Verify Emails"):
                 if not config['millionverifier']['api_key']:
                     st.error("Please configure MillionVerifier API Key first")
@@ -4864,7 +4506,7 @@ def email_verification_section():
                 if delete_firebase_file(selected_file):
                     st.session_state.firebase_files_verification.remove(selected_file)
                     st.success(f"{selected_file} deleted!")
-                    st.rerun()
+                    st.experimental_rerun()
 
             col_load, _ = st.columns([1, 1])
             if col_load.button("Load File for Verification"):
@@ -4872,35 +4514,27 @@ def email_verification_section():
                 if file_content:
                     st.session_state.current_verification_file = selected_file
                     st.text_area("File Content Preview", file_content, height=150)
-                    count = count_emails_in_text_blob(file_content)
-                    st.session_state.current_verification_count = count
                     st.session_state.current_verification_list = file_content
 
-            if 'current_verification_list' in st.session_state:
-                if st.session_state.current_verification_count:
-                    render_email_count(
-                        st.session_state.current_verification_count,
-                        "Email addresses detected",
-                    )
-                if st.button("Start Verification"):
-                    if not config['millionverifier']['api_key']:
-                        st.error("Please configure MillionVerifier API Key first")
-                        return
+            if 'current_verification_list' in st.session_state and st.button("Start Verification"):
+                if not config['millionverifier']['api_key']:
+                    st.error("Please configure MillionVerifier API Key first")
+                    return
 
-                    with st.spinner("Verifying emails..."):
-                        log_id = start_operation_log(
-                            "verification", {"file_name": selected_file})
-                        result_df = process_email_list(
-                            st.session_state.current_verification_list,
-                            config['millionverifier']['api_key'],
-                            log_id,
-                        )
-                        if not result_df.empty:
-                            st.session_state.verified_emails = result_df
-                            prepare_verification_downloads(result_df)
-                            st.dataframe(result_df)
-                        else:
-                            st.error("No valid emails found in the file")
+                with st.spinner("Verifying emails..."):
+                    log_id = start_operation_log(
+                        "verification", {"file_name": selected_file})
+                    result_df = process_email_list(
+                        st.session_state.current_verification_list,
+                        config['millionverifier']['api_key'],
+                        log_id,
+                    )
+                    if not result_df.empty:
+                        st.session_state.verified_emails = result_df
+                        prepare_verification_downloads(result_df)
+                        st.dataframe(result_df)
+                    else:
+                        st.error("No valid emails found in the file")
 
         else:
             st.info("No files found in Cloud Storage")
@@ -5166,24 +4800,6 @@ def settings_section():
                     st.success("Default reply-to email saved.")
                 else:
                     st.error("Unable to store default reply-to email.")
-            st.markdown("</div>", unsafe_allow_html=True)
-
-            st.markdown("<div class='modern-card'>", unsafe_allow_html=True)
-            st.subheader("Editor Invitation Reply-to")
-            st.caption("Fallback address for Editor Invitation journals when a specific reply-to is not set.")
-            with st.form("editor_default_reply_form"):
-                default_editor_reply_input = st.text_input(
-                    "Default editor reply-to email",
-                    st.session_state.get("default_editor_reply_to", ""),
-                    key="settings_default_editor_reply_input",
-                )
-                submitted_editor_default = st.form_submit_button("Save Editor Default Reply-to")
-
-            if submitted_editor_default:
-                if save_default_editor_reply_address(default_editor_reply_input):
-                    st.success("Editor invitation default reply-to saved.")
-                else:
-                    st.error("Unable to store editor invitation default reply-to email.")
             st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown("<div class='modern-card'>", unsafe_allow_html=True)
@@ -5721,9 +5337,40 @@ def show_email_analytics():
     else:
         st.info(f"{display_name} analytics are not available in this dashboard yet.")
 
-def prepare_initial_data():
-    """Load cached configuration and data required for the workspace."""
+def main():
+    # Check authentication
+    check_auth()
+    
+    # Main app for authenticated users
 
+    # Navigation with additional links and heading in the sidebar
+    with st.sidebar:
+        st.image("PPHLogo_en.png", use_column_width=True)
+        st.markdown("## PPH Email Manager")
+        sidebar_modes = ["Email Campaign", "Editor Invitation", "Verify Emails", "Analytics", "Settings"]
+        if st.session_state.requested_mode and st.session_state.requested_mode in sidebar_modes:
+            st.session_state.active_app_mode = st.session_state.requested_mode
+            st.session_state.requested_mode = None
+        default_index = sidebar_modes.index(st.session_state.active_app_mode) if st.session_state.active_app_mode in sidebar_modes else 0
+        app_mode = st.selectbox(
+            "Select Mode",
+            sidebar_modes,
+            index=default_index,
+            key="app_mode_select",
+        )
+        st.session_state.active_app_mode = app_mode
+
+        st.markdown("---")
+        st.markdown("### Quick Links")
+        st.markdown("[📊 Email Reports](https://app.mailgun.com/mg/reporting/metrics/)", unsafe_allow_html=True)
+        st.markdown("[📝 Entry Manager](https://pphentry.onrender.com)", unsafe_allow_html=True)
+        st.markdown(
+            f"<span class='status-badge'>Service: {get_service_display_name(st.session_state.email_service)}</span>",
+            unsafe_allow_html=True,
+        )
+        check_incomplete_operations()
+    
+    # Initialize services
     if not st.session_state.firebase_initialized:
         initialize_firebase()
 
@@ -5736,7 +5383,6 @@ def prepare_initial_data():
         if not st.session_state.reply_addresses_loaded:
             load_reply_addresses()
             st.session_state.reply_addresses_loaded = True
-            st.session_state.editor_default_reply_loaded = True
         if not st.session_state.default_email_service_loaded:
             stored_service = load_default_email_service()
             if stored_service:
@@ -5753,88 +5399,6 @@ def prepare_initial_data():
     if not st.session_state.unsubscribed_users_loaded:
         load_unsubscribed_users()
 
-
-def main():
-    # Check authentication
-    check_auth()
-
-    sidebar_modes = ["Email Campaign", "Editor Invitation", "Verify Emails", "Analytics", "Settings"]
-    with st.sidebar:
-        st.markdown("### Navigation")
-        if st.session_state.requested_mode and st.session_state.requested_mode in sidebar_modes:
-            st.session_state.active_app_mode = st.session_state.requested_mode
-            st.session_state.requested_mode = None
-
-        current_mode = st.session_state.active_app_mode
-        default_index = sidebar_modes.index(current_mode) if current_mode in sidebar_modes else 0
-        st.selectbox(
-            "Select Mode",
-            sidebar_modes,
-            index=default_index,
-            key="app_mode_select",
-            on_change=handle_app_mode_change,
-        )
-
-        st.markdown("---")
-        st.markdown("### Quick Links")
-        st.markdown("[📊 Email Reports](https://app.mailgun.com/mg/reporting/metrics/)", unsafe_allow_html=True)
-        st.markdown("[📝 Entry Manager](https://pphentry.onrender.com)", unsafe_allow_html=True)
-        st.markdown(
-            f"<span class='status-badge'>Service: {get_service_display_name(st.session_state.email_service)}</span>",
-            unsafe_allow_html=True,
-        )
-        check_incomplete_operations()
-
-    selected_mode = st.session_state.get("app_mode_select")
-    if selected_mode:
-        st.session_state.active_app_mode = selected_mode
-    else:
-        st.session_state.app_mode_select = st.session_state.active_app_mode
-
-    if st.session_state.get("sidebar_should_close"):
-        components.html(
-            """
-            <script>
-            const doc = window.parent.document;
-            const attemptCollapse = () => {
-                const sidebar = doc.querySelector('[data-testid="stSidebar"]');
-                if (!sidebar || sidebar.getAttribute('aria-expanded') !== 'true') {
-                    return;
-                }
-
-                const toggleCandidates = [
-                    doc.querySelector('[data-testid="collapsedControl"] button'),
-                    doc.querySelector('[data-testid="collapsedControl"]'),
-                    doc.querySelector('button[title="Toggle sidebar"]'),
-                ];
-
-                const toggle = toggleCandidates.find(Boolean);
-                if (toggle) {
-                    toggle.click();
-                } else {
-                    sidebar.setAttribute('aria-expanded', 'false');
-                    sidebar.style.marginLeft = `-${sidebar.offsetWidth}px`;
-                }
-            };
-
-            setTimeout(attemptCollapse, 50);
-            setTimeout(attemptCollapse, 250);
-            </script>
-            """,
-            height=0,
-            width=0,
-        )
-        st.session_state.sidebar_should_close = False
-
-    if st.session_state.just_logged_in:
-        st.session_state.just_logged_in = False
-        with st.spinner("Loading your workspace..."):
-            prepare_initial_data()
-    else:
-        prepare_initial_data()
-
-    app_mode = st.session_state.get("active_app_mode", sidebar_modes[0])
-
     if app_mode == "Email Campaign":
         email_campaign_section()
     elif app_mode == "Editor Invitation":
@@ -5845,8 +5409,6 @@ def main():
         settings_section()
     else:
         analytics_section()
-
-    render_footer()
 
 if __name__ == "__main__":
     main()
