@@ -401,60 +401,21 @@ def set_light_theme():
         display: flex;
         align-items: center;
         justify-content: center;
-        padding: 2rem 1rem 3rem;
-        background: linear-gradient(135deg, rgba(15, 23, 42, 0.92) 0%, rgba(29, 78, 216, 0.85) 100%);
+        padding: 3rem 1.5rem;
+        background: var(--background-color);
     }
 
     .login-shell {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(280px, 340px));
-        gap: 2.5rem;
-        align-items: center;
-        max-width: 900px;
         width: 100%;
+        max-width: 420px;
     }
 
     .login-card {
         background: #ffffff;
         border-radius: 24px;
-        padding: 2.2rem;
-        box-shadow: 0 24px 64px rgba(15, 23, 42, 0.22);
-    }
-
-    .login-visual {
-        color: #e2e8f0;
-    }
-
-    .login-visual h2 {
-        font-size: 2.2rem;
-        margin-bottom: 1rem;
-    }
-
-    .login-visual p {
-        font-size: 1rem;
-        color: rgba(226, 232, 240, 0.85);
-    }
-
-    .login-visual ul {
-        list-style: none;
-        padding-left: 0;
-        margin-top: 1.5rem;
-        display: grid;
-        gap: 0.75rem;
-    }
-
-    .login-visual li {
-        display: flex;
-        gap: 0.65rem;
-        align-items: flex-start;
-        color: rgba(226, 232, 240, 0.95);
-        font-weight: 500;
-    }
-
-    .login-visual li::before {
-        content: "✔";
-        color: #22d3ee;
-        margin-top: 0.1rem;
+        padding: 2.5rem 2.25rem;
+        box-shadow: 0 24px 64px rgba(15, 23, 42, 0.12);
+        border: 1px solid rgba(148, 163, 184, 0.15);
     }
 
     .login-card .stForm {
@@ -665,50 +626,30 @@ def check_auth():
 
     if not st.session_state.authenticated:
         st.markdown("<div class='login-page'><div class='login-shell'>", unsafe_allow_html=True)
-        col_form, col_info = st.columns([1, 1], gap="large")
+        st.markdown("<div class='login-card'>", unsafe_allow_html=True)
+        render_logo_heading("PPH Email Manager - Login", align="center")
+        st.caption("Welcome back! Sign in to manage campaigns, invitations, and verifications.")
 
-        with col_form:
-            st.markdown("<div class='login-card'>", unsafe_allow_html=True)
-            render_logo_heading("PPH Email Manager - Login", align="center")
-            st.caption("Welcome back! Sign in to manage campaigns, invitations, and verifications.")
+        with st.form("login_form"):
+            username = st.text_input("Username", key="login_username")
+            password = st.text_input("Password", type="password", key="login_password")
+            submit = st.form_submit_button("Sign In")
 
-            with st.form("login_form"):
-                username = st.text_input("Username", key="login_username")
-                password = st.text_input("Password", type="password", key="login_password")
-                submit = st.form_submit_button("Sign In")
+        if submit:
+            if username == "admin" and password == "prakash123@":
+                st.session_state.authenticated = True
+                st.session_state.username = username
+                st.session_state.just_logged_in = True
+                st.session_state.sidebar_should_close = True
+                st.session_state.pop("login_error", None)
+                st.rerun()
+            else:
+                st.session_state.login_error = "Invalid credentials. Please try again."
 
-            if submit:
-                if username == "admin" and password == "prakash123@":
-                    st.session_state.authenticated = True
-                    st.session_state.username = username
-                    st.session_state.just_logged_in = True
-                    st.session_state.pop("login_error", None)
-                    st.rerun()
-                else:
-                    st.session_state.login_error = "Invalid credentials. Please try again."
+        if st.session_state.get("login_error"):
+            st.error(st.session_state.login_error)
 
-            if st.session_state.get("login_error"):
-                st.error(st.session_state.login_error)
-
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        with col_info:
-            st.markdown(
-                """
-                <div class="login-visual">
-                    <h2>Precision for academic outreach</h2>
-                    <p>Deliver campaigns faster with local caching, intuitive templates, and real-time compliance checks.</p>
-                    <ul>
-                        <li>Launch journal campaigns in minutes</li>
-                        <li>Invite editors with curated messaging</li>
-                        <li>Verify recipient lists before delivery</li>
-                    </ul>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-        st.markdown("</div></div>", unsafe_allow_html=True)
+        st.markdown("</div></div></div>", unsafe_allow_html=True)
         st.stop()
 
     logout_label = "Logout"
@@ -5855,11 +5796,29 @@ def main():
             """
             <script>
             const doc = window.parent.document;
-            const sidebar = doc.querySelector('[data-testid="stSidebar"]');
-            const toggle = doc.querySelector('[data-testid="collapsedControl"] button');
-            if (sidebar && toggle && sidebar.getAttribute('aria-expanded') === 'true') {
-                toggle.click();
-            }
+            const attemptCollapse = () => {
+                const sidebar = doc.querySelector('[data-testid="stSidebar"]');
+                if (!sidebar || sidebar.getAttribute('aria-expanded') !== 'true') {
+                    return;
+                }
+
+                const toggleCandidates = [
+                    doc.querySelector('[data-testid="collapsedControl"] button'),
+                    doc.querySelector('[data-testid="collapsedControl"]'),
+                    doc.querySelector('button[title="Toggle sidebar"]'),
+                ];
+
+                const toggle = toggleCandidates.find(Boolean);
+                if (toggle) {
+                    toggle.click();
+                } else {
+                    sidebar.setAttribute('aria-expanded', 'false');
+                    sidebar.style.marginLeft = `-${sidebar.offsetWidth}px`;
+                }
+            };
+
+            setTimeout(attemptCollapse, 50);
+            setTimeout(attemptCollapse, 250);
             </script>
             """,
             height=0,
