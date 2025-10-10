@@ -53,6 +53,7 @@ from flask import abort, redirect
 import threading
 import copy
 from urllib.parse import urlencode, urlsplit
+import textwrap
 
 
 logger = logging.getLogger("academic_email_suite")
@@ -361,17 +362,19 @@ def render_progress_indicator(placeholder, label, progress, eta_seconds=None):
         f"<span class='progress-eta'>{html.escape(eta_text)}</span>" if eta_text else ""
     )
 
-    html_markup = f"""
-    <div class="progress-wrapper">
-        <div class="progress-circle" style="background: conic-gradient(var(--primary-color) {sweep_angle:.2f}deg, rgba(226, 232, 240, 0.6) {sweep_angle:.2f}deg);">
-            <div class="progress-value">{percent_complete}%</div>
+    html_markup = textwrap.dedent(
+        f"""
+        <div class="progress-wrapper">
+            <div class="progress-circle" style="background: conic-gradient(var(--primary-color) {sweep_angle:.2f}deg, rgba(226, 232, 240, 0.6) {sweep_angle:.2f}deg);">
+                <div class="progress-value">{percent_complete}%</div>
+            </div>
+            <div class="progress-details">
+                <div class="progress-label">{safe_label}</div>
+                {eta_html}
+            </div>
         </div>
-        <div class="progress-details">
-            <div class="progress-label">{safe_label}</div>
-            {eta_html}
-        </div>
-    </div>
-    """
+        """
+    ).strip()
 
     placeholder.markdown(html_markup, unsafe_allow_html=True)
 
