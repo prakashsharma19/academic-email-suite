@@ -1612,34 +1612,113 @@ def send_email_via_kvn(recipient, subject, body_html, body_text, unsubscribe_lin
         )
         return False, None
 
-    try:
-        message = EmailMessage()
-        message['Subject'] = subject
-        message['From'] = formataddr((st.session_state.sender_name, sender_email))
-        message['To'] = recipient
-        message['Date'] = formatdate(localtime=True)
-        message['Message-ID'] = make_msgid()
-        message['List-Unsubscribe'] = f"<{unsubscribe_link}>"
-        message['List-Unsubscribe-Post'] = "List-Unsubscribe=One-Click"
-        if reply_to:
-            message['Reply-To'] = reply_to
+    message = EmailMessage()
+    message['Subject'] = subject
+    message['From'] = formataddr((st.session_state.sender_name, sender_email))
+    message['To'] = recipient
+    message['Date'] = formatdate(localtime=True)
+    message['Message-ID'] = make_msgid()
+    message['List-Unsubscribe'] = f"<{unsubscribe_link}>"
+    message['List-Unsubscribe-Post'] = "List-Unsubscribe=One-Click"
+    if reply_to:
+        message['Reply-To'] = reply_to
 
-        message.set_content(body_text)
-        message.add_alternative(body_html, subtype="html")
+    message.set_content(body_text)
+    message.add_alternative(body_html, subtype="html")
 
-        with smtplib.SMTP(host, port, timeout=30) as server:
-            server.ehlo()
-            if use_tls:
-                server.starttls()
+    connection_attempts = []
+    seen_ports = set()
+
+    def schedule(port_value, tls_enabled=False, ssl_enabled=False):
+        if port_value in seen_ports:
+            return
+        seen_ports.add(port_value)
+        connection_attempts.append({
+            'port': port_value,
+            'tls': tls_enabled,
+            'ssl': ssl_enabled,
+        })
+
+    if port == 465:
+        schedule(465, False, True)
+    elif port == 587:
+        schedule(587, use_tls, False)
+    elif port == 25:
+        schedule(25, False, False)
+    else:
+        schedule(port, use_tls if port == 587 else False, False)
+
+    schedule(25, False, False)
+    schedule(587, use_tls, False)
+    schedule(465, False, True)
+
+    last_error = None
+
+    for attempt in connection_attempts:
+        attempt_port = attempt['port']
+        tls_enabled = attempt['tls']
+        ssl_enabled = attempt['ssl']
+        try:
+            logger.info(
+                "Attempting SMTP connection to %s:%s (TLS=%s, SSL=%s)",
+                host,
+                attempt_port,
+                tls_enabled,
+                ssl_enabled,
+            )
+
+            if ssl_enabled:
+                server = smtplib.SMTP_SSL(host, attempt_port, timeout=30)
+            else:
+                server = smtplib.SMTP(host, attempt_port, timeout=30)
+
+            with server:
                 server.ehlo()
-            server.login(username, password)
-            server.send_message(message)
+                if tls_enabled:
+                    server.starttls()
+                    server.ehlo()
+                server.login(username, password)
+                server.send_message(message)
 
-        return True, message['Message-ID']
-    except Exception as e:
-        st.error(f"Failed to send email via KVN SMTP: {str(e)}")
-        logger.exception("KVN SMTP send failure")
-        return False, None
+            logger.info(
+                "Successfully sent email via KVN SMTP on %s:%s",
+                host,
+                attempt_port,
+            )
+            return True, message['Message-ID']
+        except ConnectionRefusedError as exc:
+            last_error = exc
+            logger.error(
+                "Connection refused when connecting to %s:%s: %s",
+                host,
+                attempt_port,
+                exc,
+            )
+            if attempt_port == 25:
+                logger.info(
+                    "Retrying KVN SMTP send using TLS on port 587 after refusal on port 25."
+                )
+                for retry_attempt in connection_attempts:
+                    if retry_attempt['port'] == 587:
+                        retry_attempt['tls'] = True
+            continue
+        except Exception as exc:
+            last_error = exc
+            logger.error(
+                "Failed to send email via KVN SMTP on %s:%s: %s",
+                host,
+                attempt_port,
+                exc,
+            )
+            continue
+
+    error_message = (
+        "Failed to send email via KVN SMTP. "
+        + (str(last_error) if last_error else "Unknown error occurred.")
+    )
+    st.error(error_message)
+    logger.error("KVN SMTP send failure: %s", error_message)
+    return False, None
 
 
 def send_ses_email(ses_client, sender, recipient, subject, body_html, body_text, unsubscribe_link, reply_to=None):
