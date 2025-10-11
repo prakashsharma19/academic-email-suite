@@ -1270,6 +1270,34 @@ def get_journal_template(journal_name):
 </div>"""
 
 # Load configuration from environment variables
+def _get_env_value(primary_key, *fallback_keys, default=None):
+    """Return the first non-empty environment variable among the provided keys."""
+    for key in (primary_key, *fallback_keys):
+        if not key:
+            continue
+        value = os.getenv(key)
+        if value is not None:
+            value = value.strip()
+            if value:
+                return value
+    return default
+
+
+def _get_env_bool(primary_key, *fallback_keys, default=True):
+    """Parse environment variables that represent boolean values."""
+    raw_value = _get_env_value(primary_key, *fallback_keys, default=None)
+    if raw_value is None:
+        return default
+
+    normalized = raw_value.strip().lower()
+    if normalized in {"false", "0", "no", "off"}:
+        return False
+    if normalized in {"true", "1", "yes", "on"}:
+        return True
+
+    return default
+
+
 @st.cache_data
 def load_config():
     config = {
@@ -1306,12 +1334,12 @@ def load_config():
             'signing_key': os.getenv("MAILGUN_SIGNING_KEY", "")
         },
         'kvn_smtp': {
-            'host': os.getenv("KVN_SMTP_HOST", ""),
-            'port': int(os.getenv("KVN_SMTP_PORT", "587") or 587),
-            'username': os.getenv("KVN_SMTP_USERNAME", ""),
-            'password': os.getenv("KVN_SMTP_PASSWORD", ""),
-            'sender': os.getenv("KVN_SMTP_SENDER_EMAIL", ""),
-            'use_tls': os.getenv("KVN_SMTP_USE_TLS", "true").lower() != "false",
+            'host': _get_env_value("KVN_SMTP_HOST", "SMTP_HOST", default=""),
+            'port': int(_get_env_value("KVN_SMTP_PORT", "SMTP_PORT", default="587") or 587),
+            'username': _get_env_value("KVN_SMTP_USERNAME", "SMTP_USER", default=""),
+            'password': _get_env_value("KVN_SMTP_PASSWORD", "SMTP_PASS", default=""),
+            'sender': _get_env_value("KVN_SMTP_SENDER_EMAIL", "SMTP_FROM", default=""),
+            'use_tls': _get_env_bool("KVN_SMTP_USE_TLS", "USE_TLS", default=True),
         },
         'sender_name': os.getenv("SENDER_NAME", "Pushpa Publishing House"),
         'webhook': {
