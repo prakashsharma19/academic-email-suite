@@ -392,10 +392,31 @@ def check_auth():
                 "<h1 style='margin-bottom: 0.5rem;'>PPH Email Manager - Login</h1>",
                 unsafe_allow_html=True,
             )
+        st.markdown(
+            """
+            <style>
+            @keyframes blink-notice {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0; }
+            }
+            .blinking-notice {
+                color: #ff1a1a;
+                font-weight: 700;
+                animation: blink-notice 1.5s linear infinite;
+                margin-bottom: 1rem;
+            }
+            </style>
+            <div class="blinking-notice">
+                Attention required!!!<br/>
+                Contact app adminiatrator for help.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         with st.form("login_form"):
             username = st.text_input("Username")
             password = st.text_input("Password", type="password")
-            
+
             if st.form_submit_button("Login"):
                 if username == "admin" and password == "prakash123@":
                     st.session_state.authenticated = True
