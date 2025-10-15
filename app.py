@@ -194,6 +194,19 @@ def check_auth():
         st.rerun()
 
 # Initialize session state
+def _get_session_state():
+    """Return the active Streamlit session state if available."""
+
+    try:
+        return st.session_state
+    except RuntimeError:
+        # When running outside the Streamlit runtime (e.g. webhook threads)
+        # accessing session state raises a RuntimeError. In those scenarios we
+        # simply fall back to returning ``None`` so the caller can avoid
+        # interacting with session state.
+        return None
+
+
 def init_session_state():
     defaults = {
         'authenticated': False,
@@ -207,17 +220,25 @@ def init_session_state():
         'default_reply_to': "",
     }
 
+    session_state = _get_session_state()
+    if session_state is None:
+        return
+
     for key, value in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = value
+        if key not in session_state:
+            session_state[key] = value
 
 
 def ensure_session_defaults(defaults):
     """Populate session state lazily using the provided defaults."""
 
+    session_state = _get_session_state()
+    if session_state is None:
+        return
+
     for key, default in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = default() if callable(default) else copy.deepcopy(default)
+        if key not in session_state:
+            session_state[key] = default() if callable(default) else copy.deepcopy(default)
 
 
 def invalidate_unsubscribed_cache():
@@ -430,10 +451,13 @@ def load_unsubscribed_users(force_refresh=False):
         cached_records = copy.deepcopy(UNSUBSCRIBED_CACHE["records"]) if cache_loaded else None
         cached_emails = set(UNSUBSCRIBED_CACHE["emails"]) if cache_loaded else set()
 
+    session_state = _get_session_state()
+
     if cache_loaded:
-        st.session_state.unsubscribed_users = cached_records or []
-        st.session_state.unsubscribed_email_lookup = cached_emails
-        st.session_state.unsubscribed_users_loaded = True
+        if session_state is not None:
+            session_state.unsubscribed_users = cached_records or []
+            session_state.unsubscribed_email_lookup = cached_emails
+            session_state.unsubscribed_users_loaded = True
         return cached_records or []
 
     db = get_firestore_db()
@@ -477,9 +501,10 @@ def load_unsubscribed_users(force_refresh=False):
             UNSUBSCRIBED_CACHE["emails"] = set(email_lookup)
             UNSUBSCRIBED_CACHE["loaded"] = True
 
-        st.session_state.unsubscribed_users = records
-        st.session_state.unsubscribed_email_lookup = email_lookup
-        st.session_state.unsubscribed_users_loaded = True
+        if session_state is not None:
+            session_state.unsubscribed_users = records
+            session_state.unsubscribed_email_lookup = email_lookup
+            session_state.unsubscribed_users_loaded = True
         return records
     except Exception as exc:
         logger.exception("Failed to load unsubscribed users: %s", exc)
@@ -489,7 +514,21 @@ def load_unsubscribed_users(force_refresh=False):
 def is_email_unsubscribed(email):
     if not email:
         return False
-    lookup = st.session_state.get("unsubscribed_email_lookup", set())
+    session_state = _get_session_state()
+    if session_state is not None:
+        lookup = session_state.get("unsubscribed_email_lookup", set())
+    else:
+        with UNSUBSCRIBED_CACHE_LOCK:
+            cache_loaded = UNSUBSCRIBED_CACHE.get("loaded", False)
+            cached_emails = set(UNSUBSCRIBED_CACHE.get("emails", set()))
+
+        if not cache_loaded:
+            load_unsubscribed_users()
+            with UNSUBSCRIBED_CACHE_LOCK:
+                cached_emails = set(UNSUBSCRIBED_CACHE.get("emails", set()))
+
+        lookup = cached_emails
+
     return email.lower() in lookup
 
 
