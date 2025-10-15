@@ -1321,20 +1321,28 @@ def send_email_via_kvn(recipient, subject, body_html, body_text, unsubscribe_lin
             target_port,
         )
 
-    try:
+    def _attempt_send(force_tls: bool) -> str:
+        """Attempt a single SMTP delivery, optionally forcing STARTTLS."""
+
         logger.info(
             "Attempting SMTP connection to %s:%s (TLS=%s)",
             host,
             target_port,
-            use_tls,
+            force_tls,
         )
 
         server = smtplib.SMTP(host, target_port, timeout=30)
         with server:
             server.ehlo()
-            if use_tls:
-                server.starttls()
-                server.ehlo()
+            supports_starttls = server.has_extn("starttls")
+            if force_tls:
+                if supports_starttls:
+                    server.starttls()
+                    server.ehlo()
+                else:
+                    logger.warning(
+                        "SMTP server does not advertise STARTTLS support; continuing without TLS despite request."
+                    )
 
             auth_supported = server.has_extn("auth")
             if auth_supported:
@@ -1345,6 +1353,17 @@ def send_email_via_kvn(recipient, subject, body_html, body_text, unsubscribe_lin
                         "SMTP AUTH not supported despite advertisement; proceeding without auth: %s",
                         auth_exc,
                     )
+                except smtplib.SMTPResponseException as auth_exc:
+                    if (
+                        not force_tls
+                        and auth_exc.smtp_code == 530
+                        and supports_starttls
+                    ):
+                        logger.warning(
+                            "SMTP server demanded STARTTLS before authentication; will retry with TLS."
+                        )
+                        raise
+                    raise
                 except Exception:
                     raise
             else:
@@ -1353,22 +1372,57 @@ def send_email_via_kvn(recipient, subject, body_html, body_text, unsubscribe_lin
                         "SMTP AUTH extension not supported by server; attempting delivery without authentication."
                     )
 
-            server.send_message(message)
+            try:
+                server.send_message(message)
+            except smtplib.SMTPResponseException as send_exc:
+                if (
+                    not force_tls
+                    and send_exc.smtp_code == 530
+                    and supports_starttls
+                ):
+                    logger.warning(
+                        "SMTP server demanded STARTTLS before sending; will retry with TLS."
+                    )
+                raise
 
         logger.info(
             "Successfully sent email via KVN SMTP on %s:%s",
             host,
             target_port,
         )
-        return True, message['Message-ID']
-    except Exception as exc:
-        last_error = exc
-        logger.error(
-            "Failed to send email via KVN SMTP on %s:%s: %s",
-            host,
-            target_port,
-            exc,
-        )
+        return message['Message-ID']
+
+    tls_attempts = [use_tls] if use_tls else [False, True]
+
+    for force_tls in tls_attempts:
+        try:
+            message_id = _attempt_send(force_tls)
+            return True, message_id
+        except smtplib.SMTPResponseException as exc:
+            last_error = exc
+            if (
+                exc.smtp_code == 530
+                and not force_tls
+                and not use_tls
+            ):
+                # Retry loop will attempt again with TLS enabled.
+                continue
+            logger.error(
+                "Failed to send email via KVN SMTP on %s:%s: %s",
+                host,
+                target_port,
+                exc,
+            )
+            break
+        except Exception as exc:
+            last_error = exc
+            logger.error(
+                "Failed to send email via KVN SMTP on %s:%s: %s",
+                host,
+                target_port,
+                exc,
+            )
+            break
 
     error_message = (
         "Failed to send email via KVN SMTP. "
