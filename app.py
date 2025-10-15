@@ -1335,7 +1335,24 @@ def send_email_via_kvn(recipient, subject, body_html, body_text, unsubscribe_lin
             if use_tls:
                 server.starttls()
                 server.ehlo()
-            server.login(username, password)
+
+            auth_supported = server.has_extn("auth")
+            if auth_supported:
+                try:
+                    server.login(username, password)
+                except smtplib.SMTPNotSupportedError as auth_exc:
+                    logger.warning(
+                        "SMTP AUTH not supported despite advertisement; proceeding without auth: %s",
+                        auth_exc,
+                    )
+                except Exception:
+                    raise
+            else:
+                if username or password:
+                    logger.warning(
+                        "SMTP AUTH extension not supported by server; attempting delivery without authentication."
+                    )
+
             server.send_message(message)
 
         logger.info(
