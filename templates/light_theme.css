@@ -1,0 +1,98 @@
+:root {
+    --primary-color: #194e9c;
+    --primary-color-dark: #123a73;
+    --accent-color: #0f4aa8;
+    --background-color: #ffffff;
+    --card-background: #ffffff;
+    --text-color: #1f2933;
+    --muted-text: #5f6c7b;
+    --radius-md: 14px;
+    --radius-lg: 18px;
+    --shadow-sm: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    background-color: var(--background-color);
+}
+
+.stApp {
+    background: var(--background-color);
+    font-family: 'Inter', 'Segoe UI', sans-serif;
+}
+
+.main .block-container {
+    padding: 1.5rem 2rem 2.5rem 2rem;
+}
+
+.stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
+    color: var(--text-color);
+    font-weight: 700;
+}
+
+section[data-testid="stSidebar"] {
+    background: #f8fafc;
+    color: #0f172a;
+    border-right: 1px solid #e2e8f0;
+}
+
+.stButton>button, .stDownloadButton>button {
+    background: var(--primary-color) !important;
+    color: #ffffff !important;
+    border: none !important;
+    border-radius: var(--radius-md) !important;
+    padding: 0.6rem 1.3rem !important;
+    font-weight: 600 !important;
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.stButton>button:hover, .stDownloadButton>button:hover {
+    transform: translateY(-1px) scale(1.01);
+}
+
+.stButton>button:active, .stDownloadButton>button:active {
+    transform: scale(0.98);
+}
+
+.progress-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    margin: 1rem 0 0.5rem;
+}
+
+.progress-circle {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: conic-gradient(var(--primary-color) 0deg, rgba(226, 232, 240, 0.6) 0deg);
+    position: relative;
+    box-shadow: inset 0 0 12px rgba(15, 23, 42, 0.08);
+}
+
+.progress-circle::after {
+    content: "";
+    position: absolute;
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    background: #ffffff;
+    box-shadow: inset 0 0 6px rgba(15, 23, 42, 0.05);
+}
+
+.progress-value {
+    position: relative;
+    font-weight: 700;
+    font-size: 1rem;
+    color: var(--primary-color-dark);
+}
+
+.progress-eta {
+    color: var(--muted-text);
+    font-size: 0.9rem;
+}

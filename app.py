@@ -3,7 +3,6 @@
 # ---------------------------------
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from threading import Thread
 from waitress import serve
 
 # Initialize webhook Flask app
@@ -42,16 +41,16 @@ from email.utils import formataddr, formatdate, make_msgid
 from io import StringIO
 import base64
 import html
-from google.cloud import storage
+from pathlib import Path
 from google.oauth2 import service_account
 from streamlit_ace import st_ace
 import firebase_admin
 from firebase_admin import credentials, firestore
-import matplotlib.pyplot as plt
 from flask import abort, redirect
 
 import threading
 import copy
+import gc
 from urllib.parse import urlencode, urlsplit
 import textwrap
 
@@ -62,6 +61,8 @@ if not logger.handlers:
     handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
     logger.addHandler(handler)
 logger.setLevel(logging.INFO)
+
+os.environ.setdefault("STREAMLIT_SERVER_FILE_WATCHER_TYPE", "none")
 
 UNSUBSCRIBED_CACHE = {"records": [], "emails": set(), "loaded": False}
 UNSUBSCRIBED_CACHE_LOCK = threading.Lock()
@@ -80,246 +81,23 @@ st.set_page_config(
     }
 )
 
+
+@st.cache_data(show_spinner=False)
+def load_theme_css():
+    css_path = Path(__file__).parent / "templates" / "light_theme.css"
+    try:
+        return css_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        logger.warning("Light theme CSS not found at %s", css_path)
+        return ""
+
+
 # Light Theme with Footer
 def set_light_theme():
-    light_theme = """
-    <style>
-    :root {
-        --primary-color: #194e9c;
-        --primary-color-dark: #123a73;
-        --accent-color: #0f4aa8;
-        --background-color: #ffffff;
-        --card-background: #ffffff;
-        --text-color: #1f2933;
-        --muted-text: #5f6c7b;
-        --success-color: #1FAA59;
-        --warning-color: #F4A259;
-        --danger-color: #F25F5C;
-        --radius-lg: 18px;
-        --radius-md: 14px;
-        --shadow-sm: 0 8px 24px rgba(15, 23, 42, 0.08);
-        --shadow-lg: 0 20px 48px rgba(15, 23, 42, 0.12);
-        --font-family: 'Inter', 'Segoe UI', sans-serif;
-    }
+    css = load_theme_css()
+    if css:
+        st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
 
-    html, body {
-        margin: 0;
-        padding: 0;
-        background-color: var(--background-color);
-    }
-
-    .stApp {
-        background: var(--background-color);
-        font-family: var(--font-family);
-        padding: 0;
-    }
-
-    [data-testid="stAppViewContainer"] {
-        margin: 0 !important;
-        padding: 0 !important;
-    }
-
-    .main .block-container {
-        padding: 1.5rem 2rem 2.5rem 2rem;
-    }
-
-    .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
-        color: var(--text-color);
-        font-weight: 700;
-    }
-
-    section[data-testid="stSidebar"] {
-        background: #f8fafc;
-        color: #0f172a;
-        border-right: 1px solid #e2e8f0;
-    }
-
-    section[data-testid="stSidebar"] .css-1v0mbdj, section[data-testid="stSidebar"] .stSelectbox {
-        color: #0f172a;
-    }
-
-    section[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] span,
-    section[data-testid="stSidebar"] label {
-        color: #0f172a !important;
-    }
-
-    section[data-testid="stSidebar"] a {
-        color: #1d4ed8 !important;
-    }
-
-    section[data-testid="stSidebar"] .stMarkdown h2,
-    section[data-testid="stSidebar"] .stMarkdown h3 {
-        color: #0f172a;
-    }
-
-    .stButton>button, .stDownloadButton>button {
-        background: var(--primary-color) !important;
-        color: #ffffff !important;
-        border: none !important;
-        border-radius: var(--radius-md) !important;
-        padding: 0.6rem 1.3rem !important;
-        font-weight: 600 !important;
-        box-shadow: var(--shadow-sm);
-        transition: transform 0.15s ease, box-shadow 0.15s ease;
-    }
-
-    .stButton>button:hover, .stDownloadButton>button:hover {
-        transform: translateY(-1px) scale(1.01);
-        box-shadow: var(--shadow-lg);
-    }
-
-    .stButton>button:active, .stDownloadButton>button:active {
-        transform: scale(0.98);
-    }
-
-    .stTabs [data-baseweb="tab"] {
-        font-weight: 600;
-        padding: 1rem 1.5rem;
-    }
-
-    .stTabs [data-baseweb="tab"]:hover {
-        color: var(--primary-color);
-    }
-
-    div[data-testid="stMetricValue"] {
-        color: var(--primary-color);
-        font-weight: 700;
-    }
-
-    .modern-card {
-        background: var(--card-background);
-        border-radius: var(--radius-lg);
-        padding: 1.5rem;
-        box-shadow: var(--shadow-sm);
-        border: 1px solid rgba(15, 23, 42, 0.06);
-    }
-
-    .dual-panel {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-        gap: 1.5rem;
-        align-items: stretch;
-    }
-
-    .journal-card h4, .journal-card h3 {
-        margin-top: 0;
-    }
-
-    .compact-select div[data-baseweb="select"] {
-        min-width: 0 !important;
-    }
-
-    .compact-select .stSelectbox, .compact-select div[data-baseweb="select"] > div {
-        max-width: 260px;
-    }
-
-    .highlight-panel {
-        background: linear-gradient(159deg, rgba(30,144,255,0.12) 0%, rgba(153,186,221,0.18) 100%);
-    }
-
-    .status-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.4rem;
-        font-weight: 600;
-        border-radius: 999px;
-        padding: 0.35rem 1rem;
-        font-size: 0.85rem;
-        background: rgba(76, 111, 255, 0.12);
-        color: var(--primary-color);
-        border: 1px solid rgba(76, 111, 255, 0.2);
-    }
-
-    .subtle-text {
-        color: var(--muted-text);
-    }
-
-    div[data-testid="stForm"] {
-        background: var(--card-background);
-        padding: 1.5rem;
-        border-radius: var(--radius-lg);
-        box-shadow: var(--shadow-sm);
-    }
-
-    div[role="listbox"], .stSelectbox, .stTextInput, .stTextArea {
-        border-radius: var(--radius-md) !important;
-    }
-
-    .stFileUploader div[data-testid="stFileUploaderDropzone"] {
-        border-radius: var(--radius-lg);
-        border: 1px dashed rgba(30,144,255,0.45);
-        background: linear-gradient(159deg, rgba(30,144,255,0.08) 0%, rgba(153,186,221,0.18) 100%);
-        padding: 1.75rem;
-        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.4);
-    }
-
-    .stFileUploader div[data-testid="stFileUploaderDropzone"] p {
-        color: var(--text-color);
-        font-weight: 500;
-    }
-
-    .stFileUploader button {
-        margin-top: 0.75rem;
-    }
-
-    div[data-baseweb="tag"] span {
-        white-space: normal !important;
-    }
-
-    .progress-wrapper {
-        display: flex;
-        align-items: center;
-        gap: 1.25rem;
-        margin: 1rem 0 0.5rem;
-    }
-
-    .progress-circle {
-        width: 72px;
-        height: 72px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: conic-gradient(var(--primary-color) 0deg, rgba(226, 232, 240, 0.6) 0deg);
-        position: relative;
-        box-shadow: inset 0 0 12px rgba(15, 23, 42, 0.08);
-    }
-
-    .progress-circle::after {
-        content: "";
-        position: absolute;
-        width: 54px;
-        height: 54px;
-        border-radius: 50%;
-        background: #ffffff;
-        box-shadow: inset 0 0 6px rgba(15, 23, 42, 0.05);
-    }
-
-    .progress-value {
-        position: relative;
-        font-weight: 700;
-        font-size: 1rem;
-        color: var(--primary-color-dark);
-    }
-
-    .progress-details {
-        display: flex;
-        flex-direction: column;
-        gap: 0.35rem;
-    }
-
-    .progress-label {
-        font-weight: 600;
-        color: var(--text-color);
-    }
-
-    .progress-eta {
-        color: var(--muted-text);
-        font-size: 0.9rem;
-    }
-    </style>
-    """
-    st.markdown(light_theme, unsafe_allow_html=True)
 
 set_light_theme()
 
@@ -417,135 +195,27 @@ def check_auth():
 
 # Initialize session state
 def init_session_state():
-    if 'ses_client' not in st.session_state:
-        st.session_state.ses_client = None
-    if 'firebase_storage' not in st.session_state:
-        st.session_state.firebase_storage = None
-    if 'firebase_initialized' not in st.session_state:
-        st.session_state.firebase_initialized = False
-    if 'selected_journal' not in st.session_state:
-        st.session_state.selected_journal = None
-    if 'email_service' not in st.session_state:
-        st.session_state.email_service = "MAILGUN"
-    if 'campaign_history' not in st.session_state:
-        st.session_state.campaign_history = []
-    if 'journal_reply_addresses' not in st.session_state:
-        st.session_state.journal_reply_addresses = {}
-    if 'default_reply_to' not in st.session_state:
-        st.session_state.default_reply_to = ""
-    if 'verified_emails' not in st.session_state:
-        st.session_state.verified_emails = pd.DataFrame()
-    if 'verified_txt_content' not in st.session_state:
-        st.session_state.verified_txt_content = ""
-    if 'firebase_files' not in st.session_state:
-        st.session_state.firebase_files = []
-    if 'firebase_files_verification' not in st.session_state:
-        st.session_state.firebase_files_verification = []
-    if 'unsubscribed_users' not in st.session_state:
-        st.session_state.unsubscribed_users = []
-    if 'unsubscribed_email_lookup' not in st.session_state:
-        st.session_state.unsubscribed_email_lookup = set()
-    if 'unsubscribed_users_loaded' not in st.session_state:
-        st.session_state.unsubscribed_users_loaded = False
-    if 'suppression_remove_success' not in st.session_state:
-        st.session_state.suppression_remove_success = None
-    if 'suppression_remove_failed' not in st.session_state:
-        st.session_state.suppression_remove_failed = None
-    if 'current_verification_list' not in st.session_state:
-        st.session_state.current_verification_list = None
-    if 'verification_stats' not in st.session_state:
-        st.session_state.verification_stats = {}
-    if 'verification_start_time' not in st.session_state:
-        st.session_state.verification_start_time = None
-    if 'verification_progress' not in st.session_state:
-        st.session_state.verification_progress = 0
-    if 'auto_download_good' not in st.session_state:
-        st.session_state.auto_download_good = False
-    if 'auto_download_low_risk' not in st.session_state:
-        st.session_state.auto_download_low_risk = False
-    if 'auto_download_high_risk' not in st.session_state:
-        st.session_state.auto_download_high_risk = False
-    if 'good_download_content' not in st.session_state:
-        st.session_state.good_download_content = None
-    if 'good_download_file_name' not in st.session_state:
-        st.session_state.good_download_file_name = None
-    if 'low_risk_download_content' not in st.session_state:
-        st.session_state.low_risk_download_content = None
-    if 'low_risk_download_file_name' not in st.session_state:
-        st.session_state.low_risk_download_file_name = None
-    if 'high_risk_download_content' not in st.session_state:
-        st.session_state.high_risk_download_content = None
-    if 'high_risk_download_file_name' not in st.session_state:
-        st.session_state.high_risk_download_file_name = None
-    if 'current_recipient_file' not in st.session_state:
-        st.session_state.current_recipient_file = None
-    if 'current_verification_file' not in st.session_state:
-        st.session_state.current_verification_file = None
-    if 'active_campaign' not in st.session_state:
-        st.session_state.active_campaign = None
-    if 'campaign_paused' not in st.session_state:
-        st.session_state.campaign_paused = False
-    if 'campaign_cancelled' not in st.session_state:
-        st.session_state.campaign_cancelled = False
-    if 'template_content' not in st.session_state:
-        st.session_state.template_content = {}
-    if 'journal_subjects' not in st.session_state:
-        st.session_state.journal_subjects = {}
-    if 'requested_mode' not in st.session_state:
-        st.session_state.requested_mode = None
-    if 'active_app_mode' not in st.session_state:
-        st.session_state.active_app_mode = "Email Campaign"
-    if 'sender_email' not in st.session_state:
-        st.session_state.sender_email = (
+    defaults = {
+        'authenticated': False,
+        'email_service': 'MAILGUN',
+        'sender_name': config['sender_name'],
+        'sender_email': (
             config.get('mailgun', {}).get('sender')
             or config['smtp2go']['sender']
-        )
-    if 'sender_name' not in st.session_state:
-        st.session_state.sender_name = config['sender_name']
-    if 'sender_base_name' not in st.session_state:
-        st.session_state.sender_base_name = config['sender_name']
-    if 'sender_name_loaded' not in st.session_state:
-        st.session_state.sender_name_loaded = False
-    if 'sender_email_loaded' not in st.session_state:
-        st.session_state.sender_email_loaded = False
-    if 'kvn_smtp_settings' not in st.session_state:
-        st.session_state.kvn_smtp_settings = {}
-    if 'kvn_settings_loaded' not in st.session_state:
-        st.session_state.kvn_settings_loaded = False
-    if 'default_email_service_loaded' not in st.session_state:
-        st.session_state.default_email_service_loaded = False
-    if 'reply_addresses_loaded' not in st.session_state:
-        st.session_state.reply_addresses_loaded = False
-    if 'blocked_domains' not in st.session_state:
-        st.session_state.blocked_domains = []
-    if 'blocked_emails' not in st.session_state:
-        st.session_state.blocked_emails = []
-    if 'block_settings_loaded' not in st.session_state:
-        st.session_state.block_settings_loaded = False
-    if 'journals_loaded' not in st.session_state:
-        st.session_state.journals_loaded = False
-    if 'editor_journals_loaded' not in st.session_state:
-        st.session_state.editor_journals_loaded = False
-    if 'template_spam_score' not in st.session_state:
-        st.session_state.template_spam_score = {}
-    if 'template_spam_report' not in st.session_state:
-        st.session_state.template_spam_report = {}
-    if 'template_spam_summary' not in st.session_state:
-        st.session_state.template_spam_summary = {}
-    if 'spam_check_cache' not in st.session_state:
-        st.session_state.spam_check_cache = {}
-    if 'last_refreshed_journal' not in st.session_state:
-        st.session_state.last_refreshed_journal = None
-    if 'show_journal_details' not in st.session_state:
-        st.session_state.show_journal_details = False
-    if 'selected_editor_journal' not in st.session_state:
-        st.session_state.selected_editor_journal = None
-    if 'editor_show_journal_details' not in st.session_state:
-        st.session_state.editor_show_journal_details = False
-    if 'verification_resume_data' not in st.session_state:
-        st.session_state.verification_resume_data = None
-    if 'verification_resume_log_id' not in st.session_state:
-        st.session_state.verification_resume_log_id = None
+        ),
+    }
+
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+
+def ensure_session_defaults(defaults):
+    """Populate session state lazily using the provided defaults."""
+
+    for key, default in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = default() if callable(default) else copy.deepcopy(default)
 
 
 def invalidate_unsubscribed_cache():
@@ -1042,20 +712,24 @@ _WEBHOOK_THREAD_LOCK = threading.Lock()
 
 
 def ensure_webhook_server():
-    """Start the webhook server thread exactly once."""
+    """Start the webhook server thread once per user session."""
 
     global _WEBHOOK_THREAD
 
-    if _WEBHOOK_THREAD and _WEBHOOK_THREAD.is_alive():
+    if 'webhook_started' not in st.session_state:
+        st.session_state.webhook_started = False
+
+    if st.session_state.get('webhook_started') and _WEBHOOK_THREAD and _WEBHOOK_THREAD.is_alive():
         return
 
     with _WEBHOOK_THREAD_LOCK:
-        if _WEBHOOK_THREAD and _WEBHOOK_THREAD.is_alive():
+        if st.session_state.get('webhook_started') and _WEBHOOK_THREAD and _WEBHOOK_THREAD.is_alive():
             return
 
-        thread = Thread(target=start_webhook, daemon=True)
+        thread = threading.Thread(target=start_webhook, daemon=True)
         thread.start()
         _WEBHOOK_THREAD = thread
+        st.session_state.webhook_started = True
 
 
 def update_sender_name():
@@ -1142,92 +816,102 @@ def parse_email_entries(file_content: str) -> pd.DataFrame:
 
 
 # Journal Data
-JOURNALS = [
-    "Advances and Applications in Fluid Mechanics",
-    "Advances in Fuzzy Sets and Systems",
-    "Far East Journal of Electronics and Communications",
-    "Far East Journal of Mathematical Education",
-    "International Journal of Nutrition and Dietetics",
-    "International Journal of Numerical Methods and Applications",
-    "Advances and Applications in Discrete Mathematics",
-    "Advances and Applications in Statistics",
-    "Far East Journal of Applied Mathematics",
-    "Far East Journal of Dynamical Systems",
-    "Far East Journal of Mathematical Sciences (FJMS)",
-    "FJMS - Far East Journal of Mathematical Sciences (FJMS)",
-    "Far East Journal of Theoretical Statistics",
-    "JP Journal of Algebra, Number Theory and Applications",
-    "JP Journal of Geometry and Topology",
-    "JP Journal of Biostatistics",
-    "JP Journal of Heat and Mass Transfer",
-    "Universal Journal of Mathematics and Mathematical Sciences",
-    "Far East Journal of Mechanical Engineering and Physics",
-    "Advances in Materials Science and their Emerging Technologies",
-    "Far East Journal of Endocrinology, Diabetes and Obesity",
-    "Advances in Food & Dairy Sciences and Their Emerging Technologies (FDSET)",
-    "Advances in Computer Science and Engineering",
-    "Far East Journal of Experimental and Theoretical Artificial Intelligence",
-    "Journal of Water Waves",
-    "JP Journal of Solids and Structures",
-    "Current Development in Oceanography",
-    "OA - Advances and Applications in Fluid Mechanics",
-    "OA - Advances in Fuzzy Sets and Systems",
-    "OA - Far East Journal of Electronics and Communications",
-    "OA - Far East Journal of Mathematical Education",
-    "OA - International Journal of Nutrition and Dietetics",
-    "OA - International Journal of Numerical Methods and Applications",
-    "OA - Advances and Applications in Discrete Mathematics",
-    "OA - Advances and Applications in Statistics",
-    "OA - Far East Journal of Applied Mathematics",
-    "OA - Far East Journal of Dynamical Systems",
-    "OA - Far East Journal of Mathematical Sciences (FJMS)",
-    "OA - Far East Journal of Theoretical Statistics",
-    "OA - JP Journal of Algebra, Number Theory and Applications",
-    "OA - JP Journal of Geometry and Topology",
-    "OA - JP Journal of Biostatistics",
-    "OA - JP Journal of Fixed Point Theory and Applications",
-    "OA - JP Journal of Heat and Mass Transfer",
-    "OA - Current Development in Oceanography",
-    "OA - JP Journal of Solids and Structures",
-    "OA - Far East Journal of Electronics and Communications",
-    "OA - Advances in Computer Science and Engineering",
-    "OA - Far East Journal of Experimental and Theoretical Artificial Intelligence",
-    "OA - Far East Journal of Mechanical Engineering and Physics",
-    "OA - Universal Journal of Mathematics and Mathematical Sciences"
-]
 
-# Editor Invitation journal list
-EDITOR_JOURNALS = [
-    "Editors Invitation - Far East Journal of Mechanical Engineering and Physics",
-    "Editors Invitation - Advances in Materials Science and their Emerging Technologies",
-    "Editors Invitation - Far East Journal of Endocrinology, Diabetes and Obesity",
-    "Editors Invitation - Advances in Food & Dairy Sciences and their Emerging Technologies",
-    "Editors Invitation - Far East Journal of Mathematical Sciences (FJMS)",
-    "Editors Invitation - JP Journal of Heat and Mass Transfer",
-    "Editors Invitation - JP Journal of Geometry and Topology",
-    "Editors Invitation - Far East Journal of Theoretical Statistics",
-    "Editors Invitation - Advances and Applications in Statistics",
-    "Editors Invitation - Advances and Applications in Discrete Mathematics",
-    "Editors Invitation - Advances and Applications in Fluid Mechanics",
-    "Editors Invitation - Advances in Fuzzy Sets and Systems",
-    "Editors Invitation - Far East Journal of Electronics and Communications",
-    "Editors Invitation - Far East Journal of Mathematical Education",
-    "Editors Invitation - International Journal of Nutrition and Dietetics",
-    "Editors Invitation - International Journal of Numerical Methods and Applications",
-    "Editors Invitation - Far East Journal of Applied Mathematics",
-    "Editors Invitation - Far East Journal of Dynamical Systems",
-    "Editors Invitation - JP Journal of Algebra, Number Theory and Applications",
-    "Editors Invitation - JP Journal of Geometry and Topology",
-    "Editors Invitation - JP Journal of Biostatistics",
-    "Editors Invitation - JP Journal of Fixed Point Theory and Applications",
-    "Editors Invitation - Universal Journal of Mathematics and Mathematical Sciences",
-    "Editors Invitation - Advances in Computer Science and Engineering",
-    "Editors Invitation - Far East Journal of Experimental and Theoretical Artificial Intelligence",
-    "Editors Invitation - Journal of Water Waves",
-    "Editors Invitation - JP Journal of Solids and Structures",
-    "Editors Invitation - Current Development in Oceanography",
-    "OE - Editors Invitation - Advances and Applications in Fluid Mechanics",
-  ]
+
+@st.cache_data(show_spinner=False)
+def load_default_journals():
+    return (
+        "Advances and Applications in Fluid Mechanics",
+        "Advances in Fuzzy Sets and Systems",
+        "Far East Journal of Electronics and Communications",
+        "Far East Journal of Mathematical Education",
+        "International Journal of Nutrition and Dietetics",
+        "International Journal of Numerical Methods and Applications",
+        "Advances and Applications in Discrete Mathematics",
+        "Advances and Applications in Statistics",
+        "Far East Journal of Applied Mathematics",
+        "Far East Journal of Dynamical Systems",
+        "Far East Journal of Mathematical Sciences (FJMS)",
+        "FJMS - Far East Journal of Mathematical Sciences (FJMS)",
+        "Far East Journal of Theoretical Statistics",
+        "JP Journal of Algebra, Number Theory and Applications",
+        "JP Journal of Geometry and Topology",
+        "JP Journal of Biostatistics",
+        "JP Journal of Heat and Mass Transfer",
+        "Universal Journal of Mathematics and Mathematical Sciences",
+        "Far East Journal of Mechanical Engineering and Physics",
+        "Advances in Materials Science and their Emerging Technologies",
+        "Far East Journal of Endocrinology, Diabetes and Obesity",
+        "Advances in Food & Dairy Sciences and Their Emerging Technologies (FDSET)",
+        "Advances in Computer Science and Engineering",
+        "Far East Journal of Experimental and Theoretical Artificial Intelligence",
+        "Journal of Water Waves",
+        "JP Journal of Solids and Structures",
+        "Current Development in Oceanography",
+        "OA - Advances and Applications in Fluid Mechanics",
+        "OA - Advances in Fuzzy Sets and Systems",
+        "OA - Far East Journal of Electronics and Communications",
+        "OA - Far East Journal of Mathematical Education",
+        "OA - International Journal of Nutrition and Dietetics",
+        "OA - International Journal of Numerical Methods and Applications",
+        "OA - Advances and Applications in Discrete Mathematics",
+        "OA - Advances and Applications in Statistics",
+        "OA - Far East Journal of Applied Mathematics",
+        "OA - Far East Journal of Dynamical Systems",
+        "OA - Far East Journal of Mathematical Sciences (FJMS)",
+        "OA - Far East Journal of Theoretical Statistics",
+        "OA - JP Journal of Algebra, Number Theory and Applications",
+        "OA - JP Journal of Geometry and Topology",
+        "OA - JP Journal of Biostatistics",
+        "OA - JP Journal of Fixed Point Theory and Applications",
+        "OA - JP Journal of Heat and Mass Transfer",
+        "OA - Current Development in Oceanography",
+        "OA - JP Journal of Solids and Structures",
+        "OA - Far East Journal of Electronics and Communications",
+        "OA - Advances in Computer Science and Engineering",
+        "OA - Far East Journal of Experimental and Theoretical Artificial Intelligence",
+        "OA - Far East Journal of Mechanical Engineering and Physics",
+        "OA - Universal Journal of Mathematics and Mathematical Sciences",
+    )
+
+
+@st.cache_data(show_spinner=False)
+def load_default_editor_journals():
+    return (
+        "Editors Invitation - Far East Journal of Mechanical Engineering and Physics",
+        "Editors Invitation - Advances in Materials Science and their Emerging Technologies",
+        "Editors Invitation - Far East Journal of Endocrinology, Diabetes and Obesity",
+        "Editors Invitation - Advances in Food & Dairy Sciences and their Emerging Technologies",
+        "Editors Invitation - Far East Journal of Mathematical Sciences (FJMS)",
+        "Editors Invitation - JP Journal of Heat and Mass Transfer",
+        "Editors Invitation - JP Journal of Geometry and Topology",
+        "Editors Invitation - Far East Journal of Theoretical Statistics",
+        "Editors Invitation - Advances and Applications in Statistics",
+        "Editors Invitation - Advances and Applications in Discrete Mathematics",
+        "Editors Invitation - Advances and Applications in Fluid Mechanics",
+        "Editors Invitation - Advances in Fuzzy Sets and Systems",
+        "Editors Invitation - Far East Journal of Electronics and Communications",
+        "Editors Invitation - Far East Journal of Mathematical Education",
+        "Editors Invitation - International Journal of Nutrition and Dietetics",
+        "Editors Invitation - International Journal of Numerical Methods and Applications",
+        "Editors Invitation - Far East Journal of Applied Mathematics",
+        "Editors Invitation - Far East Journal of Dynamical Systems",
+        "Editors Invitation - JP Journal of Algebra, Number Theory and Applications",
+        "Editors Invitation - JP Journal of Geometry and Topology",
+        "Editors Invitation - JP Journal of Biostatistics",
+        "Editors Invitation - JP Journal of Fixed Point Theory and Applications",
+        "Editors Invitation - Universal Journal of Mathematics and Mathematical Sciences",
+        "Editors Invitation - Advances in Computer Science and Engineering",
+        "Editors Invitation - Far East Journal of Experimental and Theoretical Artificial Intelligence",
+        "Editors Invitation - Journal of Water Waves",
+        "Editors Invitation - JP Journal of Solids and Structures",
+        "Editors Invitation - Current Development in Oceanography",
+        "OE - Editors Invitation - Advances and Applications in Fluid Mechanics",
+    )
+
+
+JOURNALS = list(load_default_journals())
+EDITOR_JOURNALS = list(load_default_editor_journals())
 
 # Default email template
 def get_journal_template(journal_name):
@@ -1435,15 +1119,14 @@ def initialize_firebase():
         st.error(f"Firebase initialization failed: {str(e)}")
         return False
 
-# Ensure Firebase and the webhook server are ready before rendering any UI
-if not st.session_state.get("firebase_initialized"):
-    initialize_firebase()
-ensure_webhook_server()
+# Ensure Firebase is ready before rendering any UI lazily
+
 
 def get_firestore_db():
-    if not initialize_firebase():
-        st.error("Firebase initialization failed")
-        return None
+    if not firebase_admin._apps:
+        if not initialize_firebase():
+            st.error("Firebase initialization failed")
+            return None
     return firestore.client()
 
 # Initialize SES Client with better error handling
@@ -1855,40 +1538,45 @@ def process_email_list(file_content, api_key, log_id=None, resume_data=None):
             initial_progress,
         )
 
-        for i in range(start_index, total_emails):
-            email = df.loc[i, 'email']
-            result = verify_email(email, api_key)
-            if result:
-                results.append(result)
-            else:
-                results.append({'result': 'error'})
-            
-            # Update progress
-            progress = (i + 1) / total_emails
-            st.session_state.verification_progress = progress
-            progress_bar.progress(progress)
-            elapsed_time = time.time() - st.session_state.verification_start_time
-            remaining_time = None
-            if progress > 0:
-                estimated_total_time = elapsed_time / progress
-                remaining_time = max(0, estimated_total_time - elapsed_time)
-            render_progress_indicator(
-                progress_indicator,
-                f"Verifying {i+1} of {total_emails} emails",
-                progress,
-                remaining_time,
-            )
-            if log_id:
-                update_operation_log(log_id, progress=progress)
-                save_verification_progress(
-                    log_id,
-                    file_content,
-                    [r.get('result', 'error') if isinstance(r, dict) else r for r in results],
-                    i + 1,
-                    total_emails,
-                )
+        batch_size = 200
+        for batch_start in range(start_index, total_emails, batch_size):
+            batch_end = min(batch_start + batch_size, total_emails)
+            for i in range(batch_start, batch_end):
+                email = df.loc[i, 'email']
+                result = verify_email(email, api_key)
+                if result:
+                    results.append(result)
+                else:
+                    results.append({'result': 'error'})
 
-            time.sleep(0.1)  # Rate limiting
+                # Update progress
+                progress = (i + 1) / total_emails
+                st.session_state.verification_progress = progress
+                progress_bar.progress(progress)
+                elapsed_time = time.time() - st.session_state.verification_start_time
+                remaining_time = None
+                if progress > 0:
+                    estimated_total_time = elapsed_time / progress
+                    remaining_time = max(0, estimated_total_time - elapsed_time)
+                render_progress_indicator(
+                    progress_indicator,
+                    f"Verifying {i+1} of {total_emails} emails",
+                    progress,
+                    remaining_time,
+                )
+                if log_id:
+                    update_operation_log(log_id, progress=progress)
+                    save_verification_progress(
+                        log_id,
+                        file_content,
+                        [r.get('result', 'error') if isinstance(r, dict) else r for r in results],
+                        i + 1,
+                        total_emails,
+                    )
+
+                time.sleep(0.1)  # Rate limiting
+
+            gc.collect()
 
         df['verification_result'] = [r.get('result', 'error') if r else 'error' for r in results]
 
@@ -3440,6 +3128,29 @@ def refresh_editor_journal_data():
 
 # Email Campaign Section
 def email_campaign_section():
+    ensure_session_defaults({
+        'active_campaign': lambda: None,
+        'campaign_paused': lambda: False,
+        'campaign_cancelled': lambda: False,
+        'current_recipient_list': lambda: None,
+        'current_recipient_file': lambda: None,
+        'block_settings_loaded': lambda: False,
+        'sender_name_loaded': lambda: False,
+        'journals_loaded': lambda: False,
+        'editor_journals_loaded': lambda: False,
+        'show_journal_details': lambda: False,
+        'journal_subjects': dict,
+        'template_content': dict,
+        'spam_check_cache': dict,
+        'template_spam_score': dict,
+        'template_spam_report': dict,
+        'template_spam_summary': dict,
+        'journal_reply_addresses': dict,
+        'default_reply_to': lambda: "",
+        'firebase_files': list,
+        'selected_journal': lambda: JOURNALS[0] if JOURNALS else None,
+    })
+
     st.header("Email Campaign Management")
     display_pending_operations("campaign")
 
@@ -4170,6 +3881,20 @@ def email_campaign_section():
 
 
 def editor_invitation_section():
+    ensure_session_defaults({
+        'active_campaign': lambda: None,
+        'campaign_paused': lambda: False,
+        'campaign_cancelled': lambda: False,
+        'block_settings_loaded': lambda: False,
+        'reply_addresses_loaded': lambda: False,
+        'sender_name_loaded': lambda: False,
+        'sender_base_name': lambda: st.session_state.sender_name,
+        'editor_journals_loaded': lambda: False,
+        'selected_editor_journal': lambda: EDITOR_JOURNALS[0] if EDITOR_JOURNALS else None,
+        'editor_show_journal_details': lambda: False,
+        'journal_subjects': dict,
+    })
+
     st.header("Editor Invitation")
     display_pending_operations("campaign")
 
@@ -4585,6 +4310,27 @@ def editor_invitation_section():
 
 # Email Verification Section
 def email_verification_section():
+    ensure_session_defaults({
+        'verification_resume_data': lambda: None,
+        'verification_resume_log_id': lambda: None,
+        'verified_emails': lambda: pd.DataFrame(),
+        'verification_stats': dict,
+        'verification_start_time': lambda: None,
+        'verification_progress': lambda: 0,
+        'auto_download_good': lambda: False,
+        'auto_download_low_risk': lambda: False,
+        'auto_download_high_risk': lambda: False,
+        'good_download_content': lambda: "",
+        'good_download_file_name': lambda: None,
+        'low_risk_download_content': lambda: "",
+        'low_risk_download_file_name': lambda: None,
+        'high_risk_download_content': lambda: "",
+        'high_risk_download_file_name': lambda: None,
+        'current_verification_file': lambda: None,
+        'current_verification_list': lambda: None,
+        'firebase_files_verification': list,
+    })
+
     st.header("Email Verification")
     display_pending_operations("verification")
 
@@ -4755,22 +4501,11 @@ def email_verification_section():
                 help="Catch-all addresses verified as low risk. Engage with caution and monitor delivery.",
             )
 
-        # Bar chart instead of pie chart
-        plt.style.use("seaborn-v0_8-whitegrid")
-        fig, ax = plt.subplots(figsize=(6, 3))
+        # Lightweight bar chart for verification summary
         categories = ['Good', 'Bad', 'Risky', 'Low Risk']
         counts = [stats['good'], stats['bad'], stats['risky'], stats['low_risk']]
-        colors = ['#4CAF50', '#F44336', '#9C27B0', '#2196F3']
-        
-        bars = ax.bar(categories, counts, color=colors, edgecolor='black')
-        ax.set_title('Email Verification Results')
-        ax.set_ylabel('Count')
-
-        # Add value labels on top of bars
-        ax.bar_label(bars, padding=3)
-        plt.tight_layout()
-        
-        st.pyplot(fig)
+        chart_df = pd.DataFrame({'Category': categories, 'Count': counts}).set_index('Category')
+        st.bar_chart(chart_df)
         
         # Download reports - side by side buttons
         st.subheader("Download Reports")
@@ -4864,6 +4599,20 @@ def email_verification_section():
             )
 
 def settings_section():
+    ensure_session_defaults({
+        'block_settings_loaded': lambda: False,
+        'journals_loaded': lambda: False,
+        'editor_journals_loaded': lambda: False,
+        'reply_addresses_loaded': lambda: False,
+        'sender_base_name': lambda: st.session_state.sender_name,
+        'journal_reply_addresses': dict,
+        'default_reply_to': lambda: "",
+        'blocked_domains': list,
+        'blocked_emails': list,
+        'suppression_remove_success': lambda: None,
+        'suppression_remove_failed': lambda: None,
+    })
+
     st.header("Settings & Preferences")
     st.caption("All changes are securely saved to Firestore so they persist across sessions.")
 
@@ -5519,24 +5268,49 @@ def main():
         check_incomplete_operations()
     
     # Initialize services
-    if not st.session_state.firebase_initialized:
+    ensure_session_defaults({
+        'requested_mode': lambda: None,
+        'active_app_mode': lambda: "Email Campaign",
+        'sender_base_name': lambda: st.session_state.sender_name,
+        'sender_name_loaded': lambda: False,
+        'sender_email_loaded': lambda: False,
+        'default_email_service_loaded': lambda: False,
+        'reply_addresses_loaded': lambda: False,
+        'kvn_settings_loaded': lambda: False,
+        'kvn_smtp_settings': dict,
+        'block_settings_loaded': lambda: False,
+        'blocked_domains': list,
+        'blocked_emails': list,
+        'journals_loaded': lambda: False,
+        'editor_journals_loaded': lambda: False,
+        'template_content': dict,
+        'journal_subjects': dict,
+        'campaign_history': list,
+        'unsubscribed_users_loaded': lambda: False,
+        'unsubscribed_users': list,
+        'unsubscribed_email_lookup': set,
+        'firebase_initialized': lambda: False,
+        'webhook_started': lambda: False,
+    })
+
+    if not st.session_state.get('firebase_initialized'):
         initialize_firebase()
 
     ensure_webhook_server()
 
-    if st.session_state.firebase_initialized:
-        if not st.session_state.kvn_settings_loaded:
+    if st.session_state.get('firebase_initialized'):
+        if not st.session_state.get('kvn_settings_loaded'):
             load_kvn_smtp_settings()
             st.session_state.kvn_settings_loaded = True
-        if not st.session_state.reply_addresses_loaded:
+        if not st.session_state.get('reply_addresses_loaded'):
             load_reply_addresses()
             st.session_state.reply_addresses_loaded = True
-        if not st.session_state.default_email_service_loaded:
+        if not st.session_state.get('default_email_service_loaded'):
             stored_service = load_default_email_service()
             if stored_service:
                 st.session_state.email_service = stored_service.upper()
             st.session_state.default_email_service_loaded = True
-        if not st.session_state.sender_email_loaded:
+        if not st.session_state.get('sender_email_loaded'):
             stored_sender_email = load_sender_email()
             if stored_sender_email:
                 st.session_state.sender_email = stored_sender_email
@@ -5544,7 +5318,7 @@ def main():
                 config['kvn_smtp']['sender'] = stored_sender_email
             st.session_state.sender_email_loaded = True
 
-    if not st.session_state.unsubscribed_users_loaded:
+    if not st.session_state.get('unsubscribed_users_loaded'):
         load_unsubscribed_users()
 
     if app_mode == "Email Campaign":
