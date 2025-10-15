@@ -1311,91 +1311,47 @@ def send_email_via_kvn(recipient, subject, body_html, body_text, unsubscribe_lin
     message.set_content(body_text)
     message.add_alternative(body_html, subtype="html")
 
-    connection_attempts = []
-    seen_ports = set()
-
-    def schedule(port_value, tls_enabled=False, ssl_enabled=False):
-        if port_value in seen_ports:
-            return
-        seen_ports.add(port_value)
-        connection_attempts.append({
-            'port': port_value,
-            'tls': tls_enabled,
-            'ssl': ssl_enabled,
-        })
-
-    if port == 465:
-        schedule(465, False, True)
-    elif port == 587:
-        schedule(587, use_tls, False)
-    elif port == 25:
-        schedule(25, False, False)
-    else:
-        schedule(port, use_tls if port == 587 else False, False)
-
-    schedule(25, False, False)
-    schedule(587, use_tls, False)
-    schedule(465, False, True)
-
+    target_port = 587
     last_error = None
 
-    for attempt in connection_attempts:
-        attempt_port = attempt['port']
-        tls_enabled = attempt['tls']
-        ssl_enabled = attempt['ssl']
-        try:
-            logger.info(
-                "Attempting SMTP connection to %s:%s (TLS=%s, SSL=%s)",
-                host,
-                attempt_port,
-                tls_enabled,
-                ssl_enabled,
-            )
+    if port != target_port:
+        logger.info(
+            "KVN SMTP forcing configured port %s to %s for delivery.",
+            port,
+            target_port,
+        )
 
-            if ssl_enabled:
-                server = smtplib.SMTP_SSL(host, attempt_port, timeout=30)
-            else:
-                server = smtplib.SMTP(host, attempt_port, timeout=30)
+    try:
+        logger.info(
+            "Attempting SMTP connection to %s:%s (TLS=%s)",
+            host,
+            target_port,
+            use_tls,
+        )
 
-            with server:
+        server = smtplib.SMTP(host, target_port, timeout=30)
+        with server:
+            server.ehlo()
+            if use_tls:
+                server.starttls()
                 server.ehlo()
-                if tls_enabled:
-                    server.starttls()
-                    server.ehlo()
-                server.login(username, password)
-                server.send_message(message)
+            server.login(username, password)
+            server.send_message(message)
 
-            logger.info(
-                "Successfully sent email via KVN SMTP on %s:%s",
-                host,
-                attempt_port,
-            )
-            return True, message['Message-ID']
-        except ConnectionRefusedError as exc:
-            last_error = exc
-            logger.error(
-                "Connection refused when connecting to %s:%s: %s",
-                host,
-                attempt_port,
-                exc,
-            )
-            if attempt_port == 25:
-                logger.info(
-                    "Retrying KVN SMTP send using TLS on port 587 after refusal on port 25."
-                )
-                for retry_attempt in connection_attempts:
-                    if retry_attempt['port'] == 587:
-                        retry_attempt['tls'] = True
-            continue
-        except Exception as exc:
-            last_error = exc
-            logger.error(
-                "Failed to send email via KVN SMTP on %s:%s: %s",
-                host,
-                attempt_port,
-                exc,
-            )
-            continue
+        logger.info(
+            "Successfully sent email via KVN SMTP on %s:%s",
+            host,
+            target_port,
+        )
+        return True, message['Message-ID']
+    except Exception as exc:
+        last_error = exc
+        logger.error(
+            "Failed to send email via KVN SMTP on %s:%s: %s",
+            host,
+            target_port,
+            exc,
+        )
 
     error_message = (
         "Failed to send email via KVN SMTP. "
@@ -2481,6 +2437,13 @@ def get_service_display_name(service_key):
     normalized = (service_key or 'MAILGUN').upper()
     return mapping.get(normalized, normalized.title())
 
+
+def normalize_service_key(service_key):
+    normalized = (service_key or 'MAILGUN').upper()
+    if normalized == 'KVN':
+        return 'KVN SMTP'
+    return normalized
+
 def is_email_blocked(email):
     email_lower = email.lower()
     domain = email_lower.split('@')[-1]
@@ -2650,7 +2613,13 @@ def execute_campaign(campaign_data):
     campaign_id = campaign_data.get("campaign_id")
     log_id = campaign_data.get("log_id")
 
-    service = (st.session_state.email_service or "MAILGUN").upper()
+    service_key = (
+        campaign_data.get("email_service")
+        or st.session_state.email_service
+        or "MAILGUN"
+    )
+    service = normalize_service_key(service_key)
+    st.session_state.email_service = service
     service_display = get_service_display_name(service)
 
     progress_container = st.container()
@@ -2786,7 +2755,7 @@ def execute_campaign(campaign_data):
                 unsubscribe_link,
                 reply_to,
             )
-        elif service == "KVN SMTP" or service == "KVN":
+        elif service == "KVN SMTP":
             success, email_id = send_email_via_kvn(
                 recipient_email,
                 subject,
@@ -2834,8 +2803,6 @@ def execute_campaign(campaign_data):
             st.warning("Campaign cancellation requested...")
             break
 
-        time.sleep(0.1)
-
     if not st.session_state.campaign_cancelled:
         campaign_data = {
             'status': 'completed',
@@ -2854,7 +2821,7 @@ def execute_campaign(campaign_data):
             'total_emails': total_emails,
             'subject': ','.join(selected_subjects) if selected_subjects else email_subject,
             'email_ids': ','.join(email_ids),
-            'service': st.session_state.email_service,
+            'service': service,
         }
         st.session_state.campaign_history.append(record)
         save_campaign_history(record)
@@ -2963,6 +2930,9 @@ def check_incomplete_operations():
                 campaign = get_campaign_state(cid)
                 if campaign:
                     st.session_state.active_campaign = campaign
+                    stored_service = campaign.get('email_service')
+                    if stored_service:
+                        st.session_state.email_service = normalize_service_key(stored_service)
                     st.experimental_rerun()
             if st.sidebar.button("Mark as Complete", key=f"complete_sb_{log_id}"):
                 update_operation_log(log_id, status="completed", progress=1.0)
@@ -3022,6 +2992,9 @@ def display_pending_operations(operation_type):
                 campaign = get_campaign_state(cid)
                 if campaign:
                     st.session_state.active_campaign = campaign
+                    stored_service = campaign.get('email_service')
+                    if stored_service:
+                        st.session_state.email_service = normalize_service_key(stored_service)
                     st.experimental_rerun()
             if cols[1].button("Mark as Complete", key=f"complete_{log_id}"):
                 update_operation_log(log_id, status="completed", progress=1.0)
@@ -3162,6 +3135,9 @@ def email_campaign_section():
             st.info(f"Resuming campaign {ac.get('campaign_id')} - {ac.get('current_index')}/{ac.get('total_emails')}")
             if 'current_recipient_list' not in st.session_state or st.session_state.current_recipient_list is None:
                 st.session_state.current_recipient_list = pd.DataFrame(ac.get('recipient_list', []))
+            stored_service = ac.get('email_service')
+            if stored_service:
+                st.session_state.email_service = normalize_service_key(stored_service)
             execute_campaign(ac)
             return
 
