@@ -3281,9 +3281,10 @@ def email_campaign_section():
             JOURNALS,
             index=JOURNALS.index(st.session_state.selected_journal)
             if st.session_state.selected_journal in JOURNALS else 0,
-            on_change=update_sender_name,
-            key="selected_journal",
         )
+        if selected_journal != st.session_state.selected_journal:
+            st.session_state.selected_journal = selected_journal
+            update_sender_name()
         toggle_label = "Hide Subjects & Template" if st.session_state.show_journal_details else "Load Subjects & Template"
         if st.button(toggle_label, key="toggle_journal_details"):
             st.session_state.show_journal_details = not st.session_state.show_journal_details
