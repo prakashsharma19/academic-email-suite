@@ -203,6 +203,8 @@ def init_session_state():
             config.get('mailgun', {}).get('sender')
             or config['smtp2go']['sender']
         ),
+        'journal_reply_addresses': {},
+        'default_reply_to': "",
     }
 
     for key, value in defaults.items():
