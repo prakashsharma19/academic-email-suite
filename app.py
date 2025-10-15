@@ -5238,8 +5238,34 @@ def show_email_analytics():
 def main():
     # Check authentication
     check_auth()
-    
+
     # Main app for authenticated users
+
+    # Ensure session defaults are available before the sidebar interacts with them.
+    ensure_session_defaults({
+        'requested_mode': lambda: None,
+        'active_app_mode': lambda: "Email Campaign",
+        'sender_base_name': lambda: st.session_state.sender_name,
+        'sender_name_loaded': lambda: False,
+        'sender_email_loaded': lambda: False,
+        'default_email_service_loaded': lambda: False,
+        'reply_addresses_loaded': lambda: False,
+        'kvn_settings_loaded': lambda: False,
+        'kvn_smtp_settings': dict,
+        'block_settings_loaded': lambda: False,
+        'blocked_domains': list,
+        'blocked_emails': list,
+        'journals_loaded': lambda: False,
+        'editor_journals_loaded': lambda: False,
+        'template_content': dict,
+        'journal_subjects': dict,
+        'campaign_history': list,
+        'unsubscribed_users_loaded': lambda: False,
+        'unsubscribed_users': list,
+        'unsubscribed_email_lookup': set,
+        'firebase_initialized': lambda: False,
+        'webhook_started': lambda: False,
+    })
 
     # Navigation with additional links and heading in the sidebar
     with st.sidebar:
@@ -5268,31 +5294,6 @@ def main():
         check_incomplete_operations()
     
     # Initialize services
-    ensure_session_defaults({
-        'requested_mode': lambda: None,
-        'active_app_mode': lambda: "Email Campaign",
-        'sender_base_name': lambda: st.session_state.sender_name,
-        'sender_name_loaded': lambda: False,
-        'sender_email_loaded': lambda: False,
-        'default_email_service_loaded': lambda: False,
-        'reply_addresses_loaded': lambda: False,
-        'kvn_settings_loaded': lambda: False,
-        'kvn_smtp_settings': dict,
-        'block_settings_loaded': lambda: False,
-        'blocked_domains': list,
-        'blocked_emails': list,
-        'journals_loaded': lambda: False,
-        'editor_journals_loaded': lambda: False,
-        'template_content': dict,
-        'journal_subjects': dict,
-        'campaign_history': list,
-        'unsubscribed_users_loaded': lambda: False,
-        'unsubscribed_users': list,
-        'unsubscribed_email_lookup': set,
-        'firebase_initialized': lambda: False,
-        'webhook_started': lambda: False,
-    })
-
     if not st.session_state.get('firebase_initialized'):
         initialize_firebase()
 
