@@ -4213,6 +4213,17 @@ def email_campaign_section():
             )
 
             df = st.session_state.current_recipient_list
+            if df is None:
+                st.error("No recipient list loaded. Please upload or select recipients before sending.")
+                return
+            if not isinstance(df, pd.DataFrame):
+                try:
+                    df = pd.DataFrame(df)
+                except Exception:
+                    st.error("Unable to process the recipient list. Please reload your recipients and try again.")
+                    return
+                st.session_state.current_recipient_list = df
+
             total_emails = len(df)
 
             # Create campaign record in Firestore
@@ -4692,6 +4703,17 @@ def editor_invitation_section():
             )
 
             df = st.session_state.current_recipient_list
+            if df is None:
+                st.error("No recipient list loaded. Please upload or select recipients before sending.")
+                return
+            if not isinstance(df, pd.DataFrame):
+                try:
+                    df = pd.DataFrame(df)
+                except Exception:
+                    st.error("Unable to process the recipient list. Please reload your recipients and try again.")
+                    return
+                st.session_state.current_recipient_list = df
+
             total_emails = len(df)
 
             campaign_id = int(time.time())
