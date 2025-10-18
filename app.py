@@ -76,10 +76,13 @@ KVN_MAX_EMAILS_PER_BATCH = 700
 KVN_SCHEDULE_COLLECTION = "kvn_settings"
 KVN_SCHEDULE_DOCUMENT = "send_schedule"
 KVN_SLOT_BUFFER = timedelta(hours=1)
+DEFAULT_DISPLAY_TIMEZONE = "Asia/Kolkata"
 try:
-    KVN_DISPLAY_TIMEZONE = pytz.timezone(os.getenv("KVN_DISPLAY_TIMEZONE", "UTC"))
+    KVN_DISPLAY_TIMEZONE = pytz.timezone(
+        os.getenv("KVN_DISPLAY_TIMEZONE", DEFAULT_DISPLAY_TIMEZONE)
+    )
 except Exception:
-    KVN_DISPLAY_TIMEZONE = pytz.utc
+    KVN_DISPLAY_TIMEZONE = pytz.timezone(DEFAULT_DISPLAY_TIMEZONE)
 
 st.set_page_config(
     page_title="PPH Email Manager",
@@ -1899,15 +1902,48 @@ def _normalize_to_utc(dt):
     return None
 
 
-def format_kvn_display_time(dt):
+def _localize_for_display(dt):
     utc_dt = _normalize_to_utc(dt)
     if not utc_dt:
-        return ""
+        return None
     try:
-        localized = utc_dt.astimezone(KVN_DISPLAY_TIMEZONE)
+        return utc_dt.astimezone(KVN_DISPLAY_TIMEZONE)
     except Exception:
-        localized = utc_dt
+        return utc_dt
+
+
+def _seconds_until(dt):
+    utc_dt = _normalize_to_utc(dt)
+    if not utc_dt:
+        return None
+    remaining = (utc_dt - datetime.now(pytz.utc)).total_seconds()
+    return max(0, remaining)
+
+
+def format_kvn_display_time(dt):
+    localized = _localize_for_display(dt)
+    if not localized:
+        return ""
     return localized.strftime("%d %b %Y %I:%M %p %Z")
+
+
+def format_display_datetime(dt, fmt="%Y-%m-%d %H:%M:%S %Z"):
+    localized = _localize_for_display(dt)
+    if not localized:
+        return ""
+    return localized.strftime(fmt)
+
+
+def format_kvn_remaining_time(dt):
+    remaining_seconds = _seconds_until(dt)
+    if remaining_seconds is None:
+        return ""
+    if remaining_seconds <= 0:
+        return "Less than a second left"
+    remaining = format_duration(remaining_seconds)
+    if remaining.endswith(" 0s"):
+        remaining = remaining[:-3]
+    return f"{remaining} left"
 
 
 def get_kvn_schedule_doc():
@@ -4013,7 +4049,9 @@ def email_campaign_section():
                 unsubscribed_at = record.get("unsubscribed_at")
                 unsubscribed_at_str = ""
                 if isinstance(unsubscribed_at, datetime):
-                    unsubscribed_at_str = unsubscribed_at.strftime("%Y-%m-%d %H:%M:%S UTC")
+                    unsubscribed_at_str = format_display_datetime(
+                        unsubscribed_at, "%Y-%m-%d %H:%M:%S %Z"
+                    )
                 display_rows.append(
                     {
                         "Email": record.get("email"),
@@ -4122,8 +4160,13 @@ def email_campaign_section():
             if not can_send_now:
                 kvn_button_disabled = True
                 if kvn_next_slot:
-                    st.warning(
-                        f"KVN SMTP quota reached. Next batch available at {format_kvn_display_time(kvn_next_slot)}.")
+                    remaining_text = format_kvn_remaining_time(kvn_next_slot)
+                    kvn_message = (
+                        f"KVN SMTP quota reached. Next batch available at {format_kvn_display_time(kvn_next_slot)}."
+                    )
+                    if remaining_text:
+                        kvn_message += f" ({remaining_text})"
+                    st.warning(kvn_message)
             elif kvn_last_sent:
                 st.info(
                     f"Last KVN SMTP batch completed at {format_kvn_display_time(kvn_last_sent)}. Quota reset available.")
@@ -4595,8 +4638,13 @@ def editor_invitation_section():
             if not can_send_now:
                 kvn_button_disabled = True
                 if kvn_next_slot:
-                    st.warning(
-                        f"KVN SMTP quota reached. Next batch available at {format_kvn_display_time(kvn_next_slot)}.")
+                    remaining_text = format_kvn_remaining_time(kvn_next_slot)
+                    kvn_message = (
+                        f"KVN SMTP quota reached. Next batch available at {format_kvn_display_time(kvn_next_slot)}."
+                    )
+                    if remaining_text:
+                        kvn_message += f" ({remaining_text})"
+                    st.warning(kvn_message)
             elif kvn_last_sent:
                 st.info(
                     f"Last KVN SMTP batch completed at {format_kvn_display_time(kvn_last_sent)}. Quota reset available.")
