@@ -53,6 +53,7 @@ import copy
 import gc
 from urllib.parse import urlencode, urlsplit
 import textwrap
+import math
 
 
 logger = logging.getLogger("academic_email_suite")
@@ -70,6 +71,15 @@ UNSUBSCRIBED_CACHE_LOCK = threading.Lock()
 MAILGUN_SIGNATURE_TOLERANCE_SECONDS = 300
 
 EMAIL_VALIDATION_REGEX = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
+
+KVN_MAX_EMAILS_PER_BATCH = 700
+KVN_SCHEDULE_COLLECTION = "kvn_settings"
+KVN_SCHEDULE_DOCUMENT = "send_schedule"
+KVN_SLOT_BUFFER = timedelta(hours=1)
+try:
+    KVN_DISPLAY_TIMEZONE = pytz.timezone(os.getenv("KVN_DISPLAY_TIMEZONE", "UTC"))
+except Exception:
+    KVN_DISPLAY_TIMEZONE = pytz.utc
 
 st.set_page_config(
     page_title="PPH Email Manager",
@@ -1878,6 +1888,191 @@ def delete_firebase_file(filename):
         st.error(f"Failed to delete file: {str(e)}")
         return False
 
+
+def _normalize_to_utc(dt):
+    if dt is None:
+        return None
+    if isinstance(dt, datetime):
+        if dt.tzinfo is None:
+            return pytz.utc.localize(dt)
+        return dt.astimezone(pytz.utc)
+    return None
+
+
+def format_kvn_display_time(dt):
+    utc_dt = _normalize_to_utc(dt)
+    if not utc_dt:
+        return ""
+    try:
+        localized = utc_dt.astimezone(KVN_DISPLAY_TIMEZONE)
+    except Exception:
+        localized = utc_dt
+    return localized.strftime("%d %b %Y %I:%M %p %Z")
+
+
+def get_kvn_schedule_doc():
+    db = get_firestore_db()
+    if not db:
+        return None
+    return db.collection(KVN_SCHEDULE_COLLECTION).document(KVN_SCHEDULE_DOCUMENT)
+
+
+def get_kvn_last_send_time(force_refresh=False):
+    session_state = _get_session_state()
+    if (
+        not force_refresh
+        and session_state is not None
+        and 'kvn_last_send_time' in session_state
+        and session_state.kvn_last_send_time is not None
+    ):
+        return session_state.kvn_last_send_time
+
+    try:
+        doc_ref = get_kvn_schedule_doc()
+        if not doc_ref:
+            return None
+        snapshot = doc_ref.get()
+        if snapshot.exists:
+            data = snapshot.to_dict()
+            last_send = data.get('last_send_time') if data else None
+            normalized = _normalize_to_utc(last_send)
+            if session_state is not None:
+                session_state.kvn_last_send_time = normalized
+            return normalized
+    except Exception as exc:
+        st.error(f"Failed to load KVN send schedule: {exc}")
+    return None
+
+
+def record_kvn_send_completion(timestamp=None):
+    ts = timestamp or datetime.now(pytz.utc)
+    ts_utc = _normalize_to_utc(ts)
+    if not ts_utc:
+        ts_utc = datetime.now(pytz.utc)
+    try:
+        doc_ref = get_kvn_schedule_doc()
+        if not doc_ref:
+            return
+        stored_ts = ts_utc.replace(tzinfo=None)
+        updated_at = datetime.utcnow()
+        doc_ref.set(
+            {
+                'last_send_time': stored_ts,
+                'updated_at': updated_at,
+            },
+            merge=True,
+        )
+        session_state = _get_session_state()
+        if session_state is not None:
+            session_state.kvn_last_send_time = ts_utc
+    except Exception as exc:
+        st.error(f"Failed to update KVN send schedule: {exc}")
+
+
+def get_kvn_send_availability():
+    last_send = get_kvn_last_send_time()
+    if not last_send:
+        return True, None, None
+    next_slot = last_send + KVN_SLOT_BUFFER
+    now_utc = datetime.now(pytz.utc)
+    if now_utc >= next_slot:
+        return True, last_send, next_slot
+    return False, last_send, next_slot
+
+
+def prepare_kvn_recipient_batches(df, source_filename):
+    if df is None:
+        return df, source_filename, [], 0
+
+    total = len(df)
+    registry = st.session_state.setdefault('kvn_split_registry', {})
+
+    if total == 0:
+        summary = {
+            'source_file': source_filename,
+            'metadata': [],
+            'original_total': 0,
+            'hash': None,
+        }
+        st.session_state.kvn_split_summary = summary
+        st.session_state.kvn_active_chunk_index = 0
+        st.session_state.kvn_active_chunk_name = source_filename
+        return df, source_filename, [], 0
+
+    csv_content = df.to_csv(index=False)
+    file_hash = hashlib.md5(csv_content.encode('utf-8')).hexdigest()
+    cached = registry.get(file_hash)
+
+    if cached:
+        metadata = copy.deepcopy(cached['metadata'])
+        first_chunk_df = cached['first_chunk'].copy()
+        effective_name = metadata[0]['name'] if metadata else source_filename
+    else:
+        chunk_size = KVN_MAX_EMAILS_PER_BATCH
+        chunk_count = max(1, math.ceil(total / chunk_size))
+        base_name = Path(source_filename or f"recipients_{int(time.time())}").stem
+        metadata = []
+        chunk_dfs = []
+
+        if chunk_count == 1:
+            effective_name = source_filename or f"{base_name}.csv"
+            chunk_df = df.copy().reset_index(drop=True)
+            upload_to_firebase(chunk_df.to_csv(index=False), effective_name)
+            metadata.append({'name': effective_name, 'count': total})
+            chunk_dfs.append(chunk_df)
+            existing_files = set(st.session_state.get('firebase_files', []))
+            existing_files.add(effective_name)
+            st.session_state.firebase_files = sorted(existing_files)
+        else:
+            for idx, start in enumerate(range(0, total, chunk_size), start=1):
+                chunk_df = df.iloc[start:start + chunk_size].copy().reset_index(drop=True)
+                chunk_name = f"{base_name}_kvn_part{idx:02d}_of_{chunk_count}.csv"
+                upload_to_firebase(chunk_df.to_csv(index=False), chunk_name)
+                metadata.append({'name': chunk_name, 'count': len(chunk_df)})
+                chunk_dfs.append(chunk_df)
+            effective_name = metadata[0]['name']
+            existing_files = set(st.session_state.get('firebase_files', []))
+            existing_files.update(item['name'] for item in metadata)
+            st.session_state.firebase_files = sorted(existing_files)
+
+        first_chunk_df = chunk_dfs[0]
+        registry[file_hash] = {
+            'metadata': metadata,
+            'first_chunk': first_chunk_df,
+        }
+        st.session_state.kvn_split_registry = registry
+
+    summary = {
+        'source_file': source_filename,
+        'metadata': metadata,
+        'original_total': total,
+        'hash': file_hash,
+    }
+    st.session_state.kvn_split_summary = summary
+    st.session_state.kvn_active_chunk_index = 0
+    active_name = metadata[0]['name'] if metadata else source_filename
+    st.session_state.kvn_active_chunk_name = active_name
+
+    return first_chunk_df.copy(), active_name, metadata, total
+
+
+def render_kvn_batch_summary(metadata, original_total):
+    if not metadata:
+        return
+    if len(metadata) == 1:
+        st.info(
+            f"KVN SMTP batch prepared with {metadata[0]['count']} recipient(s). "
+            f"Quota allows up to {KVN_MAX_EMAILS_PER_BATCH} emails per hour.")
+        return
+
+    lines = []
+    for idx, item in enumerate(metadata, start=1):
+        lines.append(f"Batch {idx}: {item['count']} recipients ({item['name']})")
+    details = "\n".join(lines)
+    st.info(
+        f"KVN SMTP quota split {original_total} recipients into {len(metadata)} batches of up to "
+        f"{KVN_MAX_EMAILS_PER_BATCH} emails. Files saved to Cloud Storage:\n{details}")
+
 # ----- Verification Result Storage Functions -----
 def save_verification_results(log_id, df):
     """Persist verification results to Firestore for later retrieval."""
@@ -2746,6 +2941,7 @@ def execute_campaign(campaign_data):
 
     reply_to = get_reply_to_for_journal(journal)
     email_ids = []
+    last_email_sent_at = None
 
     # Always refresh the unsubscribe cache at the start of a campaign run to
     # ensure newly unsubscribed users are respected immediately.
@@ -2888,6 +3084,7 @@ def execute_campaign(campaign_data):
             success_count += 1
             if email_id:
                 email_ids.append(email_id)
+            last_email_sent_at = datetime.now(pytz.utc)
 
         progress = (i + 1) / total_emails
         progress_bar.progress(progress)
@@ -2933,6 +3130,14 @@ def execute_campaign(campaign_data):
             'email_ids': ','.join(email_ids),
             'service': service,
         }
+        if service == "KVN SMTP" and last_email_sent_at:
+            normalized_last = _normalize_to_utc(last_email_sent_at)
+            next_slot = normalized_last + KVN_SLOT_BUFFER
+            record['kvn_last_email_sent_at'] = normalized_last.replace(tzinfo=None)
+            record['kvn_next_available_slot'] = next_slot.replace(tzinfo=None)
+            record_kvn_send_completion(last_email_sent_at)
+        elif service == "KVN SMTP":
+            record_kvn_send_completion()
         st.session_state.campaign_history.append(record)
         save_campaign_history(record)
 
@@ -3521,16 +3726,28 @@ def email_campaign_section():
                 key="recipient_file_uploader",
             )
             if uploaded_file:
-                st.session_state.current_recipient_file = uploaded_file.name
+                original_filename = uploaded_file.name
+                st.session_state.current_recipient_file = original_filename
                 if uploaded_file.name.endswith('.txt'):
                     file_content = read_uploaded_text(uploaded_file)
                     df = parse_email_entries(file_content)
                 else:
                     df = pd.read_csv(uploaded_file)
 
+                service_key = normalize_service_key(st.session_state.email_service)
+                kvn_metadata = []
+                original_total = len(df)
+                if service_key == "KVN SMTP":
+                    df, effective_name, kvn_metadata, original_total = prepare_kvn_recipient_batches(df, original_filename)
+                    st.session_state.current_recipient_file = effective_name
+
                 st.session_state.current_recipient_list = df
                 st.dataframe(df.head())
-                st.info(f"Total emails loaded: {len(df)}")
+                if service_key == "KVN SMTP":
+                    st.info(f"KVN SMTP batch ready with {len(df)} recipient(s).")
+                    render_kvn_batch_summary(kvn_metadata, original_total)
+                else:
+                    st.info(f"Total emails loaded: {len(df)}")
 
                 if unsubscribed_lookup and 'email' in df.columns:
                     unsubscribed_matches = (
@@ -3583,9 +3800,20 @@ def email_campaign_section():
                         else:
                             df = pd.read_csv(StringIO(file_content))
 
+                        service_key = normalize_service_key(st.session_state.email_service)
+                        kvn_metadata = []
+                        original_total = len(df)
+                        if service_key == "KVN SMTP":
+                            df, effective_name, kvn_metadata, original_total = prepare_kvn_recipient_batches(df, selected_file)
+                            st.session_state.current_recipient_file = effective_name
+
                         st.session_state.current_recipient_list = df
                         st.dataframe(df.head())
-                        st.info(f"Total emails loaded: {len(df)}")
+                        if service_key == "KVN SMTP":
+                            st.info(f"KVN SMTP batch ready with {len(df)} recipient(s).")
+                            render_kvn_batch_summary(kvn_metadata, original_total)
+                        else:
+                            st.info(f"Total emails loaded: {len(df)}")
 
                         if unsubscribed_lookup and 'email' in df.columns:
                             unsubscribed_matches = (
@@ -3887,21 +4115,38 @@ def email_campaign_section():
         )
 
         st.markdown("<div class='send-ads-btn'>", unsafe_allow_html=True)
-        send_ads_clicked = st.button("Send Ads", key="send_ads")
+        service = normalize_service_key(st.session_state.email_service)
+        kvn_button_disabled = False
+        if service == "KVN SMTP":
+            can_send_now, kvn_last_sent, kvn_next_slot = get_kvn_send_availability()
+            if not can_send_now:
+                kvn_button_disabled = True
+                if kvn_next_slot:
+                    st.warning(
+                        f"KVN SMTP quota reached. Next batch available at {format_kvn_display_time(kvn_next_slot)}.")
+            elif kvn_last_sent:
+                st.info(
+                    f"Last KVN SMTP batch completed at {format_kvn_display_time(kvn_last_sent)}. Quota reset available.")
+
+        send_ads_clicked = st.button("Send Ads", key="send_ads", disabled=kvn_button_disabled)
         st.markdown("<span></span></div>", unsafe_allow_html=True)
         if send_ads_clicked:
+            if service == "KVN SMTP":
+                can_send_now, _, _ = get_kvn_send_availability()
+                if not can_send_now:
+                    st.warning("KVN SMTP quota cooldown in effect. Please wait for the next available slot.")
+                    return
             if file_source == "Local Upload" and uploaded_file:
                 if uploaded_file.name.endswith('.txt'):
                     upload_to_firebase(file_content, uploaded_file.name)
                 else:
                     csv_content = df.to_csv(index=False)
                     upload_to_firebase(csv_content, uploaded_file.name)
-            service = (st.session_state.email_service or "MAILGUN").upper()
             if service == "SMTP2GO":
                 if not config['smtp2go']['api_key']:
                     st.error("SMTP2GO API key not configured")
                     return
-            elif service == "KVN SMTP" or service == "KVN":
+            elif service == "KVN SMTP":
                 if not is_kvn_smtp_configured():
                     st.error("Please configure KVN SMTP credentials in Settings before sending.")
                     return
@@ -3946,6 +4191,10 @@ def email_campaign_section():
                 'created_at': datetime.now(),
                 'last_updated': datetime.now()
             }
+
+            if service == "KVN SMTP":
+                campaign_data['kvn_split_summary'] = st.session_state.get('kvn_split_summary')
+                campaign_data['kvn_batch_index'] = st.session_state.get('kvn_active_chunk_index', 0)
 
             log_id = start_operation_log(
                 "campaign",
@@ -4246,16 +4495,28 @@ def editor_invitation_section():
     if file_source == "Local Upload":
         uploaded_file = st.file_uploader("Upload recipient list (CSV or TXT)", type=["csv", "txt"], key="recipient_upload_editor")
         if uploaded_file:
-            st.session_state.current_recipient_file = uploaded_file.name
+            original_filename = uploaded_file.name
+            st.session_state.current_recipient_file = original_filename
             if uploaded_file.name.endswith('.txt'):
                 file_content = read_uploaded_text(uploaded_file)
                 df = parse_email_entries(file_content)
             else:
                 df = pd.read_csv(uploaded_file)
 
+            service_key = normalize_service_key(st.session_state.email_service)
+            kvn_metadata = []
+            original_total = len(df)
+            if service_key == "KVN SMTP":
+                df, effective_name, kvn_metadata, original_total = prepare_kvn_recipient_batches(df, original_filename)
+                st.session_state.current_recipient_file = effective_name
+
             st.session_state.current_recipient_list = df
             st.dataframe(df.head())
-            st.info(f"Total emails loaded: {len(df)}")
+            if service_key == "KVN SMTP":
+                st.info(f"KVN SMTP batch ready with {len(df)} recipient(s).")
+                render_kvn_batch_summary(kvn_metadata, original_total)
+            else:
+                st.info(f"Total emails loaded: {len(df)}")
             refresh_editor_journal_data()
 
             if st.button("Save to Cloud", key="save_recipient_editor"):
@@ -4293,9 +4554,20 @@ def editor_invitation_section():
                     else:
                         df = pd.read_csv(StringIO(file_content))
 
+                    service_key = normalize_service_key(st.session_state.email_service)
+                    kvn_metadata = []
+                    original_total = len(df)
+                    if service_key == "KVN SMTP":
+                        df, effective_name, kvn_metadata, original_total = prepare_kvn_recipient_batches(df, selected_file)
+                        st.session_state.current_recipient_file = effective_name
+
                     st.session_state.current_recipient_list = df
                     st.dataframe(df.head())
-                    st.info(f"Total emails loaded: {len(df)}")
+                    if service_key == "KVN SMTP":
+                        st.info(f"KVN SMTP batch ready with {len(df)} recipient(s).")
+                        render_kvn_batch_summary(kvn_metadata, original_total)
+                    else:
+                        st.info(f"Total emails loaded: {len(df)}")
                     refresh_editor_journal_data()
 
         else:
@@ -4316,21 +4588,38 @@ def editor_invitation_section():
         )
 
         st.markdown("<div class='send-ads-btn'>", unsafe_allow_html=True)
-        send_invitation_clicked = st.button("Send Invitation", key="send_invitation")
+        service = normalize_service_key(st.session_state.email_service)
+        kvn_button_disabled = False
+        if service == "KVN SMTP":
+            can_send_now, kvn_last_sent, kvn_next_slot = get_kvn_send_availability()
+            if not can_send_now:
+                kvn_button_disabled = True
+                if kvn_next_slot:
+                    st.warning(
+                        f"KVN SMTP quota reached. Next batch available at {format_kvn_display_time(kvn_next_slot)}.")
+            elif kvn_last_sent:
+                st.info(
+                    f"Last KVN SMTP batch completed at {format_kvn_display_time(kvn_last_sent)}. Quota reset available.")
+
+        send_invitation_clicked = st.button("Send Invitation", key="send_invitation", disabled=kvn_button_disabled)
         st.markdown("<span></span></div>", unsafe_allow_html=True)
         if send_invitation_clicked:
+            if service == "KVN SMTP":
+                can_send_now, _, _ = get_kvn_send_availability()
+                if not can_send_now:
+                    st.warning("KVN SMTP quota cooldown in effect. Please wait for the next available slot.")
+                    return
             if file_source == "Local Upload" and uploaded_file:
                 if uploaded_file.name.endswith('.txt'):
                     upload_to_firebase(file_content, uploaded_file.name)
                 else:
                     csv_content = df.to_csv(index=False)
                     upload_to_firebase(csv_content, uploaded_file.name)
-            service = (st.session_state.email_service or "MAILGUN").upper()
             if service == "SMTP2GO":
                 if not config['smtp2go']['api_key']:
                     st.error("SMTP2GO API key not configured")
                     return
-            elif service == "KVN SMTP" or service == "KVN":
+            elif service == "KVN SMTP":
                 if not is_kvn_smtp_configured():
                     st.error("Please configure KVN SMTP credentials in Settings before sending.")
                     return
@@ -4375,6 +4664,10 @@ def editor_invitation_section():
                 'created_at': datetime.now(),
                 'last_updated': datetime.now()
             }
+
+            if service == "KVN SMTP":
+                campaign_data['kvn_split_summary'] = st.session_state.get('kvn_split_summary')
+                campaign_data['kvn_batch_index'] = st.session_state.get('kvn_active_chunk_index', 0)
 
             log_id = start_operation_log(
                 "campaign",
