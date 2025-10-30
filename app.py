@@ -169,12 +169,6 @@ def render_progress_indicator(placeholder, label, progress, eta_seconds=None):
 
     placeholder.markdown(html_markup, unsafe_allow_html=True)
 
-
-def render_disabled_service(service_name):
-    """Display a friendly message for disabled application areas."""
-    st.header(service_name)
-    st.info("This service has been disabled. Please contact the administrator for help.")
-
 # Authentication System
 def check_auth():
     if 'authenticated' not in st.session_state:
@@ -5702,7 +5696,7 @@ def main():
     # Ensure session defaults are available before the sidebar interacts with them.
     ensure_session_defaults({
         'requested_mode': lambda: None,
-        'active_app_mode': lambda: "Verify Emails",
+        'active_app_mode': lambda: "Email Campaign",
         'sender_base_name': lambda: st.session_state.sender_name,
         'sender_name_loaded': lambda: False,
         'sender_email_loaded': lambda: False,
@@ -5728,20 +5722,11 @@ def main():
     # Navigation with additional links and heading in the sidebar
     with st.sidebar:
         st.markdown("## PPH Email Manager")
-        active_mode = "Verify Emails"
-        disabled_modes = ["Email Campaign", "Editor Invitation", "Analytics", "Settings"]
-        sidebar_modes = [active_mode, *disabled_modes]
-        if (
-            st.session_state.requested_mode
-            and st.session_state.requested_mode in sidebar_modes
-        ):
+        sidebar_modes = ["Email Campaign", "Editor Invitation", "Verify Emails", "Analytics", "Settings"]
+        if st.session_state.requested_mode and st.session_state.requested_mode in sidebar_modes:
             st.session_state.active_app_mode = st.session_state.requested_mode
             st.session_state.requested_mode = None
-        default_index = (
-            sidebar_modes.index(st.session_state.active_app_mode)
-            if st.session_state.active_app_mode in sidebar_modes
-            else 0
-        )
+        default_index = sidebar_modes.index(st.session_state.active_app_mode) if st.session_state.active_app_mode in sidebar_modes else 0
         app_mode = st.selectbox(
             "Select Mode",
             sidebar_modes,
@@ -5760,12 +5745,45 @@ def main():
         )
         check_incomplete_operations()
     
-    if app_mode == "Verify Emails":
-        if not st.session_state.get('firebase_initialized'):
-            initialize_firebase()
+    # Initialize services
+    if not st.session_state.get('firebase_initialized'):
+        initialize_firebase()
+
+    ensure_webhook_server()
+
+    if st.session_state.get('firebase_initialized'):
+        if not st.session_state.get('kvn_settings_loaded'):
+            load_kvn_smtp_settings()
+            st.session_state.kvn_settings_loaded = True
+        if not st.session_state.get('reply_addresses_loaded'):
+            load_reply_addresses()
+            st.session_state.reply_addresses_loaded = True
+        if not st.session_state.get('default_email_service_loaded'):
+            stored_service = load_default_email_service()
+            if stored_service:
+                st.session_state.email_service = stored_service.upper()
+            st.session_state.default_email_service_loaded = True
+        if not st.session_state.get('sender_email_loaded'):
+            stored_sender_email = load_sender_email()
+            if stored_sender_email:
+                st.session_state.sender_email = stored_sender_email
+                config['mailgun']['sender'] = stored_sender_email
+                config['kvn_smtp']['sender'] = stored_sender_email
+            st.session_state.sender_email_loaded = True
+
+    if not st.session_state.get('unsubscribed_users_loaded'):
+        load_unsubscribed_users()
+
+    if app_mode == "Email Campaign":
+        email_campaign_section()
+    elif app_mode == "Editor Invitation":
+        editor_invitation_section()
+    elif app_mode == "Verify Emails":
         email_verification_section()
+    elif app_mode == "Settings":
+        settings_section()
     else:
-        render_disabled_service(app_mode)
+        analytics_section()
 
 if __name__ == "__main__":
     main()
