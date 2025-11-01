@@ -57,7 +57,7 @@ except Exception:
     KVN_DISPLAY_TIMEZONE = pytz.timezone(DEFAULT_DISPLAY_TIMEZONE)
 
 st.set_page_config(
-    page_title="PPH Email Manager",
+    page_title="PPH Email Verifier",
     layout="wide",
     page_icon="📧",
     initial_sidebar_state="collapsed",
@@ -147,26 +147,79 @@ def check_auth():
         st.session_state.authenticated = False
 
     if not st.session_state.authenticated:
-        header_cols = st.columns([1, 6])
-        with header_cols[0]:
-            st.image("PPHLogo_en.png", width=80)
-        with header_cols[1]:
+        st.markdown(
+            """
+            <style>
+            [data-testid="stAppViewContainer"] > .main {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding-top: 6vh;
+                padding-bottom: 6vh;
+            }
+            form[data-testid="stForm"] {
+                width: 100%;
+                max-width: 420px;
+                background: #ffffff;
+                padding: 2.75rem 2.5rem 2.4rem;
+                border-radius: 20px;
+                box-shadow: var(--shadow-sm);
+            }
+            form[data-testid="stForm"] img {
+                display: block;
+                margin: 0 auto 1.5rem;
+                width: 64px !important;
+            }
+            form[data-testid="stForm"] .app-login-heading {
+                text-align: center;
+                font-size: 1.85rem;
+                margin-bottom: 0.4rem;
+                color: var(--text-color);
+                font-weight: 700;
+            }
+            form[data-testid="stForm"] .app-login-subtitle {
+                text-align: center;
+                color: var(--muted-text);
+                margin-bottom: 1.75rem;
+                font-size: 1rem;
+            }
+            form[data-testid="stForm"] .stTextInput input {
+                border-radius: 12px;
+                padding: 0.75rem 1rem;
+            }
+            form[data-testid="stForm"] .stButton > button {
+                width: 100%;
+                padding: 0.75rem 0;
+                font-size: 1.05rem;
+                border-radius: 12px;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        with st.form("login_form"):
+            st.image("PPHLogo_en.png", width=64)
             st.markdown(
-                "<h1 style='margin-bottom: 0.5rem;'>PPH Email Manager - Login</h1>",
+                "<h1 class='app-login-heading'>PPH Email Verifier</h1>",
                 unsafe_allow_html=True,
             )
-        with st.form("login_form"):
+            st.markdown(
+                "<p class='app-login-subtitle'>Secure access to manage academic verification workflows</p>",
+                unsafe_allow_html=True,
+            )
+
             username = st.text_input("Username")
             password = st.text_input("Password", type="password")
 
-            if st.form_submit_button("Login"):
+            if st.form_submit_button("Login", use_container_width=True):
                 if username == "admin" and password == "prakash123@":
                     st.session_state.authenticated = True
                     st.session_state.username = username
                     st.rerun()
                 else:
                     st.error("Invalid credentials")
-        
+
         st.stop()
     
     logout_label = "Logout"
@@ -4647,6 +4700,18 @@ def main():
     check_auth()
 
     # Main app for authenticated users
+    st.markdown(
+        """
+        <style>
+        [data-testid="stAppViewContainer"] > .main {
+            display: block;
+            padding-top: 0;
+            padding-bottom: 0;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
     # Ensure session defaults are available before the sidebar interacts with them.
     ensure_session_defaults({
@@ -4675,7 +4740,7 @@ def main():
 
     # Navigation with additional links and heading in the sidebar
     with st.sidebar:
-        st.markdown("## PPH Email Manager")
+        st.markdown("## PPH Email Verifier")
         sidebar_modes = ["Verify Emails", "Email Campaign", "Editor Invitation", "Settings"]
         if st.session_state.requested_mode and st.session_state.requested_mode in sidebar_modes:
             st.session_state.active_app_mode = st.session_state.requested_mode
@@ -4699,11 +4764,13 @@ def main():
         )
         check_incomplete_operations()
     
-    # Initialize services
+    # Initialize services lazily based on the active mode
+    requires_marketing_data = app_mode in {"Email Campaign", "Editor Invitation", "Settings"}
+
     if not st.session_state.get('firebase_initialized'):
         initialize_firebase()
 
-    if st.session_state.get('firebase_initialized'):
+    if st.session_state.get('firebase_initialized') and requires_marketing_data:
         if not st.session_state.get('kvn_settings_loaded'):
             load_kvn_smtp_settings()
             st.session_state.kvn_settings_loaded = True
@@ -4723,8 +4790,9 @@ def main():
                 config['kvn_smtp']['sender'] = stored_sender_email
             st.session_state.sender_email_loaded = True
 
-    if not st.session_state.get('unsubscribed_users_loaded'):
-        load_unsubscribed_users()
+    if requires_marketing_data and st.session_state.get('firebase_initialized'):
+        if not st.session_state.get('unsubscribed_users_loaded'):
+            load_unsubscribed_users()
 
     if app_mode == "Email Campaign":
         email_campaign_section()
