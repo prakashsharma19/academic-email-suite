@@ -1,25 +1,3 @@
-# ---------------------------------
-# Webhook server setup
-# ---------------------------------
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-from waitress import serve
-
-# Initialize webhook Flask app
-webhook_app = Flask(__name__)
-
-# Allow access from your main website domain
-CORS(webhook_app, resources={r"/*": {"origins": ["https://pphmjopenaccess.com", "https://www.pphmjopenaccess.com"]}})
-
-# Start webhook server in background
-def start_webhook():
-    print("🚀 Starting webhook server on port 8000")
-    serve(webhook_app, host="0.0.0.0", port=8000)
-
-
-# ---------------------------------
-
-
 import streamlit as st
 import streamlit.components.v1 as components
 import boto3
@@ -27,12 +5,10 @@ import pandas as pd
 import datetime
 import time
 import requests
-import json
 import os
 import pytz
 import re
 import hashlib
-import hmac
 import logging
 import smtplib
 from datetime import datetime, timedelta
@@ -46,12 +22,10 @@ from google.oauth2 import service_account
 from streamlit_ace import st_ace
 import firebase_admin
 from firebase_admin import credentials, firestore
-from flask import abort, redirect
-
 import threading
 import copy
 import gc
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlencode
 import textwrap
 import math
 
@@ -67,8 +41,6 @@ os.environ.setdefault("STREAMLIT_SERVER_FILE_WATCHER_TYPE", "none")
 
 UNSUBSCRIBED_CACHE = {"records": [], "emails": set(), "loaded": False}
 UNSUBSCRIBED_CACHE_LOCK = threading.Lock()
-
-MAILGUN_SIGNATURE_TOLERANCE_SECONDS = 300
 
 EMAIL_VALIDATION_REGEX = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 
@@ -213,7 +185,7 @@ def _get_session_state():
     try:
         return st.session_state
     except RuntimeError:
-        # When running outside the Streamlit runtime (e.g. webhook threads)
+        # When running outside the Streamlit runtime (e.g. background threads)
         # accessing session state raises a RuntimeError. In those scenarios we
         # simply fall back to returning ``None`` so the caller can avoid
         # interacting with session state.
@@ -263,32 +235,6 @@ def invalidate_unsubscribed_cache():
     except RuntimeError:
         # Accessing session state outside the Streamlit context will raise a RuntimeError.
         pass
-
-
-def verify_mailgun_signature(signing_key, timestamp, token, signature):
-    if not signing_key:
-        return False, "Mailgun signing key not configured"
-    if not all([timestamp, token, signature]):
-        return False, "Missing signature parameters"
-    try:
-        timestamp_int = int(float(timestamp))
-    except (TypeError, ValueError):
-        return False, "Invalid timestamp"
-
-    current_ts = int(time.time())
-    if abs(current_ts - timestamp_int) > MAILGUN_SIGNATURE_TOLERANCE_SECONDS:
-        return False, "Expired signature timestamp"
-
-    expected = hmac.new(
-        signing_key.encode("utf-8"),
-        msg=f"{timestamp_int}{token}".encode("utf-8"),
-        digestmod=hashlib.sha256,
-    ).hexdigest()
-
-    if not hmac.compare_digest(expected, signature):
-        return False, "Signature mismatch"
-
-    return True, None
 
 
 def set_email_subscription_status(email, unsubscribed, event_payload=None):
@@ -408,53 +354,6 @@ def _normalize_unsubscribe_action(raw_action):
     return ""
 
 
-def _corsify_unsubscribe_response(response):
-    """Apply CORS headers for unsubscribe API responses."""
-
-    origin = request.headers.get("Origin") or ""
-    allowed_origin = UNSUBSCRIBE_PAGE_ORIGIN
-
-    if origin:
-        # Allow any explicitly whitelisted origins, but gracefully fall back to
-        # the configured unsubscribe page origin so that the response always
-        # contains a valid header even when the origin does not match the list
-        # exactly (for example, due to a trailing slash or differing scheme).
-        if origin in ALLOWED_UNSUBSCRIBE_ORIGINS:
-            allowed_origin = origin
-        elif "*" in ALLOWED_UNSUBSCRIBE_ORIGINS:
-            allowed_origin = origin
-
-    response.headers["Access-Control-Allow-Origin"] = allowed_origin
-    response.headers["Vary"] = "Origin"
-
-    requested_headers = request.headers.get("Access-Control-Request-Headers")
-    if requested_headers:
-        response.headers["Access-Control-Allow-Headers"] = requested_headers
-    else:
-        response.headers["Access-Control-Allow-Headers"] = (
-            "Content-Type, Authorization, X-Requested-With"
-        )
-
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-    response.headers["Access-Control-Max-Age"] = "86400"
-    return response
-
-
-@webhook_app.after_request
-def _add_unsubscribe_cors_headers(response):
-    """Ensure CORS headers are added for unsubscribe endpoints automatically."""
-
-    try:
-        request_path = request.path or ""
-    except RuntimeError:
-        # Request context might not be available during app start-up.
-        return response
-
-    if request_path.startswith("/api/unsubscribe") or request_path.startswith("/unsubscribe"):
-        return _corsify_unsubscribe_response(response)
-    return response
-
-
 def load_unsubscribed_users(force_refresh=False):
     if force_refresh:
         invalidate_unsubscribed_cache()
@@ -543,247 +442,6 @@ def is_email_unsubscribed(email):
         lookup = cached_emails
 
     return email.lower() in lookup
-
-
-@webhook_app.route("/unsubscribe", methods=["GET", "POST"])
-def unsubscribe_webhook():
-    if request.method == "GET":
-        email = (request.args.get("email") or "").strip()
-        redirect_url = _build_unsubscribe_page_url(email)
-        response = redirect(redirect_url)
-        response.headers["Cache-Control"] = "no-store"
-        return response
-
-    if request.is_json:
-        return unsubscribe_api()
-
-    form_action = _normalize_unsubscribe_action(request.form.get("action"))
-    if form_action:
-        email = (request.form.get("email") or "").strip()
-        if not email:
-            response = jsonify({
-                "success": False,
-                "message": "No email address was provided.",
-            })
-            response.status_code = 400
-            return response
-
-        if not EMAIL_VALIDATION_REGEX.match(email):
-            response = jsonify({
-                "success": False,
-                "message": "The email address provided is invalid.",
-            })
-            response.status_code = 400
-            return response
-
-        if form_action == "unsubscribe":
-            success = set_email_unsubscribed(email)
-            if success:
-                message = "You have been unsubscribed successfully and will be excluded from future campaigns."
-            else:
-                message = "We were unable to process your unsubscribe request at this time. Please try again later."
-            unsubscribed = success
-        else:
-            success = set_email_resubscribed(email)
-            if success:
-                message = "You have been re-subscribed successfully. We will include you in future campaigns unless you opt out again."
-            else:
-                message = "We were unable to process your re-subscribe request at this time. Please try again later."
-            unsubscribed = not success and is_email_unsubscribed(email)
-
-        status_code = 200 if success else 500
-        response = jsonify({
-            "success": success,
-            "message": message,
-            "unsubscribed": bool(unsubscribed),
-        })
-        response.status_code = status_code
-        return response
-
-    signing_key = config.get("mailgun", {}).get("signing_key") or config.get("mailgun", {}).get("api_key")
-    if not signing_key:
-        abort(500, description="Mailgun signing key not configured")
-
-    timestamp = request.form.get("timestamp")
-    token = request.form.get("token")
-    signature = request.form.get("signature")
-
-    valid, error_message = verify_mailgun_signature(signing_key, timestamp, token, signature)
-    if not valid:
-        logger.warning("Rejected unsubscribe webhook due to signature error: %s", error_message)
-        abort(403, description=error_message or "Invalid signature")
-
-    event_json = {}
-    event_data_raw = request.form.get("event-data")
-    if event_data_raw:
-        try:
-            event_json = json.loads(event_data_raw)
-        except json.JSONDecodeError:
-            logger.warning("Invalid event-data JSON received from Mailgun")
-            abort(400, description="Invalid event-data payload")
-    else:
-        body_json = request.get_json(silent=True) or {}
-        event_json = body_json.get("event-data", body_json)
-
-    event_type = (event_json.get("event") or "").lower()
-    if event_type not in {"unsubscribed", "unsubscribe", "complained"}:
-        logger.info("Ignoring webhook event of type '%s'", event_type)
-        return jsonify({"status": "ignored", "reason": f"Unsupported event '{event_type}'"})
-
-    email = (
-        event_json.get("recipient")
-        or event_json.get("address")
-        or request.form.get("recipient")
-        or request.form.get("address")
-    )
-
-    if not email:
-        abort(400, description="Recipient email missing")
-
-    if not set_email_unsubscribed(email, event_json):
-        abort(500, description="Failed to persist unsubscribe event")
-
-    return jsonify({"status": "success"})
-
-
-
-def _coerce_bool(value, default=False):
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    return str(value).strip().lower() in {"1", "true", "yes", "on"}
-
-
-@webhook_app.route("/unsubscribe/page", methods=["GET"])
-def unsubscribe_page():
-    email = (request.args.get("email") or "").strip()
-    redirect_url = _build_unsubscribe_page_url(email)
-    response = redirect(redirect_url)
-    response.headers["Cache-Control"] = "no-store"
-    return response
-
-@webhook_app.route("/api/unsubscribe", methods=["GET", "POST", "OPTIONS"])
-def unsubscribe_api():
-    if request.method == "GET":
-        response = jsonify(
-            {
-                "success": True,
-                "message": "Webhook is live",
-            }
-        )
-        return _corsify_unsubscribe_response(response)
-
-    if request.method == "OPTIONS":
-        response = webhook_app.make_default_options_response()
-        return _corsify_unsubscribe_response(response)
-
-    if request.method != "POST":
-        abort(405, description=f"Method Not Allowed ({request.method})")
-
-    payload = request.get_json(silent=True)
-    if not isinstance(payload, dict):
-        response = jsonify(
-            {
-                "success": False,
-                "message": "Request body must be a valid JSON object.",
-            }
-        )
-        response.status_code = 400
-        return _corsify_unsubscribe_response(response)
-
-    email = (payload.get("email") or "").strip()
-    if not email:
-        response = jsonify(
-            {
-                "success": False,
-                "message": "No email address was provided.",
-            }
-        )
-        response.status_code = 400
-        return _corsify_unsubscribe_response(response)
-
-    if not EMAIL_VALIDATION_REGEX.match(email):
-        response = jsonify(
-            {
-                "success": False,
-                "message": "The email address provided is invalid.",
-            }
-        )
-        response.status_code = 400
-        return _corsify_unsubscribe_response(response)
-
-    action = _normalize_unsubscribe_action(payload.get("action")) or "unsubscribe"
-
-    if action not in {"unsubscribe", "resubscribe"}:
-        response = jsonify(
-            {
-                "success": False,
-                "message": "Unsupported action specified.",
-            }
-        )
-        response.status_code = 400
-        return _corsify_unsubscribe_response(response)
-
-    if action == "unsubscribe":
-        success = set_email_unsubscribed(email, payload)
-        if success:
-            message = (
-                "You have been unsubscribed successfully and will be excluded from future campaigns."
-            )
-            unsubscribed = True
-        else:
-            message = (
-                "We were unable to process your unsubscribe request at this time. Please try again later."
-            )
-            unsubscribed = is_email_unsubscribed(email)
-    else:
-        success = set_email_resubscribed(email)
-        if success:
-            message = (
-                "You have been re-subscribed successfully. We will include you in future campaigns unless you opt out again."
-            )
-            unsubscribed = False
-        else:
-            message = (
-                "We were unable to process your re-subscribe request at this time. Please try again later."
-            )
-            unsubscribed = is_email_unsubscribed(email)
-
-    status_code = 200 if success else 500
-    response = jsonify(
-        {
-            "success": bool(success),
-            "message": message,
-            "unsubscribed": bool(unsubscribed),
-        }
-    )
-    response.status_code = status_code
-    return _corsify_unsubscribe_response(response)
-
-_WEBHOOK_THREAD = None
-_WEBHOOK_THREAD_LOCK = threading.Lock()
-
-
-def ensure_webhook_server():
-    """Start the webhook server thread once per user session."""
-
-    global _WEBHOOK_THREAD
-
-    if 'webhook_started' not in st.session_state:
-        st.session_state.webhook_started = False
-
-    if st.session_state.get('webhook_started') and _WEBHOOK_THREAD and _WEBHOOK_THREAD.is_alive():
-        return
-
-    with _WEBHOOK_THREAD_LOCK:
-        if st.session_state.get('webhook_started') and _WEBHOOK_THREAD and _WEBHOOK_THREAD.is_alive():
-            return
-
-        thread = threading.Thread(target=start_webhook, daemon=True)
-        thread.start()
-        _WEBHOOK_THREAD = thread
-        st.session_state.webhook_started = True
 
 
 def update_sender_name():
@@ -1080,9 +738,6 @@ def load_config():
             'use_tls': _get_env_bool("KVN_SMTP_USE_TLS", "USE_TLS", default=True),
         },
         'sender_name': os.getenv("SENDER_NAME", "Pushpa Publishing House"),
-        'webhook': {
-            'url': os.getenv("WEBHOOK_URL", "")
-        },
         'unsubscribe': {
             'page_url': os.getenv("UNSUBSCRIBE_PAGE_URL", ""),
             'app_base_url': os.getenv("STREAMLIT_APP_BASE_URL", ""),
@@ -1106,28 +761,6 @@ else:
         UNSUBSCRIBE_PAGE_URL = f"{base_url}/unsubscribe"
     else:
         UNSUBSCRIBE_PAGE_URL = "https://hooks.pphmjopenaccess.com/unsubscribe"
-
-_unsubscribe_origin_parts = urlsplit(UNSUBSCRIBE_PAGE_URL)
-UNSUBSCRIBE_PAGE_ORIGIN = (
-    f"{_unsubscribe_origin_parts.scheme}://{_unsubscribe_origin_parts.netloc}"
-    if _unsubscribe_origin_parts.scheme and _unsubscribe_origin_parts.netloc
-    else "https://hooks.pphmjopenaccess.com"
-)
-
-ALLOWED_UNSUBSCRIBE_ORIGINS = {
-    origin.strip()
-    for origin in (
-        UNSUBSCRIBE_PAGE_ORIGIN,
-        *[
-            value.strip()
-            for value in os.getenv("UNSUBSCRIBE_ALLOWED_ORIGINS", "").split(",")
-            if value.strip()
-        ],
-    )
-    if origin.strip()
-}
-if not ALLOWED_UNSUBSCRIBE_ORIGINS:
-    ALLOWED_UNSUBSCRIBE_ORIGINS = {UNSUBSCRIBE_PAGE_ORIGIN}
 
 if UNSUBSCRIBE_PAGE_URL.endswith("?") or UNSUBSCRIBE_PAGE_URL.endswith("&"):
     DEFAULT_UNSUBSCRIBE_BASE_URL = f"{UNSUBSCRIBE_PAGE_URL}email="
@@ -3738,9 +3371,9 @@ def email_campaign_section():
     file_content = None
     df = None
 
-    recipients_tab, unsubscribed_tab = st.tabs(["Recipient List", "Unsubscribed Users"])
+    recipients_container = st.container()
 
-    with recipients_tab:
+    with recipients_container:
         col_src, col_clock = st.columns([1, 2])
         with col_src:
             file_source = st.radio(
@@ -3868,271 +3501,6 @@ def email_campaign_section():
                         refresh_journal_data()
             else:
                 st.info("No files found in Cloud Storage")
-
-    with unsubscribed_tab:
-        st.caption(
-            "These contacts opted out via the Mailgun webhook and are automatically excluded from future campaigns."
-        )
-        if st.button("Refresh unsubscribe list"):
-            unsubscribe_records = load_unsubscribed_users(force_refresh=True)
-        else:
-            unsubscribe_records = st.session_state.get("unsubscribed_users", [])
-
-        unsubscribed_lookup = st.session_state.get("unsubscribed_email_lookup", set())
-
-        st.markdown("### Add Suppression Emails")
-        st.write(
-            "Use the options below to add unsubscribe/suppression emails manually or from a CSV file."
-        )
-
-        with st.form("manual_unsubscribe_form"):
-            manual_emails_input = st.text_area(
-                "Enter email addresses (one per line or separated by commas)",
-                height=120,
-                key="manual_unsubscribe_input",
-            )
-            manual_submit = st.form_submit_button("Add Email(s)")
-
-        if manual_submit:
-            raw_candidates = re.split(r"[\s,;]+", manual_emails_input or "")
-            raw_candidates = [item for item in raw_candidates if item]
-            valid_emails = []
-            invalid_entries = []
-            for candidate in raw_candidates:
-                normalized = candidate.strip().lower()
-                if not normalized:
-                    continue
-                if EMAIL_VALIDATION_REGEX.match(normalized):
-                    valid_emails.append(normalized)
-                else:
-                    invalid_entries.append(candidate)
-
-            valid_unique_emails = []
-            seen = set()
-            for email in valid_emails:
-                if email in seen:
-                    continue
-                seen.add(email)
-                valid_unique_emails.append(email)
-
-            existing_emails = []
-            added_count = 0
-            failed_emails = []
-            for email in valid_unique_emails:
-                if email in unsubscribed_lookup:
-                    existing_emails.append(email)
-                    continue
-                if set_email_unsubscribed(email):
-                    added_count += 1
-                else:
-                    failed_emails.append(email)
-
-            if added_count:
-                unsubscribe_records = load_unsubscribed_users(force_refresh=True)
-                unsubscribed_lookup = st.session_state.get("unsubscribed_email_lookup", set())
-                st.success(f"Added {added_count} email(s) to the unsubscribe list.")
-            if existing_emails:
-                st.info(
-                    f"{len(existing_emails)} email(s) were already unsubscribed and were skipped."
-                )
-            if invalid_entries:
-                st.warning(
-                    f"{len(invalid_entries)} entry(ies) were not valid email addresses and were skipped."
-                )
-            if failed_emails:
-                st.error(
-                    f"Unable to save {len(failed_emails)} email(s). Please try again."
-                )
-            if not any([added_count, existing_emails, invalid_entries, failed_emails]):
-                st.info("No emails were provided to add.")
-
-        suppression_csv = st.file_uploader(
-            "Upload suppression CSV (email addresses in column C)",
-            type=["csv"],
-            key="suppression_csv_uploader",
-            help="Only the third column (column C) will be processed for email addresses.",
-        )
-
-        process_csv_clicked = False
-        if suppression_csv is not None:
-            process_csv_clicked = st.button(
-                "Add Emails from CSV",
-                key="process_suppression_csv",
-            )
-
-        if suppression_csv is not None and process_csv_clicked:
-            try:
-                suppression_csv.seek(0)
-                csv_df = pd.read_csv(
-                    suppression_csv,
-                    header=None,
-                    dtype=str,
-                    on_bad_lines="skip",
-                )
-            except Exception as exc:
-                st.error(f"Failed to read CSV file: {exc}")
-                csv_df = None
-
-            if csv_df is not None:
-                if csv_df.shape[1] < 3:
-                    st.error("The uploaded CSV must contain at least three columns.")
-                else:
-                    column_c = (
-                        csv_df.iloc[:, 2]
-                        .dropna()
-                        .astype(str)
-                        .str.strip()
-                        .str.lower()
-                    )
-                    valid_emails = []
-                    invalid_entries = []
-                    for value in column_c.unique():
-                        if not value:
-                            continue
-                        if EMAIL_VALIDATION_REGEX.match(value):
-                            valid_emails.append(value)
-                        else:
-                            invalid_entries.append(value)
-
-                    if valid_emails:
-                        added_count = 0
-                        already_present = []
-                        failed_emails = []
-                        for email in valid_emails:
-                            if email in unsubscribed_lookup:
-                                already_present.append(email)
-                                continue
-                            if set_email_unsubscribed(email):
-                                added_count += 1
-                            else:
-                                failed_emails.append(email)
-
-                        if added_count:
-                            unsubscribe_records = load_unsubscribed_users(force_refresh=True)
-                            unsubscribed_lookup = st.session_state.get(
-                                "unsubscribed_email_lookup", set()
-                            )
-                            st.success(
-                                f"Added {added_count} email(s) from the CSV to the unsubscribe list."
-                            )
-                        if already_present:
-                            st.info(
-                                f"{len(already_present)} email(s) were already unsubscribed and were skipped."
-                            )
-                        if failed_emails:
-                            st.error(
-                                f"Failed to add {len(failed_emails)} email(s) from the CSV."
-                            )
-                    else:
-                        st.info("No valid email addresses were found in column C of the CSV file.")
-
-                    if invalid_entries:
-                        st.warning(
-                            f"{len(invalid_entries)} entries in column C were not valid email addresses."
-                        )
-
-        signing_key = config.get("mailgun", {}).get("signing_key")
-        if not signing_key and config.get("mailgun", {}).get("api_key"):
-            st.info(
-                "Using the Mailgun API key for webhook signature verification. "
-                "Set MAILGUN_SIGNING_KEY for enhanced security."
-            )
-
-        webhook_base_url = config.get("webhook", {}).get("url")
-        if webhook_base_url:
-            webhook_endpoint = webhook_base_url.rstrip('/') + "/unsubscribe"
-            st.markdown(f"**Webhook Endpoint:** `{webhook_endpoint}`")
-
-        if unsubscribe_records:
-            display_rows = []
-            for record in unsubscribe_records:
-                unsubscribed_at = record.get("unsubscribed_at")
-                unsubscribed_at_str = ""
-                if isinstance(unsubscribed_at, datetime):
-                    unsubscribed_at_str = format_display_datetime(
-                        unsubscribed_at, "%Y-%m-%d %H:%M:%S %Z"
-                    )
-                display_rows.append(
-                    {
-                        "Email": record.get("email"),
-                        "Unsubscribed At": unsubscribed_at_str,
-                        "Event": record.get("event"),
-                        "Mailing List": record.get("mailing_list"),
-                        "Reason": record.get("reason"),
-                        "Tags": ", ".join(record.get("tags", [])) if record.get("tags") else "",
-                    }
-                )
-
-            unsubscribed_df = pd.DataFrame(display_rows)
-            st.metric("Total unsubscribed", len(unsubscribed_df))
-            st.dataframe(unsubscribed_df)
-
-            removal_emails = [
-                email for email in unsubscribed_df["Email"].astype(str).tolist() if email
-            ]
-            if removal_emails:
-                success_count = st.session_state.get("suppression_remove_success")
-                if success_count:
-                    st.success(
-                        f"Removed {success_count} email(s) from the suppression list."
-                    )
-                    st.session_state.suppression_remove_success = None
-
-                failure_count = st.session_state.get("suppression_remove_failed")
-                if failure_count:
-                    st.error(
-                        f"Unable to remove {failure_count} email(s) from the suppression list."
-                    )
-                    st.session_state.suppression_remove_failed = None
-
-                with st.form("remove_suppression_form"):
-                    emails_to_remove = st.multiselect(
-                        "Select email(s) to remove from suppression",
-                        removal_emails,
-                        key="suppression_remove_select",
-                    )
-                    remove_submit = st.form_submit_button("Remove Selected Emails")
-
-                if remove_submit:
-                    if not emails_to_remove:
-                        st.info("Please select at least one email to remove.")
-                    else:
-                        removed = []
-                        failed = []
-                        for email in emails_to_remove:
-                            if set_email_resubscribed(email):
-                                removed.append(email)
-                            else:
-                                failed.append(email)
-
-                        if removed:
-                            load_unsubscribed_users(force_refresh=True)
-                            st.session_state.suppression_remove_success = len(removed)
-                        else:
-                            st.session_state.suppression_remove_success = None
-
-                        if failed:
-                            st.session_state.suppression_remove_failed = len(failed)
-                        else:
-                            st.session_state.suppression_remove_failed = None
-
-                        if removed or failed:
-                            st.experimental_rerun()
-                        else:
-                            st.info("Please select at least one email to remove.")
-
-            csv_buffer = StringIO()
-            unsubscribed_df.to_csv(csv_buffer, index=False)
-            st.download_button(
-                "Download Unsubscribed CSV",
-                csv_buffer.getvalue(),
-                "unsubscribed_users.csv",
-                "text/csv",
-                key="download_unsubscribed_csv",
-            )
-        else:
-            st.info("No unsubscribed users recorded yet.")
-
 
     file_source = st.session_state.get("recipient_file_source", "Local Upload")
 
@@ -5061,8 +4429,6 @@ def settings_section():
         'default_reply_to': lambda: "",
         'blocked_domains': list,
         'blocked_emails': list,
-        'suppression_remove_success': lambda: None,
-        'suppression_remove_failed': lambda: None,
     })
 
     st.header("Settings & Preferences")
@@ -5276,417 +4642,6 @@ def settings_section():
         st.caption("Contacts in these lists will never receive campaign emails.")
 
 
-def analytics_section():
-    st.header("Comprehensive Email Analytics")
-
-    service = (st.session_state.email_service or "MAILGUN").upper()
-    display_name = get_service_display_name(service)
-    st.markdown(
-        f"<div class='modern-card'><span class='status-badge'>Reporting Source: {display_name}</span></div>",
-        unsafe_allow_html=True,
-    )
-
-    if service == "KVN SMTP" or service == "KVN":
-        st.info("KVN SMTP does not expose analytics via API. Please review statistics from your provider dashboard.")
-        return
-
-    if service == "SMTP2GO":
-        st.info("SMTP2GO Analytics Dashboard")
-
-        # Fetch detailed analytics
-        analytics_data = fetch_smtp2go_analytics()
-
-        if not st.session_state.campaign_history:
-            load_campaign_history()
-
-        if analytics_data:
-            stats_list = analytics_data.get('history')
-            if isinstance(stats_list, dict):
-                if 'history' in stats_list:
-                    stats_list = stats_list['history']
-                elif 'stats' in stats_list:
-                    stats_list = stats_list['stats']
-                elif 'data' in stats_list:
-                    stats_list = stats_list['data']
-                else:
-                    stats_list = [stats_list]
-            if not stats_list:
-                st.info("No statistics available yet.")
-                return
-
-            rename_map = {
-                'opens': 'opens_unique',
-                'open_unique': 'opens_unique',
-                'unique_opens': 'opens_unique',
-                'clicks': 'clicks_unique',
-                'click_unique': 'clicks_unique',
-                'unique_clicks': 'clicks_unique',
-                'hard_bounce': 'hard_bounces',
-                'soft_bounce': 'soft_bounces',
-                'requests': 'sent',
-                'emails_sent': 'sent',
-                'processed': 'sent',
-                'sent_total': 'sent',
-                'delivered_total': 'delivered',
-                'emails_delivered': 'delivered',
-                'bounces': 'hard_bounces'
-            }
-
-            # Calculate totals (API may not always provide a 'totals' key)
-            if 'totals' in analytics_data:
-                totals = analytics_data['totals']
-            else:
-                df_totals = pd.DataFrame(stats_list)
-
-                for old, new in rename_map.items():
-                    if old in df_totals.columns and new not in df_totals.columns:
-                        df_totals.rename(columns={old: new}, inplace=True)
-
-                totals = {
-                    'sent': df_totals['sent'].sum() if 'sent' in df_totals else 0,
-                    'delivered': df_totals['delivered'].sum() if 'delivered' in df_totals else 0,
-                    'opens_unique': df_totals['opens_unique'].sum() if 'opens_unique' in df_totals else 0,
-                    'clicks_unique': df_totals['clicks_unique'].sum() if 'clicks_unique' in df_totals else 0,
-                    'hard_bounces': df_totals['hard_bounces'].sum() if 'hard_bounces' in df_totals else 0,
-                    'soft_bounces': df_totals['soft_bounces'].sum() if 'soft_bounces' in df_totals else 0,
-                    'bounces': df_totals['bounces'].sum() if 'bounces' in df_totals else 0
-                }
-
-            # Overall metrics
-            st.subheader("Overall Performance")
-            col1, col2, col3, col4, col5, col6 = st.columns(6)
-            with col1:
-                st.metric("Total Sent", totals['sent'])
-            with col2:
-                delivery_rate = (totals['delivered'] / totals['sent'] * 100) if totals['sent'] else 0
-                st.metric("Delivered", totals['delivered'], f"{delivery_rate:.1f}%")
-            with col3:
-                open_rate = (totals['opens_unique'] / totals['delivered'] * 100) if totals['delivered'] else 0
-                st.metric("Opened", totals['opens_unique'], f"{open_rate:.1f}%")
-            with col4:
-                click_rate = (totals['clicks_unique'] / totals['opens_unique'] * 100) if totals['opens_unique'] else 0
-                st.metric("Clicked", totals['clicks_unique'], f"{click_rate:.1f}%")
-            with col5:
-                bounce_total = totals.get('hard_bounces', 0) + totals.get('soft_bounces', 0)
-                if bounce_total == 0:
-                    bounce_total = totals.get('bounces', 0)
-                st.metric("Bounced", bounce_total)
-            with col6:
-                bounce_rate = (bounce_total / totals['sent'] * 100) if totals['sent'] else 0
-                if bounce_rate < 4:
-                    status_color = "green"
-                    status_text = "Healthy"
-                elif bounce_rate < 7:
-                    status_color = "orange"
-                    status_text = "Warning"
-                else:
-                    status_color = "red"
-                    status_text = "Unhealthy"
-                st.markdown(f"**Status:** <span style='color:{status_color}'>{status_text}</span>", unsafe_allow_html=True)
-            
-            # Time series data
-            st.subheader("Performance Over Time")
-            df = pd.DataFrame(stats_list)
-
-            for old, new in rename_map.items():
-                if old in df.columns and new not in df.columns:
-                    df.rename(columns={old: new}, inplace=True)
-
-            # Some API responses may not include a 'date' column (e.g. when only
-            # totals are returned).  Gracefully handle these cases by checking
-            # for alternate timestamp fields before attempting to convert to a
-            # datetime index.
-            if 'date' in df.columns:
-                df['date'] = pd.to_datetime(df['date'])
-                df.set_index('date', inplace=True)
-            elif 'timestamp' in df.columns:
-                df['timestamp'] = pd.to_datetime(df['timestamp'])
-                df.set_index('timestamp', inplace=True)
-            else:
-                st.info("Date information not available in analytics data.")
-            
-            # Calculate rates
-            if 'sent' in df and 'delivered' in df:
-                df['delivery_rate'] = (df['delivered'] / df['sent']) * 100
-            else:
-                df['delivery_rate'] = 0
-            if 'opens_unique' in df and 'delivered' in df:
-                df['open_rate'] = (df['opens_unique'] / df['delivered']) * 100
-            else:
-                df['open_rate'] = 0
-            if 'clicks_unique' in df and 'opens_unique' in df:
-                df['click_rate'] = (df['clicks_unique'] / df['opens_unique']) * 100
-            else:
-                df['click_rate'] = 0
-            
-            tab1, tab2, tab3 = st.tabs(["Volume Metrics", "Engagement Rates", "Bounce & Complaints"])
-
-            with tab1:
-                cols = [c for c in ['sent', 'delivered', 'opens_unique', 'clicks_unique'] if c in df]
-                if cols:
-                    st.line_chart(df[cols])
-
-            with tab2:
-                cols = [c for c in ['delivery_rate', 'open_rate', 'click_rate'] if c in df]
-                if cols:
-                    st.line_chart(df[cols])
-
-            with tab3:
-                cols = [c for c in ['hard_bounces', 'soft_bounces', 'spam_complaints'] if c in df]
-                if cols:
-                    st.line_chart(df[cols])
-
-            # Campaign details
-            st.subheader("Recent Campaigns")
-            if st.session_state.campaign_history:
-                campaign_df = pd.DataFrame(st.session_state.campaign_history)
-
-                # Calculate delivery rate and convert timestamp to IST
-                campaign_df['delivery_rate'] = campaign_df.apply(
-                    lambda x: (x['emails_sent'] / x['total_emails']) * 100,
-                    axis=1
-                )
-                ist = pytz.timezone('Asia/Kolkata')
-                campaign_df['timestamp'] = pd.to_datetime(campaign_df['timestamp'], utc=True).dt.tz_convert(ist)
-                campaign_df['timestamp'] = campaign_df['timestamp'].dt.strftime('%Y-%m-%d %H:%M')
-
-                # Prepare display dataframe in desired order
-                display_df = campaign_df[
-                    ['journal', 'timestamp', 'total_emails', 'emails_sent', 'delivery_rate', 'subject', 'service']
-                ].copy()
-                display_df['service'] = display_df['service'].fillna('MAILGUN').apply(get_service_display_name)
-                display_df.rename(columns={
-                    'journal': 'Journal Name',
-                    'timestamp': 'Date',
-                    'total_emails': 'Total',
-                    'emails_sent': 'Sent',
-                    'delivery_rate': 'Delivery Rate',
-                    'subject': 'Subject',
-                    'service': 'Service'
-                }, inplace=True)
-
-                st.dataframe(
-                    display_df.sort_values('Date', ascending=False),
-                    column_config={
-                        'Delivery Rate': st.column_config.ProgressColumn(
-                            'Delivery Rate',
-                            format='%.1f%%',
-                            min_value=0,
-                            max_value=100
-                        )
-                    }
-                )
-            else:
-                st.info("No campaign history available")
-
-            # Show bounce details if available
-            if analytics_data.get('bounces'):
-                st.subheader("Bounces")
-                bounce_data = analytics_data['bounces']
-                # The bounce endpoint may return aggregated values rather than
-                # a list of records. Handle both possibilities gracefully.
-                if isinstance(bounce_data, dict):
-                    bounce_df = pd.DataFrame([bounce_data])
-                else:
-                    bounce_df = pd.DataFrame(bounce_data)
-                st.dataframe(bounce_df)
-
-            st.markdown("---")
-            st.subheader("Subject-wise CSV Analysis")
-            csv_file = st.file_uploader("Upload SMTP2Go Activity CSV", type=["csv"], key="activity_csv")
-            if csv_file and st.button("Analyze CSV"):
-                csv_df = pd.read_csv(csv_file)
-                result = analyze_subject_csv(csv_df)
-                if result.empty:
-                    st.warning("Uploaded CSV is missing required data.")
-                else:
-                    st.dataframe(result)
-                    rates = result.set_index('Subject')[['Open Rate (%)', 'Click Rate (%)']]
-                    st.bar_chart(rates)
-        else:
-            st.info("No analytics data available yet. Please send some emails first.")
-    else:
-        st.info(f"{display_name} analytics are not available in this dashboard yet.")
-
-def fetch_smtp2go_analytics():
-    """Retrieve analytics details from SMTP2GO using POST requests."""
-    try:
-        api_key = config['smtp2go']['api_key']
-        if not api_key:
-            st.error("SMTP API key not configured")
-            return None
-
-        base_url = "https://api.smtp2go.com/v3"
-        payload = {
-            "api_key": api_key,
-            "date_start": (datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d"),
-            "date_end": datetime.utcnow().strftime("%Y-%m-%d")
-        }
-
-        # Email history
-        hist_resp = requests.post(f"{base_url}/stats/email_history", json=payload)
-        hist_resp.raise_for_status()
-        hist_json = hist_resp.json()
-        history_data = hist_json.get("data", hist_json)
-        if isinstance(history_data, dict):
-            history_data = history_data.get("history", history_data.get("stats", history_data.get("data", [])))
-
-        # Bounce statistics
-        bounce_resp = requests.post(f"{base_url}/stats/email_bounces", json=payload)
-        bounce_resp.raise_for_status()
-        bounce_json = bounce_resp.json()
-        bounces_data = bounce_json.get("data", bounce_json)
-        if isinstance(bounces_data, dict):
-            bounces_data = bounces_data.get("bounces", bounces_data.get("data", []))
-
-        # Recent activity/search
-        search_resp = requests.post(f"{base_url}/activity/search", json=payload)
-        search_resp.raise_for_status()
-        activity_data = search_resp.json().get("data", [])
-
-        return {
-            "history": history_data,
-            "bounces": bounces_data,
-            "activity": activity_data
-        }
-    except Exception as e:
-        st.error(f"Error fetching SMTP analytics: {str(e)}")
-        return None
-
-def show_email_analytics():
-    st.subheader("Email Campaign Analytics Dashboard")
-
-    service = (st.session_state.email_service or "MAILGUN").upper()
-
-    display_name = get_service_display_name(service)
-    st.caption(f"Viewing data for {display_name}")
-
-    if service == "KVN SMTP" or service == "KVN":
-        st.info("KVN SMTP does not expose analytics via API. Please review statistics from the SMTP console.")
-        return
-
-    if service == "SMTP2GO":
-        analytics_data = fetch_smtp2go_analytics()
-
-        if not st.session_state.campaign_history:
-            load_campaign_history()
-
-        if analytics_data:
-            stats_list = analytics_data.get('history')
-            if isinstance(stats_list, dict):
-                stats_list = [stats_list]
-            if not stats_list:
-                st.info("No statistics available yet.")
-                return
-
-            # Process data for display
-            df = pd.DataFrame(stats_list)
-
-            # The history endpoint may sometimes return only totals without a
-            # specific date field. Handle that scenario gracefully by checking
-            # for possible timestamp columns before indexing.
-            if 'date' in df.columns:
-                df['date'] = pd.to_datetime(df['date'])
-                df.set_index('date', inplace=True)
-            elif 'timestamp' in df.columns:
-                df['timestamp'] = pd.to_datetime(df['timestamp'])
-                df.set_index('timestamp', inplace=True)
-            else:
-                st.info("Date information not available in analytics data.")
-            
-            # Calculate rates
-            if 'sent' in df and 'delivered' in df:
-                df['delivery_rate'] = (df['delivered'] / df['sent']) * 100
-            else:
-                df['delivery_rate'] = 0
-            if 'opens_unique' in df and 'delivered' in df:
-                df['open_rate'] = (df['opens_unique'] / df['delivered']) * 100
-            else:
-                df['open_rate'] = 0
-            if 'clicks_unique' in df and 'opens_unique' in df:
-                df['click_rate'] = (df['clicks_unique'] / df['opens_unique']) * 100
-            else:
-                df['click_rate'] = 0
-            
-            # Summary metrics
-            col1, col2, col3, col4, col5, col6 = st.columns(6)
-            with col1:
-                st.metric("Total Sent", df['sent'].sum() if 'sent' in df else 0)
-            with col2:
-                delivered_total = df['delivered'].sum() if 'delivered' in df else 0
-                st.metric("Delivered", delivered_total,
-                         f"{df['delivery_rate'].mean():.1f}%")
-            with col3:
-                opened_total = df['opens_unique'].sum() if 'opens_unique' in df else 0
-                st.metric("Opened", opened_total,
-                         f"{df['open_rate'].mean():.1f}%")
-            with col4:
-                clicked_total = df['clicks_unique'].sum() if 'clicks_unique' in df else 0
-                st.metric("Clicked", clicked_total,
-                         f"{df['click_rate'].mean():.1f}%")
-            with col5:
-                bounce_total = 0
-                if 'hard_bounces' in df:
-                    bounce_total += df['hard_bounces'].sum()
-                if 'soft_bounces' in df:
-                    bounce_total += df['soft_bounces'].sum()
-                st.metric("Bounced", bounce_total)
-            with col6:
-                if df['sent'].sum() > 0:
-                    bounce_rate = (bounce_total / df['sent'].sum()) * 100
-                else:
-                    bounce_rate = 0
-                if bounce_rate < 4:
-                    status_color = "green"
-                    status_text = "Healthy"
-                elif bounce_rate < 7:
-                    status_color = "orange"
-                    status_text = "Warning"
-                else:
-                    status_color = "red"
-                    status_text = "Unhealthy"
-                st.markdown(f"**Status:** <span style='color:{status_color}'>{status_text}</span>", unsafe_allow_html=True)
-            
-            # Time series charts
-            st.subheader("Performance Over Time")
-            tab1, tab2, tab3 = st.tabs(["Volume Metrics", "Engagement Rates", "Bounce & Complaints"])
-
-            with tab1:
-                cols = [c for c in ['sent', 'delivered', 'opens_unique', 'clicks_unique'] if c in df]
-                if cols:
-                    st.line_chart(df[cols])
-
-            with tab2:
-                cols = [c for c in ['delivery_rate', 'open_rate', 'click_rate'] if c in df]
-                if cols:
-                    st.line_chart(df[cols])
-
-            with tab3:
-                cols = [c for c in ['hard_bounces', 'soft_bounces', 'spam_complaints'] if c in df]
-                if cols:
-                    st.line_chart(df[cols])
-            
-            # Campaign details
-            st.subheader("Recent Campaigns")
-            if st.session_state.campaign_history:
-                campaign_df = pd.DataFrame(st.session_state.campaign_history)
-                st.dataframe(campaign_df.sort_values('timestamp', ascending=False))
-            else:
-                st.info("No campaign history available")
-
-            if analytics_data.get('bounces'):
-                st.subheader("Bounces")
-                bounce_data = analytics_data['bounces']
-                if isinstance(bounce_data, dict):
-                    bounce_df = pd.DataFrame([bounce_data])
-                else:
-                    bounce_df = pd.DataFrame(bounce_data)
-                st.dataframe(bounce_df)
-        else:
-            st.info("No analytics data available yet. Please send some emails first.")
-    else:
-        st.info(f"{display_name} analytics are not available in this dashboard yet.")
-
 def main():
     # Check authentication
     check_auth()
@@ -5696,7 +4651,7 @@ def main():
     # Ensure session defaults are available before the sidebar interacts with them.
     ensure_session_defaults({
         'requested_mode': lambda: None,
-        'active_app_mode': lambda: "Email Campaign",
+        'active_app_mode': lambda: "Verify Emails",
         'sender_base_name': lambda: st.session_state.sender_name,
         'sender_name_loaded': lambda: False,
         'sender_email_loaded': lambda: False,
@@ -5716,13 +4671,12 @@ def main():
         'unsubscribed_users': list,
         'unsubscribed_email_lookup': set,
         'firebase_initialized': lambda: False,
-        'webhook_started': lambda: False,
     })
 
     # Navigation with additional links and heading in the sidebar
     with st.sidebar:
         st.markdown("## PPH Email Manager")
-        sidebar_modes = ["Email Campaign", "Editor Invitation", "Verify Emails", "Analytics", "Settings"]
+        sidebar_modes = ["Verify Emails", "Email Campaign", "Editor Invitation", "Settings"]
         if st.session_state.requested_mode and st.session_state.requested_mode in sidebar_modes:
             st.session_state.active_app_mode = st.session_state.requested_mode
             st.session_state.requested_mode = None
@@ -5748,8 +4702,6 @@ def main():
     # Initialize services
     if not st.session_state.get('firebase_initialized'):
         initialize_firebase()
-
-    ensure_webhook_server()
 
     if st.session_state.get('firebase_initialized'):
         if not st.session_state.get('kvn_settings_loaded'):
@@ -5780,10 +4732,8 @@ def main():
         editor_invitation_section()
     elif app_mode == "Verify Emails":
         email_verification_section()
-    elif app_mode == "Settings":
-        settings_section()
     else:
-        analytics_section()
+        settings_section()
 
 if __name__ == "__main__":
     main()
