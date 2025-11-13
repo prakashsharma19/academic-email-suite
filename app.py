@@ -183,6 +183,24 @@ def check_auth():
                 margin-bottom: 1.75rem;
                 font-size: 1rem;
             }
+            form[data-testid="stForm"] .app-login-notice {
+                text-align: center;
+                color: #d32f2f;
+                font-weight: 700;
+                margin-bottom: 1.5rem;
+                animation: app-login-blink 1.2s steps(2, start) infinite;
+            }
+            @keyframes app-login-blink {
+                0% {
+                    opacity: 1;
+                }
+                50% {
+                    opacity: 0;
+                }
+                100% {
+                    opacity: 1;
+                }
+            }
             form[data-testid="stForm"] .stTextInput input {
                 border-radius: 12px;
                 padding: 0.75rem 1rem;
@@ -206,6 +224,10 @@ def check_auth():
             )
             st.markdown(
                 "<p class='app-login-subtitle'>Secure access to manage academic verification workflows</p>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                "<p class='app-login-notice'>Attention required!!!<br>Contact app adminiatrator for help.</p>",
                 unsafe_allow_html=True,
             )
 
