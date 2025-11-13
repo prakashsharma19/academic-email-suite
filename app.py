@@ -185,20 +185,20 @@ def check_auth():
             }
             form[data-testid="stForm"] .app-login-notice {
                 text-align: center;
-                color: #d32f2f;
+                color: #c62828;
                 font-weight: 700;
                 margin-bottom: 1.5rem;
-                animation: app-login-blink 1.2s steps(2, start) infinite;
+                text-transform: uppercase;
+                animation: app-login-blink 1s ease-in-out infinite;
             }
             @keyframes app-login-blink {
-                0% {
-                    opacity: 1;
+                0%, 100% {
+                    color: #c62828;
+                    text-shadow: 0 0 6px rgba(198, 40, 40, 0.75);
                 }
                 50% {
-                    opacity: 0;
-                }
-                100% {
-                    opacity: 1;
+                    color: rgba(198, 40, 40, 0.15);
+                    text-shadow: none;
                 }
             }
             form[data-testid="stForm"] .stTextInput input {
