@@ -226,10 +226,6 @@ def check_auth():
                 "<p class='app-login-subtitle'>Secure access to manage academic verification workflows</p>",
                 unsafe_allow_html=True,
             )
-            st.markdown(
-                "<p class='app-login-notice'>Attention required!!!<br>Contact app adminiatrator for help.</p>",
-                unsafe_allow_html=True,
-            )
 
             username = st.text_input("Username")
             password = st.text_input("Password", type="password")
