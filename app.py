@@ -1291,6 +1291,27 @@ def check_millionverifier_quota(api_key):
         return 0
 
 def process_email_list(file_content, api_key, log_id=None, resume_data=None):
+    session_state = _get_session_state()
+    username = getattr(session_state, "username", None) if session_state else None
+    if username is None and session_state and hasattr(session_state, "get"):
+        username = session_state.get("username", None)
+    if username is None:
+        username = "admin"
+
+    def normalize_results(results_list):
+        normalized = []
+        for item in results_list:
+            if isinstance(item, dict):
+                normalized.append(item.get('result', 'error'))
+            elif item is None:
+                normalized.append('error')
+            else:
+                normalized.append(item)
+        return normalized
+
+    results = []
+    total_emails = 0
+    current_index = 0
     try:
         df = parse_email_entries(file_content)
         
@@ -1300,7 +1321,6 @@ def process_email_list(file_content, api_key, log_id=None, resume_data=None):
             )
         
         # Verify emails
-        results = []
         total_emails = len(df)
         st.session_state.verification_start_time = time.time()
 
@@ -1321,6 +1341,7 @@ def process_email_list(file_content, api_key, log_id=None, resume_data=None):
             st.session_state.verification_progress = initial_progress
         else:
             initial_progress = 0
+        current_index = start_index
 
         render_progress_indicator(
             progress_indicator,
@@ -1343,6 +1364,7 @@ def process_email_list(file_content, api_key, log_id=None, resume_data=None):
                 progress = (i + 1) / total_emails
                 st.session_state.verification_progress = progress
                 progress_bar.progress(progress)
+                current_index = i + 1
                 elapsed_time = time.time() - st.session_state.verification_start_time
                 remaining_time = None
                 if progress > 0:
@@ -1359,16 +1381,18 @@ def process_email_list(file_content, api_key, log_id=None, resume_data=None):
                     save_verification_progress(
                         log_id,
                         file_content,
-                        [r.get('result', 'error') if isinstance(r, dict) else r for r in results],
+                        normalize_results(results),
                         i + 1,
                         total_emails,
+                        username=username,
                     )
 
                 time.sleep(0.1)  # Rate limiting
 
             gc.collect()
 
-        df['verification_result'] = [r.get('result', 'error') if r else 'error' for r in results]
+        normalized_results = normalize_results(results)
+        df['verification_result'] = normalized_results
 
         render_progress_indicator(
             progress_indicator,
@@ -1409,6 +1433,14 @@ def process_email_list(file_content, api_key, log_id=None, resume_data=None):
     except Exception as e:
         st.error(f"Failed to process email list: {str(e)}")
         if log_id:
+            save_verification_progress(
+                log_id,
+                file_content,
+                normalize_results(results),
+                current_index,
+                total_emails,
+                username=username,
+            )
             update_operation_log(log_id, status="failed")
         return pd.DataFrame()
 
@@ -1864,16 +1896,24 @@ def load_verification_results(log_id):
 
 
 # ----- Verification Progress Persistence Functions -----
-def save_verification_progress(log_id, file_content, results, current_index, total_emails):
+def save_verification_progress(
+    log_id,
+    file_content,
+    results,
+    current_index,
+    total_emails,
+    username="admin",
+):
     """Save intermediate verification progress for resuming later."""
     try:
         db = get_firestore_db()
         if not db:
             return False
 
+        safe_username = username or "admin"
         doc_ref = db.collection("verification_progress").document(log_id)
         doc_ref.set({
-            "user": st.session_state.get("username", "admin"),
+            "user": safe_username,
             "file_content": file_content,
             "results": results,
             "current_index": current_index,
@@ -1882,7 +1922,10 @@ def save_verification_progress(log_id, file_content, results, current_index, tot
         })
         return True
     except Exception as e:
-        st.error(f"Failed to save verification progress: {str(e)}")
+        try:
+            st.error(f"Failed to save verification progress: {str(e)}")
+        except RuntimeError:
+            logger.error("Failed to save verification progress: %s", e)
         return False
 
 
