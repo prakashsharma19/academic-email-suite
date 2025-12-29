@@ -143,10 +143,15 @@ def render_progress_indicator(placeholder, label, progress, eta_seconds=None):
 
 # Authentication System
 def check_auth():
-    if 'authenticated' not in st.session_state:
-        st.session_state.authenticated = False
+    session_state = _get_session_state()
+    if session_state is None:
+        st.error("Session unavailable. Please refresh the page to start a new session.")
+        st.stop()
 
-    if not st.session_state.authenticated:
+    if 'authenticated' not in session_state:
+        session_state.authenticated = False
+
+    if not session_state.authenticated:
         st.markdown(
             """
             <style>
@@ -4714,6 +4719,9 @@ def settings_section():
 
 
 def main():
+    # Ensure base session defaults are populated once the Streamlit runtime is available.
+    init_session_state()
+
     # Check authentication
     check_auth()
 
