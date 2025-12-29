@@ -1290,6 +1290,17 @@ def check_millionverifier_quota(api_key):
         return 0
 
 def process_email_list(file_content, api_key, log_id=None, resume_data=None):
+    """Verify emails while tolerating execution contexts without session state.
+
+    The verification workflow normally runs inside Streamlit's main thread, but
+    resume flows or background execution paths can invoke this function before
+    Streamlit initializes ``st.session_state``. To avoid runtime errors like
+    "Tried to use session_state before it was initialized", we fall back to a
+    no-op session container when Streamlit's session state is unavailable.
+    """
+
+    session_state = _get_session_state() or {}
+
     try:
         df = parse_email_entries(file_content)
         
@@ -1301,7 +1312,7 @@ def process_email_list(file_content, api_key, log_id=None, resume_data=None):
         # Verify emails
         results = []
         total_emails = len(df)
-        st.session_state.verification_start_time = time.time()
+        session_state["verification_start_time"] = time.time()
 
         progress_container = st.container()
         progress_indicator = progress_container.empty()
@@ -1317,7 +1328,7 @@ def process_email_list(file_content, api_key, log_id=None, resume_data=None):
                     results.append({'result': res})
             initial_progress = start_index / total_emails if total_emails else 0
             progress_bar.progress(initial_progress)
-            st.session_state.verification_progress = initial_progress
+            session_state["verification_progress"] = initial_progress
         else:
             initial_progress = 0
 
@@ -1340,9 +1351,9 @@ def process_email_list(file_content, api_key, log_id=None, resume_data=None):
 
                 # Update progress
                 progress = (i + 1) / total_emails
-                st.session_state.verification_progress = progress
+                session_state["verification_progress"] = progress
                 progress_bar.progress(progress)
-                elapsed_time = time.time() - st.session_state.verification_start_time
+                elapsed_time = time.time() - session_state.get("verification_start_time", time.time())
                 remaining_time = None
                 if progress > 0:
                     estimated_total_time = elapsed_time / progress
@@ -1389,7 +1400,7 @@ def process_email_list(file_content, api_key, log_id=None, resume_data=None):
         low_risk = int(low_risk_mask.sum())
         risky = int((results_lower.isin(risky_statuses) & ~low_risk_mask).sum())
 
-        st.session_state.verification_stats = {
+        session_state["verification_stats"] = {
             'total': total,
             'good': good,
             'bad': bad,
