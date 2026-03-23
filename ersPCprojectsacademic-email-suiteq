@@ -1,0 +1,142 @@
+[33m8efe77c[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mvps-version[m[33m, [m[1;31morigin/vps-version[m[33m)[m Refactor app.py to streamline imports and remove unused code; update requirements.txt to remove unnecessary dependencies.
+[33mf65dde6[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m, [m[1;32mmain[m[33m)[m Merge pull request #157 from prakashsharma19/codex/update-save_verification_progress-to-accept-username
+[33m2792995[m[33m ([m[1;31morigin/codex/update-save_verification_progress-to-accept-username[m[33m)[m Handle verification progress username safely
+[33m1502be2[m Merge pull request #156 from prakashsharma19/codex/fix-sessioninfo-initialization-error-rdkh25
+[33mc20ea2b[m[33m ([m[1;31morigin/codex/fix-sessioninfo-initialization-error-rdkh25[m[33m)[m Handle missing session state before auth
+[33me3689db[m Merge pull request #154 from prakashsharma19/codex/remove-warning-message-from-login-page
+[33m3e0bfae[m[33m ([m[1;31morigin/codex/remove-warning-message-from-login-page[m[33m)[m Remove admin notice from login page
+[33m982ecfc[m Merge pull request #153 from prakashsharma19/codex/fix-blinking-issue-in-app
+[33mc1a6f63[m[33m ([m[1;31morigin/codex/fix-blinking-issue-in-app[m[33m)[m Make login warning text blink in red
+[33m68e57db[m Merge pull request #152 from prakashsharma19/codex/add-blinking-notice-line-to-login-page-8uf5of
+[33m727ce49[m[33m ([m[1;31morigin/codex/add-blinking-notice-line-to-login-page-8uf5of[m[33m)[m Add blinking login notice
+[33mc8dd5ba[m Merge pull request #151 from prakashsharma19/codex/fix-slow-loading-after-login
+[33mcf09a9e[m[33m ([m[1;31morigin/codex/fix-slow-loading-after-login[m[33m)[m Improve login experience and defer heavy data loading
+[33md3e2820[m Merge pull request #150 from prakashsharma19/codex/remove-webhook-suppression-and-analytics-sections
+[33mf3b62f3[m[33m ([m[1;31morigin/codex/remove-webhook-suppression-and-analytics-sections[m[33m)[m Simplify app modes by removing webhook and analytics
+[33ma2030cc[m Update app.py
+[33m4a26e6d[m Merge pull request #149 from prakashsharma19/codex/disable-unnecessary-services-and-streamline-app
+[33m48ee924[m[33m ([m[1;31morigin/codex/disable-unnecessary-services-and-streamline-app[m[33m)[m Disable non-verification services
+[33m14f6ecd[m Merge pull request #148 from prakashsharma19/codex/fix-typeerror-when-sending-quota-email
+[33m3196f74[m[33m ([m[1;31morigin/codex/fix-typeerror-when-sending-quota-email[m[33m)[m Handle missing recipient data before starting campaigns
+[33m9cf7384[m Merge pull request #147 from prakashsharma19/codex/update-time-display-to-ist
+[33m6a6e25a[m[33m ([m[1;31morigin/codex/update-time-display-to-ist[m[33m)[m Display KVN timings in IST with cooldown countdown
+[33m4abf482[m Merge pull request #146 from prakashsharma19/codex/implement-email-batching-for-kvn-campaigns
+[33m888eb6a[m[33m ([m[1;31morigin/codex/implement-email-batching-for-kvn-campaigns[m[33m)[m Implement KVN SMTP batching and quota scheduling
+[33m46013f4[m Merge pull request #145 from prakashsharma19/codex/fix-conflict-with-selected_journal-widget
+[33m4209ea3[m[33m ([m[1;31morigin/codex/fix-conflict-with-selected_journal-widget[m[33m)[m Fix selected journal widget state handling
+[33mcccc9ee[m Merge pull request #144 from prakashsharma19/codex/fix-sessioninfo-initialization-error
+[33mf0df54c[m[33m ([m[1;31morigin/codex/fix-sessioninfo-initialization-error[m[33m)[m Handle Streamlit session state absence for webhook requests
+[33ma7fa8d5[m Merge pull request #143 from prakashsharma19/codex/fix-kvn-smtp-email-sending-error-yecq0a
+[33m850a486[m[33m ([m[1;31morigin/codex/fix-kvn-smtp-email-sending-error-yecq0a[m[33m)[m Handle KVN SMTP servers that require STARTTLS
+[33mcf05f39[m Merge pull request #142 from prakashsharma19/codex/fix-email-sending-error-via-smtp
+[33me9fb0ec[m[33m ([m[1;31morigin/codex/fix-email-sending-error-via-smtp[m[33m)[m Handle KVN SMTP servers without AUTH
+[33m767cbba[m Merge pull request #141 from prakashsharma19/codex/fix-email-service-resumption-and-speed
+[33m967c2f0[m[33m ([m[1;31morigin/codex/fix-email-service-resumption-and-speed[m[33m)[m Fix campaign resume service and streamline KVN SMTP
+[33me360014[m Merge pull request #140 from prakashsharma19/codex/fix-session-state-initialization-issue
+[33m24eb4da[m[33m ([m[1;31morigin/codex/fix-session-state-initialization-issue[m[33m)[m Initialize reply-to session defaults
+[33md77c48e[m Merge pull request #139 from prakashsharma19/codex/fix-attributeerror-on-login
+[33m4b6dd6e[m[33m ([m[1;31morigin/codex/fix-attributeerror-on-login[m[33m)[m Ensure session defaults initialized before sidebar
+[33md07c9af[m Merge pull request #138 from prakashsharma19/codex/optimize-streamlit-flask-app-for-memory-usage
+[33m62c3753[m[33m ([m[1;31morigin/codex/optimize-streamlit-flask-app-for-memory-usage[m[33m)[m Optimize Streamlit and webhook startup
+[33m22fdb3a[m Merge pull request #137 from prakashsharma19/codex/remove-blinking-notice-from-login-page-gunmn3
+[33m8f5e264[m[33m ([m[1;31morigin/codex/remove-blinking-notice-from-login-page-gunmn3[m[33m)[m Remove blinking notice from login page
+[33ma188367[m Merge pull request #136 from prakashsharma19/codex/add-blinking-notice-line-to-login-page-78p0hm
+[33m6451f31[m[33m ([m[1;31morigin/codex/add-blinking-notice-line-to-login-page-78p0hm[m[33m)[m Add blinking notice to login page
+[33m56c8985[m Merge pull request #134 from prakashsharma19/codex/locate-and-update-send_email_via_kvn
+[33me702639[m[33m ([m[1;31morigin/codex/locate-and-update-send_email_via_kvn[m[33m)[m Improve KVN SMTP send retries and logging
+[33meae36cd[m Merge pull request #133 from prakashsharma19/codex/fix-kvn-smtp-email-sending-error
+[33me7da258[m[33m ([m[1;31morigin/codex/fix-kvn-smtp-email-sending-error[m[33m)[m Support fallback SMTP env vars for KVN
+[33m6c5b09d[m Merge pull request #132 from prakashsharma19/codex/fix-div-tag-issue-in-email-verification
+[33m8b456f8[m[33m ([m[1;31morigin/codex/fix-div-tag-issue-in-email-verification[m[33m)[m Fix progress indicator HTML rendering
+[33maf1c7f4[m Merge pull request #131 from prakashsharma19/codex/fix-email-div-display-and-logo-size
+[33mf19e697[m[33m ([m[1;31morigin/codex/fix-email-div-display-and-logo-size[m[33m)[m Improve login header and harden campaign progress updates
+[33mf3ee16c[m Merge pull request #130 from prakashsharma19/codex/remove-logo-from-side-panel
+[33m1e9fd0f[m[33m ([m[1;31morigin/codex/remove-logo-from-side-panel[m[33m)[m Improve sidebar styling and suppression handling
+[33m3bd9d47[m Update app.py
+[33m8c7f129[m Merge pull request #129 from prakashsharma19/codex/fix-login-page-display-and-navigation
+[33m0b1932f[m[33m ([m[1;31morigin/codex/fix-login-page-display-and-navigation[m[33m)[m Refine login experience and improve sidebar handling
+[33m97a5559[m Merge pull request #128 from prakashsharma19/codex/fix-email-removal-functionality
+[33mf2a8b00[m[33m ([m[1;31morigin/codex/fix-email-removal-functionality[m[33m)[m Revamp UI styling and suppression workflows
+[33mb70e3b6[m Merge pull request #127 from prakashsharma19/codex/remove-unused-elements-from-dashboard-and-unsubscribe-page
+[33m29b9e05[m[33m ([m[1;31morigin/codex/remove-unused-elements-from-dashboard-and-unsubscribe-page[m[33m)[m Refine dashboard styling and suppression management
+[33m547d26b[m Add files via upload
+[33m17fd8be[m Merge pull request #126 from prakashsharma19/codex/update-button-styles-and-gradients
+[33m841f1d9[m[33m ([m[1;31morigin/codex/update-button-styles-and-gradients[m[33m)[m Refine dashboard layout and reply-to management
+[33m43173c2[m Merge pull request #125 from prakashsharma19/codex/remove-footer-design-and-border
+[33mae2db13[m[33m ([m[1;31morigin/codex/remove-footer-design-and-border[m[33m)[m Adjust footer placement and layout spacing
+[33mfb0f027[m Merge pull request #124 from prakashsharma19/codex/redesign-ui-and-update-email-services
+[33m18a8b10[m[33m ([m[1;31morigin/codex/redesign-ui-and-update-email-services[m[33m)[m Revamp UI and add cloud-backed settings with KVN SMTP
+[33m78e52fb[m Merge pull request #123 from prakashsharma19/codex/update-unsubscribed-redirect-link
+[33me298baa[m[33m ([m[1;31morigin/codex/update-unsubscribed-redirect-link[m[33m)[m Simplify unsubscribe flow and update default link
+[33m99ec468[m Update app.py
+[33m79ac428[m Merge pull request #122 from prakashsharma19/codex/use-existing-unsubscribe.py-for-unsubscriptions
+[33mbc547e9[m[33m ([m[1;31morigin/codex/use-existing-unsubscribe.py-for-unsubscriptions[m[33m)[m Use internal unsubscribe page
+[33mc0c03d8[m Merge pull request #121 from prakashsharma19/codex/fix-endpoint-function-conflict
+[33m60f20ca[m[33m ([m[1;31morigin/codex/fix-endpoint-function-conflict[m[33m)[m Fix duplicate unsubscribe route and lazy start webhook
+[33m048141f[m Merge pull request #120 from prakashsharma19/codex/add-webhook-server-setup-code
+[33m7d6819c[m[33m ([m[1;31morigin/codex/add-webhook-server-setup-code[m[33m)[m Add webhook server initialization snippet
+[33mdb1203e[m Merge pull request #119 from prakashsharma19/codex/locate-flask-app-definition-and-add-cors
+[33m7c1a7a4[m[33m ([m[1;31morigin/codex/locate-flask-app-definition-and-add-cors[m[33m)[m Restrict webhook CORS origins
+[33m4ae4917[m Merge pull request #118 from prakashsharma19/codex/fix-cors-issue-on-unsubscribe-api
+[33m612a921[m[33m ([m[1;31morigin/codex/fix-cors-issue-on-unsubscribe-api[m[33m)[m Improve unsubscribe API CORS handling
+[33mc040ad8[m Merge pull request #117 from prakashsharma19/codex/fix-method-not-allowed-error-on-api-endpoint
+[33ma853bda[m[33m ([m[1;31morigin/codex/fix-method-not-allowed-error-on-api-endpoint[m[33m)[m Fix unsubscribe API handling for invalid methods
+[33m6da3f11[m Merge pull request #116 from prakashsharma19/codex/add-flask-webhook-server-to-app.py
+[33m7693a5c[m[33m ([m[1;31morigin/codex/add-flask-webhook-server-to-app.py[m[33m)[m Start webhook server on import
+[33m5d781f1[m Merge pull request #115 from prakashsharma19/codex/add-background-flask-server-with-cors
+[33m3afb4de[m[33m ([m[1;31morigin/codex/add-background-flask-server-with-cors[m[33m)[m Start webhook server alongside Streamlit
+[33m7bce9e7[m Merge pull request #114 from prakashsharma19/codex/add-ensure_webhook_server-to-app.py
+[33m34c34c3[m[33m ([m[1;31morigin/codex/add-ensure_webhook_server-to-app.py[m[33m)[m Start webhook server on app startup
+[33m1a9ffc6[m Merge pull request #113 from prakashsharma19/codex/update-app.py-for-external-unsubscribe-feature
+[33m253a51b[m[33m ([m[1;31morigin/codex/update-app.py-for-external-unsubscribe-feature[m[33m)[m Refactor unsubscribe handling for external page
+[33m303c3c0[m Merge pull request #112 from prakashsharma19/codex/fix-non-functional-buttons-on-page
+[33m95ebe11[m[33m ([m[1;31morigin/codex/fix-non-functional-buttons-on-page[m[33m)[m Enable unsubscribe page link-based actions
+[33mffc2f71[m Merge pull request #111 from prakashsharma19/codex/fix-attributeerror-in-session_state
+[33m0c3fe43[m[33m ([m[1;31morigin/codex/fix-attributeerror-in-session_state[m[33m)[m Ensure unsubscribe page initializes session state defaults
+[33mebfcc01[m Merge pull request #110 from prakashsharma19/codex/redirect-unsubscribed-users-to-unsubscribe.html
+[33me684760[m[33m ([m[1;31morigin/codex/redirect-unsubscribed-users-to-unsubscribe.html[m[33m)[m Serve unsubscribe page via dedicated HTML route
+[33m6c9d4c6[m Merge pull request #109 from prakashsharma19/codex/fix-unsubscribe-feature-page-display
+[33m756df84[m[33m ([m[1;31morigin/codex/fix-unsubscribe-feature-page-display[m[33m)[m Add Streamlit unsubscribe page and reuse template for links
+[33ma657958[m Merge pull request #108 from prakashsharma19/codex/remove-streamlit-unsubscribe-page-and-add-flask-route
+[33mdd6c58c[m[33m ([m[1;31morigin/codex/remove-streamlit-unsubscribe-page-and-add-flask-route[m[33m)[m Add Flask unsubscribe page with preference management
+[33m5ad1deb[m Merge pull request #107 from prakashsharma19/codex/add-unsubscribe-page-in-streamlit-app
+[33m3739912[m[33m ([m[1;31morigin/codex/add-unsubscribe-page-in-streamlit-app[m[33m)[m Add public Streamlit unsubscribe page
+[33mf524ee0[m Merge pull request #106 from prakashsharma19/codex/update-email-sending-logic-for-unsubscribe-link
+[33m727614c[m[33m ([m[1;31morigin/codex/update-email-sending-logic-for-unsubscribe-link[m[33m)[m Update unsubscribe link handling for outgoing emails
+[33mf503e82[m Merge pull request #105 from prakashsharma19/codex/update-/unsubscribe-route-functionality
+[33m8685499[m[33m ([m[1;31morigin/codex/update-/unsubscribe-route-functionality[m[33m)[m Handle unsubscribe link email parameter
+[33m19b6577[m Merge pull request #104 from prakashsharma19/codex/add-/unsubscribe-route-with-confirmation
+[33ma26c3eb[m[33m ([m[1;31morigin/codex/add-/unsubscribe-route-with-confirmation[m[33m)[m Add unsubscribe landing page and support webhook
+[33m2a06fd7[m Merge pull request #103 from prakashsharma19/codex/add-email-suppression-features
+[33mac3faf3[m[33m ([m[1;31morigin/codex/add-email-suppression-features[m[33m)[m Add manual and CSV suppression tools to unsubscribe tab
+[33mc3c315a[m Merge pull request #102 from prakashsharma19/codex/add-/unsubscribe-webhook-for-mailgun
+[33m9b392b2[m[33m ([m[1;31morigin/codex/add-/unsubscribe-webhook-for-mailgun[m[33m)[m Add Mailgun unsubscribe webhook and Streamlit management tab
+[33m11209c8[m Merge pull request #101 from prakashsharma19/codex/fix-missing-unsubscribe-link-in-email
+[33m880867f[m[33m ([m[1;31morigin/codex/fix-missing-unsubscribe-link-in-email[m[33m)[m Ensure unsubscribe link always included in Mailgun emails
+[33m2f37676[m Merge pull request #100 from prakashsharma19/codex/add-mailgun-automatic-unsubscribe-feature
+[33mf95a718[m[33m ([m[1;31morigin/codex/add-mailgun-automatic-unsubscribe-feature[m[33m)[m Add Mailgun unsubscribe support and template placeholder
+[33m88cadce[m Merge pull request #99 from prakashsharma19/codex/change-suffix-from-good_email-to-cq
+[33m112dcc5[m[33m ([m[1;31morigin/codex/change-suffix-from-good_email-to-cq[m[33m)[m Update good email filename suffix
+[33m14f81e8[m Merge pull request #98 from prakashsharma19/codex/update-email-download-functionality
+[33md177657[m[33m ([m[1;31morigin/codex/update-email-download-functionality[m[33m)[m Separate good and low risk verification downloads
+[33m4b15fc3[m Merge pull request #97 from prakashsharma19/codex/add-mailgun-support-for-email-sending
+[33mb0449c4[m[33m ([m[1;31morigin/codex/add-mailgun-support-for-email-sending[m[33m)[m Add Mailgun email provider alongside SMTP2GO
+[33m6d121b0[m Merge pull request #96 from prakashsharma19/codex/merge-low-risk-emails-with-good-emails
+[33md43964f[m[33m ([m[1;31morigin/codex/merge-low-risk-emails-with-good-emails[m[33m)[m Include low-risk emails in good download and auto-deliver high-risk report
+[33m6c0a61c[m Merge pull request #95 from prakashsharma19/codex/add-download-button-for-low-risk-emails
+[33mfd00832[m[33m ([m[1;31morigin/codex/add-download-button-for-low-risk-emails[m[33m)[m Add low risk catch-all export to email verification
+[33macfa874[m Update app.py
+[33m6e20874[m Merge pull request #94 from prakashsharma19/codex/remove-blinking-notice-from-login-page
+[33mba5f2f7[m[33m ([m[1;31morigin/codex/remove-blinking-notice-from-login-page[m[33m)[m Remove blinking login notice
+[33m9c73079[m Merge pull request #93 from prakashsharma19/codex/add-blinking-notice-line-to-login-page
+[33m5d47608[m[33m ([m[1;31morigin/codex/add-blinking-notice-line-to-login-page[m[33m)[m Add blinking notice on login page
+[33mcd5a0ab[m Update app.py
+[33m78b1332[m Update app.py
+[33m02a7cde[m Update app.py
+[33m7da0f5d[m Update app.py
+[33me47efa1[m Update app.py
+[33m85c11dd[m Update app.py
+[33mf0ec526[m Update app.py
+[33ma3ac03c[m Update app.py
+[33mc9f1ba9[m Update app.py
+[33m3dbf4d6[m Update app.py
