@@ -1,12 +1,2 @@
 streamlit==1.32.2
-boto3==1.34.28
-pandas==2.1.4
 requests==2.31.0
-pytz==2023.3.post1
-firebase-admin==6.2.0
-matplotlib==3.8.2
-streamlit-ace==0.1.1
-firebase-functions
-Flask==2.3.3
-Flask-Cors==4.0.0
-waitress==3.0.0
