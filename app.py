@@ -2,6 +2,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 import boto3
 import pandas as pd
+import json
 import datetime
 import time
 import requests
@@ -38,6 +39,9 @@ if not logger.handlers:
 logger.setLevel(logging.INFO)
 
 os.environ.setdefault("STREAMLIT_SERVER_FILE_WATCHER_TYPE", "none")
+
+LOCAL_PROGRESS_FILE = Path(__file__).parent / "progress.json"
+LOCAL_CONFIG_FILE = Path(__file__).parent / "config.json"
 
 UNSUBSCRIBED_CACHE = {"records": [], "emails": set(), "loaded": False}
 UNSUBSCRIBED_CACHE_LOCK = threading.Lock()
@@ -279,6 +283,7 @@ def init_session_state():
         ),
         'journal_reply_addresses': {},
         'default_reply_to': "",
+        'mv_api_key': config.get('millionverifier', {}).get('api_key', ""),
     }
 
     session_state = _get_session_state()
@@ -770,8 +775,79 @@ def _get_env_bool(primary_key, *fallback_keys, default=True):
     return default
 
 
+def _read_local_json(path, default):
+    try:
+        if not path.exists():
+            return copy.deepcopy(default)
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+    return copy.deepcopy(default)
+
+
+def _write_local_json(path, data):
+    try:
+        with path.open("w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception as e:
+        try:
+            st.error(f"Failed to write local file {path.name}: {str(e)}")
+        except RuntimeError:
+            logger.error("Failed to write local file %s: %s", path, e)
+        return False
+
+
+def _load_local_app_config():
+    return _read_local_json(LOCAL_CONFIG_FILE, {})
+
+
+def _save_local_app_config(config_data):
+    return _write_local_json(LOCAL_CONFIG_FILE, config_data)
+
+
+def _load_progress_store():
+    data = _read_local_json(LOCAL_PROGRESS_FILE, {})
+    if "verification_progress" not in data or not isinstance(data.get("verification_progress"), dict):
+        data["verification_progress"] = {}
+    return data
+
+
+def _save_progress_store(data):
+    return _write_local_json(LOCAL_PROGRESS_FILE, data)
+
+
+def get_latest_verification_progress():
+    store = _load_progress_store()
+    entries = store.get("verification_progress", {})
+    if not entries:
+        return None, None
+
+    latest_log_id = store.get("latest_log_id")
+    if latest_log_id and latest_log_id in entries:
+        return latest_log_id, entries.get(latest_log_id)
+
+    latest_id = None
+    latest_payload = None
+    latest_ts = ""
+    for log_id, payload in entries.items():
+        if not isinstance(payload, dict):
+            continue
+        ts = str(payload.get("last_updated", ""))
+        if ts >= latest_ts:
+            latest_ts = ts
+            latest_id = log_id
+            latest_payload = payload
+
+    return latest_id, latest_payload
+
+
 @st.cache_data
 def load_config():
+    local_cfg = _load_local_app_config()
     config = {
         'aws': {
             'access_key': os.getenv("AWS_ACCESS_KEY_ID", ""),
@@ -779,7 +855,7 @@ def load_config():
             'region': os.getenv("AWS_REGION", "us-east-1")
         },
         'millionverifier': {
-            'api_key': os.getenv("MILLIONVERIFIER_API_KEY", "")
+            'api_key': (local_cfg.get("mv_api_key") or os.getenv("MILLIONVERIFIER_API_KEY", "")).strip()
         },
         'firebase': {
             'type': os.getenv("FIREBASE_TYPE", ""),
@@ -1289,6 +1365,13 @@ def check_millionverifier_quota(api_key):
     except Exception as e:
         st.error(f"Failed to check quota: {str(e)}")
         return 0
+
+
+def get_millionverifier_api_key():
+    key = st.session_state.get("mv_api_key", "")
+    if key:
+        return key.strip()
+    return str(config.get("millionverifier", {}).get("api_key", "")).strip()
 
 def process_email_list(file_content, api_key, log_id=None, resume_data=None):
     session_state = _get_session_state()
@@ -1906,21 +1989,20 @@ def save_verification_progress(
 ):
     """Save intermediate verification progress for resuming later."""
     try:
-        db = get_firestore_db()
-        if not db:
-            return False
-
         safe_username = username or "admin"
-        doc_ref = db.collection("verification_progress").document(log_id)
-        doc_ref.set({
+        safe_log_id = str(log_id or "default")
+        store = _load_progress_store()
+        store["verification_progress"][safe_log_id] = {
             "user": safe_username,
             "file_content": file_content,
             "results": results,
             "current_index": current_index,
             "total_emails": total_emails,
-            "last_updated": datetime.now(),
-        })
-        return True
+            "last_updated": datetime.utcnow().isoformat(),
+            "file_name": st.session_state.get("current_verification_file", ""),
+        }
+        store["latest_log_id"] = safe_log_id
+        return _save_progress_store(store)
     except Exception as e:
         try:
             st.error(f"Failed to save verification progress: {str(e)}")
@@ -1932,13 +2014,17 @@ def save_verification_progress(
 def load_verification_progress(log_id):
     """Load saved verification progress if available."""
     try:
-        db = get_firestore_db()
-        if not db:
-            return None
+        store = _load_progress_store()
+        entries = store.get("verification_progress", {})
+        safe_log_id = str(log_id or "")
 
-        doc = db.collection("verification_progress").document(log_id).get()
-        if doc.exists:
-            return doc.to_dict()
+        if safe_log_id and safe_log_id in entries:
+            return entries.get(safe_log_id)
+
+        latest_log_id = store.get("latest_log_id")
+        if latest_log_id and latest_log_id in entries:
+            return entries.get(latest_log_id)
+
         return None
     except Exception as e:
         st.error(f"Failed to load verification progress: {str(e)}")
@@ -1948,11 +2034,25 @@ def load_verification_progress(log_id):
 def delete_verification_progress(log_id):
     """Remove saved verification progress when done."""
     try:
-        db = get_firestore_db()
-        if not db:
-            return False
+        store = _load_progress_store()
+        entries = store.get("verification_progress", {})
+        safe_log_id = str(log_id or "")
+        removed = False
 
-        db.collection("verification_progress").document(log_id).delete()
+        if safe_log_id and safe_log_id in entries:
+            entries.pop(safe_log_id, None)
+            removed = True
+        elif store.get("latest_log_id") in entries:
+            entries.pop(store.get("latest_log_id"), None)
+            removed = True
+
+        if store.get("latest_log_id") == safe_log_id:
+            store["latest_log_id"] = ""
+        if not entries:
+            store["latest_log_id"] = ""
+
+        if removed:
+            return _save_progress_store(store)
         return True
     except Exception as e:
         st.error(f"Failed to delete verification progress: {str(e)}")
@@ -4273,14 +4373,27 @@ def email_verification_section():
     st.header("Email Verification")
     display_pending_operations("verification")
 
+    if not st.session_state.get("verification_resume_data"):
+        auto_log_id, auto_pdata = get_latest_verification_progress()
+        if auto_pdata:
+            st.session_state.verification_resume_data = auto_pdata
+            st.session_state.verification_resume_log_id = auto_log_id
+            if auto_pdata.get("file_name"):
+                st.session_state.current_verification_file = auto_pdata.get("file_name")
+            st.info("Saved local verification progress detected. Resuming automatically.")
+
     # If a resume action was triggered, continue the verification
     if st.session_state.get("verification_resume_data"):
         pdata = st.session_state.verification_resume_data
         log_id = st.session_state.verification_resume_log_id
+        mv_api_key = get_millionverifier_api_key()
+        if not mv_api_key:
+            st.error("Please configure MillionVerifier API Key first")
+            return
         with st.spinner("Resuming verification..."):
             result_df = process_email_list(
                 pdata.get("file_content", ""),
-                config['millionverifier']['api_key'],
+                mv_api_key,
                 log_id,
                 resume_data=pdata,
             )
@@ -4291,10 +4404,11 @@ def email_verification_section():
         st.session_state.verification_resume_log_id = None
     
     # Check verification quota using correct endpoint
-    if config['millionverifier']['api_key']:
+    mv_api_key = get_millionverifier_api_key()
+    if mv_api_key:
         with st.spinner("Checking verification quota..."):
             remaining_quota = check_millionverifier_quota(
-                config['millionverifier']['api_key']
+                mv_api_key
             )
         st.metric("Remaining Verification Credits", remaining_quota)
     else:
@@ -4312,14 +4426,15 @@ def email_verification_section():
             st.text_area("File Content Preview", file_content, height=150)
             
             if st.button("Verify Emails"):
-                if not config['millionverifier']['api_key']:
+                mv_api_key = get_millionverifier_api_key()
+                if not mv_api_key:
                     st.error("Please configure MillionVerifier API Key first")
                     return
                 
                 with st.spinner("Verifying emails..."):
                     log_id = start_operation_log(
                         "verification", {"file_name": uploaded_file.name})
-                    result_df = process_email_list(file_content, config['millionverifier']['api_key'], log_id)
+                    result_df = process_email_list(file_content, mv_api_key, log_id)
                     if not result_df.empty:
                         st.session_state.verified_emails = result_df
                         prepare_verification_downloads(result_df)
@@ -4351,7 +4466,8 @@ def email_verification_section():
                     st.session_state.current_verification_list = file_content
 
             if 'current_verification_list' in st.session_state and st.button("Start Verification"):
-                if not config['millionverifier']['api_key']:
+                mv_api_key = get_millionverifier_api_key()
+                if not mv_api_key:
                     st.error("Please configure MillionVerifier API Key first")
                     return
 
@@ -4360,7 +4476,7 @@ def email_verification_section():
                         "verification", {"file_name": selected_file})
                     result_df = process_email_list(
                         st.session_state.current_verification_list,
-                        config['millionverifier']['api_key'],
+                        mv_api_key,
                         log_id,
                     )
                     if not result_df.empty:
@@ -4682,6 +4798,29 @@ def settings_section():
         st.markdown("<span></span></div>", unsafe_allow_html=True)
 
     with services_tab:
+        st.markdown("<div class='modern-card'>", unsafe_allow_html=True)
+        st.subheader("MillionVerifier")
+        with st.form("millionverifier_api_form"):
+            mv_api_key_input = st.text_input(
+                "MillionVerifier API Key",
+                value=st.session_state.get("mv_api_key", config.get("millionverifier", {}).get("api_key", "")),
+                type="password",
+                key="settings_mv_api_key",
+            )
+            submitted_mv_key = st.form_submit_button("Save MillionVerifier API Key")
+
+        if submitted_mv_key:
+            saved_key = (mv_api_key_input or "").strip()
+            st.session_state["mv_api_key"] = saved_key
+            config.setdefault("millionverifier", {})["api_key"] = saved_key
+            local_cfg = _load_local_app_config()
+            local_cfg["mv_api_key"] = saved_key
+            if _save_local_app_config(local_cfg):
+                st.success("MillionVerifier API key saved.")
+            else:
+                st.error("Failed to save MillionVerifier API key.")
+        st.markdown("<span></span></div>", unsafe_allow_html=True)
+
         st.subheader("Email Service Preferences")
         service_options = ["SMTP2GO", "MAILGUN", "KVN SMTP"]
         current_service = (st.session_state.email_service or "MAILGUN").upper()
